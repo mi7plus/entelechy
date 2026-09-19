@@ -19,6 +19,7 @@ use entelechy_eval::{
     CallerIdentity, ConstraintClass, EvalContract, GateResponse, HoldoutVault, NegativeGoal, Plane,
     ReleaseRule, RiskClass, Split, SplitPolicy, Suite, Task, Difficulty, Provenance,
 };
+use entelechy_failure::{FailureObservation, Symptom};
 use entelechy_ir::{AuthorityEnvelope, Node, NodeKind, Program};
 use entelechy_search::{rolling_validation_decision, Candidate, Decision, Study};
 
@@ -87,18 +88,49 @@ pub fn run() -> anyhow::Result<()> {
         pct(&base_val)
     );
 
-    // Hypothesis H-1 (PRD Appendix C shape): add a verification step to fix the
-    // "needs grounded reply" failure class.
+    // 4a. Diagnose: cluster the baseline's tune failures (PRD 10.2, Appendix B).
+    let observations = observe_failures(&baseline, &tune);
+    let clusters = entelechy_failure::analyze(&observations);
+    let top = clusters
+        .iter()
+        .find(|c| !c.is_evaluation_failure)
+        .and_then(|c| c.top().map(|t| (c, t)));
+    let (evidence, failure_class, confidence, patch) = match top {
+        Some((cluster, cls)) => {
+            println!(
+                "   Diagnosis: cluster '{}' — {} ({} tasks, confidence {:.0}%, eligible levels {:?}).",
+                cluster.id,
+                cls.class_id,
+                cluster.members.len(),
+                cls.probability * 100.0,
+                cls.eligible_levels
+            );
+            (
+                format!("cluster '{}': {} tasks", cluster.id, cluster.members.len()),
+                cls.class_id.clone(),
+                cls.probability,
+                patch_for_class(&cls.class_id),
+            )
+        }
+        None => {
+            println!("   Diagnosis: no actionable failure cluster.");
+            (
+                "no failures".into(),
+                "none".into(),
+                1.0,
+                vec![],
+            )
+        }
+    };
+
+    // Form a DesignHypothesis from the diagnosis (PRD 11.2, principle 5).
     let mut h1 = DesignHypothesis {
         id: "H-1".into(),
-        evidence: "failure cluster: tickets needing a grounded reply are unresolved".into(),
-        failure_class: "reasoning.verification".into(),
+        evidence,
+        failure_class,
         suspected_cause: "no post-synthesis verification of the reply".into(),
-        cause_confidence: 0.75,
-        patch: vec![EditOp::AddVerify {
-            id: "reply_check".into(),
-            checker: "reply_supported".into(),
-        }],
+        cause_confidence: confidence,
+        patch,
         expected_effect: "raise task success on reply tasks".into(),
         expected_tradeoff: "small latency/cost increase".into(),
         experiment: "paired eval vs baseline on tune, confirm on validation".into(),
@@ -175,6 +207,46 @@ pub fn run() -> anyhow::Result<()> {
 /// Score a design on every task in a split.
 fn score_all(program: &Program, tasks: &[&Task]) -> Vec<bool> {
     tasks.iter().map(|t| score_one(program, t)).collect()
+}
+
+/// Turn a design's tune failures into failure observations for the analyzer
+/// (PRD 10.2). A ticket that needs a grounded reply but is unresolved presents as
+/// an unsupported-claim symptom (→ reasoning.verification).
+fn observe_failures(program: &Program, tasks: &[&Task]) -> Vec<FailureObservation> {
+    tasks
+        .iter()
+        .filter(|t| !score_one(program, t))
+        .map(|t| FailureObservation {
+            task_id: t.id.clone(),
+            signature: "reply:unverified".into(),
+            symptom: if t.has_tag("needs_reply") {
+                Symptom::UnsupportedClaim
+            } else {
+                Symptom::Unknown
+            },
+            is_evaluation_failure: false,
+        })
+        .collect()
+}
+
+/// Choose the smallest typed patch for a diagnosed failure class (PRD 11.3/11.5).
+/// The class's eligible complexity level (PRD 11.4) picks the operator family; in
+/// this Phase 0 slice the verification level maps to adding a Verify step.
+fn patch_for_class(class_id: &str) -> Vec<EditOp> {
+    match class_id {
+        "reasoning.verification" | "reasoning.synthesis" | "knowledge.grounding_failure" => {
+            vec![EditOp::AddVerify {
+                id: "reply_check".into(),
+                checker: "reply_supported".into(),
+            }]
+        }
+        // Other classes would map to their own operators (change model, add
+        // retrieval, etc.) as those unlock; default to a verification step.
+        _ => vec![EditOp::AddVerify {
+            id: "reply_check".into(),
+            checker: "reply_supported".into(),
+        }],
+    }
 }
 
 /// Simulated helpdesk outcome for a design on one task (declared simulator; see
