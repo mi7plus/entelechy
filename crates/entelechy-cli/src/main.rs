@@ -48,8 +48,16 @@ enum Command {
         #[arg(long)]
         journal: String,
     },
-    /// Diff two Design IRs (Phase 3).
-    Diff,
+    /// Diff two Design IRs (PRD 16.2). With no paths, diffs the demo baseline
+    /// against its repaired candidate.
+    Diff {
+        /// Old design IR JSON.
+        #[arg(long)]
+        old: Option<String>,
+        /// New design IR JSON.
+        #[arg(long)]
+        new: Option<String>,
+    },
     /// Run the assurance compiler (Phase 4).
     Assure,
     /// Manage releases (Phase 4).
@@ -79,7 +87,7 @@ fn main() -> anyhow::Result<()> {
         Command::Eval => cmd_eval(),
         Command::Study => study::run(),
         Command::Trace => cmd_trace(),
-        Command::Diff => planned("diff", "Phase 3 (IR diff/merge, PRD 16.2)"),
+        Command::Diff { old, new } => cmd_diff(old, new),
         Command::Assure => release::cmd_assure(),
         Command::Release => release::cmd_release(),
         Command::Serve => planned("serve", "Phase 4 (entelechy-server, PRD 16.2)"),
@@ -96,6 +104,50 @@ fn cmd_init() -> anyhow::Result<()> {
     println!("Entelechy local workspace.");
     println!("Deployment profile: local (single security domain, no HA claim) — PRD 17.1.");
     println!("Next: `entelechy demo` runs the bundled execute/journal/replay slice.");
+    Ok(())
+}
+
+fn cmd_diff(old: Option<String>, new: Option<String>) -> anyhow::Result<()> {
+    use entelechy_design::{apply, diff_programs, has_pinned_conflict, ChangeKind, EditOp};
+
+    let (old_prog, new_prog) = match (old, new) {
+        (Some(o), Some(n)) => {
+            let op: entelechy_ir::Program = serde_json::from_str(&std::fs::read_to_string(o)?)?;
+            let np: entelechy_ir::Program = serde_json::from_str(&std::fs::read_to_string(n)?)?;
+            (op, np)
+        }
+        _ => {
+            // Demonstrate with the baseline vs. its repaired candidate (adds a
+            // reply_check verification step, PRD Appendix C).
+            let base = demo::demo_program();
+            let candidate = apply(
+                &base,
+                &EditOp::AddVerify { id: "reply_check".into(), checker: "reply_supported".into() },
+            )?;
+            println!("(no paths given; diffing the demo baseline against its repaired candidate)\n");
+            (base, candidate)
+        }
+    };
+
+    let diffs = diff_programs(&old_prog, &new_prog);
+    for d in &diffs {
+        if d.change == ChangeKind::Unchanged {
+            continue;
+        }
+        let mark = match d.change {
+            ChangeKind::Added => "+",
+            ChangeKind::Removed => "-",
+            ChangeKind::Changed => "~",
+            ChangeKind::Unchanged => " ",
+        };
+        let pin = if d.pinned { " [pinned]" } else { "" };
+        println!("  {mark} {}{pin}: {}", d.id, d.detail);
+    }
+    let changes = diffs.iter().filter(|d| d.change != ChangeKind::Unchanged).count();
+    println!("\n{changes} changed node(s).");
+    if has_pinned_conflict(&diffs) {
+        println!("WARNING: a pinned node changed — a merge must not overwrite it (IR-I7).");
+    }
     Ok(())
 }
 

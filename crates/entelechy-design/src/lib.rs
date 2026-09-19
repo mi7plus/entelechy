@@ -12,10 +12,12 @@
 //! loop and the runtime + `entelechy-eval` produce the evidence.
 #![forbid(unsafe_code)]
 
+pub mod diff;
 pub mod edit;
 pub mod hypothesis;
 pub mod synth;
 
+pub use diff::{diff_programs, has_pinned_conflict, ChangeKind, NodeDiff};
 pub use edit::{apply, EditOp, PatchError};
 pub use hypothesis::{DesignHypothesis, HypothesisResult, DIAGNOSTIC_CONFIDENCE};
 pub use synth::synthesize_single_agent;
