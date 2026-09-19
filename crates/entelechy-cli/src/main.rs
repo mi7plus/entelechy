@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         Command::Design { validate } => cmd_design(validate),
         Command::Demo { out } => cmd_demo(&out),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
-        Command::Objective => planned("objective", "Phase 2 (Objective Compiler, PRD 5.5)"),
+        Command::Objective => cmd_objective(),
         Command::Capability => planned("capability", "Phase 1/2 (capability discovery, PRD 13.1)"),
         Command::Eval => cmd_eval(),
         Command::Study => study::run(),
@@ -96,6 +96,82 @@ fn cmd_init() -> anyhow::Result<()> {
     println!("Entelechy local workspace.");
     println!("Deployment profile: local (single security domain, no HA claim) — PRD 17.1.");
     println!("Next: `entelechy demo` runs the bundled execute/journal/replay slice.");
+    Ok(())
+}
+
+fn cmd_objective() -> anyhow::Result<()> {
+    use entelechy_eval::{ConstraintClass, NegativeGoal, RiskClass};
+    use entelechy_objective::{
+        compile_eval_contract, run_interview, Assumption, BudgetEnvelope, ClarificationQuestion,
+        GoalSpec, Provenanced, SelectionPolicy,
+    };
+
+    // A bounded clarification interview (OC-3): rank by expected impact, stop at
+    // the question budget, defer the rest as assumptions.
+    let questions = vec![
+        ClarificationQuestion { text: "Which ticket categories are in scope?".into(), expected_impact: 0.9 },
+        ClarificationQuestion { text: "Is a formal tone required?".into(), expected_impact: 0.3 },
+        ClarificationQuestion { text: "What is the escalation path for billing?".into(), expected_impact: 0.7 },
+    ];
+    let interview = run_interview(questions, 2);
+    println!("Clarification interview (OC-3): asking {} of {} questions.",
+        interview.to_ask.len(), interview.to_ask.len() + interview.deferred_assumptions.len());
+    for q in &interview.to_ask {
+        println!("  ask: {} (impact {:.1})", q.text, q.expected_impact);
+    }
+
+    // Assumptions: the deferred questions become assumptions, each linked to a
+    // falsifying evaluation task (OC-4) so sign-off can proceed.
+    let mut assumptions: Vec<Assumption> = interview
+        .deferred_assumptions
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut a)| {
+            a.falsifying_task = Some(format!("assumption-task-{i}"));
+            a
+        })
+        .collect();
+    assumptions.push(Assumption {
+        text: "tickets are in English".into(),
+        falsifying_task: Some("lang-detect-task".into()),
+    });
+
+    let mut authority = entelechy_ir::AuthorityEnvelope::empty();
+    authority.capabilities.insert("draft_reply".into());
+    authority.forbidden_capabilities.insert("refund".into());
+
+    let goalspec = GoalSpec {
+        success_criteria: vec![Provenanced::stated("resolve tier-1 support tickets".into())],
+        negative_goals: vec![
+            NegativeGoal { name: "no_refund".into(), class: ConstraintClass::Structural, risk: RiskClass::Critical, epsilon: None, delta: 0.05 },
+            NegativeGoal { name: "no_cross_customer_disclosure".into(), class: ConstraintClass::Behavioral, risk: RiskClass::High, epsilon: None, delta: 0.05 },
+        ],
+        authority,
+        budget: Provenanced::defaulted(BudgetEnvelope { money_minor: 60_000, tokens: 1_000_000, wall_secs: 3_600, steps: 100 }),
+        selection_policy: SelectionPolicy::ConstrainedOptimization {
+            objective: "minimize:cost".into(),
+            constraints: vec![],
+        },
+        assumptions,
+        data_classification: Provenanced::stated("internal".into()),
+        on_behalf_of_user: true,
+        value_estimate_minor: Provenanced::inferred(500_000),
+    };
+
+    println!("\nGoalSpec: {} criteria, {} negative goals, ledger valid: {}.",
+        goalspec.success_criteria.len(), goalspec.negative_goal_count(), goalspec.assumption_ledger_valid());
+
+    // Compile the EvalContract from the GoalSpec (EV-2) and check power (EV-15).
+    let contract = compile_eval_contract(&goalspec);
+    let warnings = contract.power_warnings();
+    println!("EvalContract compiled (EV-2): {} criteria, {} negative goals; {} power warning(s).",
+        contract.criteria.len(), contract.negative_goals.len(), warnings.len());
+
+    // Sign off, producing an immutable content-addressed GoalSpec (OC-8).
+    match goalspec.sign_off() {
+        Ok(signed) => println!("Signed GoalSpec (OC-8) — commitment {}.", signed.id),
+        Err(e) => println!("Sign-off refused: {e}"),
+    }
     Ok(())
 }
 

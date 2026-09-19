@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use entelechy_eval::NegativeGoal;
+use entelechy_eval::{EvalContract, NegativeGoal, ReleaseRule, SplitPolicy};
 use entelechy_ir::AuthorityEnvelope;
 
 /// A hard constraint in a constrained-optimization selection policy (PRD 5.7),
@@ -239,6 +239,29 @@ impl SignedGoalSpec {
     }
 }
 
+/// Compile an [`EvalContract`] skeleton from a signed GoalSpec (PRD 9, EV-2 — the
+/// evaluation contract is compiled from the GoalSpec). This carries the success
+/// criteria and classified negative goals across, applies the default split
+/// policy (Q1) and a default release rule; the human then reviews and approves it
+/// before optimization (EV-2).
+pub fn compile_eval_contract(goalspec: &GoalSpec) -> EvalContract {
+    EvalContract {
+        version: 1,
+        criteria: goalspec
+            .success_criteria
+            .iter()
+            .map(|c| c.value.clone())
+            .collect(),
+        negative_goals: goalspec.negative_goals.clone(),
+        splits: SplitPolicy::default(),
+        release: ReleaseRule {
+            primary_metric: "task_success".into(),
+            target_improvement_pp: 10.0,
+            holdout_query_budget: 5,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,6 +318,15 @@ mod tests {
         // Link a falsifying task and it signs off.
         gs.assumptions[0].falsifying_task = Some("task-lang-1".into());
         assert!(gs.sign_off().is_ok());
+    }
+
+    #[test]
+    fn eval_contract_carries_criteria_and_negative_goals() {
+        let gs = base_goalspec();
+        let contract = compile_eval_contract(&gs);
+        assert_eq!(contract.criteria, vec!["resolve tier-1 tickets".to_string()]);
+        assert_eq!(contract.negative_goals.len(), 1);
+        assert_eq!(contract.negative_goals[0].name, "no_refund");
     }
 
     #[test]
