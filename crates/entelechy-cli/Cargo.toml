@@ -28,6 +28,7 @@ entelechy-assurance = { workspace = true }
 entelechy-release = { workspace = true }
 entelechy-identity = { workspace = true }
 entelechy-objective = { workspace = true }
+entelechy-capability = { workspace = true }
 entelechy-contracts = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

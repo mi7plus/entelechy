@@ -75,10 +75,10 @@ fn main() -> anyhow::Result<()> {
         Command::Demo { out } => cmd_demo(&out),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
         Command::Objective => cmd_objective(),
-        Command::Capability => planned("capability", "Phase 1/2 (capability discovery, PRD 13.1)"),
+        Command::Capability => cmd_capability(),
         Command::Eval => cmd_eval(),
         Command::Study => study::run(),
-        Command::Trace => planned("trace", "Phase 1 (trace explorer, PRD 16.2)"),
+        Command::Trace => cmd_trace(),
         Command::Diff => planned("diff", "Phase 3 (IR diff/merge, PRD 16.2)"),
         Command::Assure => release::cmd_assure(),
         Command::Release => release::cmd_release(),
@@ -96,6 +96,107 @@ fn cmd_init() -> anyhow::Result<()> {
     println!("Entelechy local workspace.");
     println!("Deployment profile: local (single security domain, no HA claim) — PRD 17.1.");
     println!("Next: `entelechy demo` runs the bundled execute/journal/replay slice.");
+    Ok(())
+}
+
+fn cmd_capability() -> anyhow::Result<()> {
+    use entelechy_capability::{Capability, CapabilityGraph, RequiredCapability, SourceKind};
+    use entelechy_ir::{AttestationLevel, EffectClass, EffectMetadata};
+
+    let now = 1_000_000u64;
+    let mut graph = CapabilityGraph::new();
+    // An operator-attested native write tool.
+    graph.add(Capability {
+        name: "draft_reply".into(),
+        source: SourceKind::Native,
+        schema: serde_json::json!({"channel": "string"}),
+        declared_effect: EffectMetadata {
+            class: EffectClass::Write,
+            idempotent: true,
+            reversible: true,
+            dry_run_supported: true,
+            read_back_supported: true,
+            attestation: AttestationLevel::OperatorAttested,
+            operation_key_namespace: "helpdesk.draft".into(),
+        },
+        authority_scope: vec!["tenant".into()],
+        latency_ms: Some(40),
+        cost_minor: Some(0),
+        reliability: Some(0.99),
+        attested_at: Some(now),
+        attested_version: Some("v1".into()),
+        version: "v1".into(),
+    });
+    // An unattested MCP write capability (CD-7 / Q13).
+    graph.add(Capability {
+        name: "create_ticket".into(),
+        source: SourceKind::Mcp,
+        schema: serde_json::json!({}),
+        declared_effect: EffectMetadata {
+            class: EffectClass::Write,
+            idempotent: false,
+            reversible: false,
+            dry_run_supported: false,
+            read_back_supported: false,
+            attestation: AttestationLevel::UntrustedHint,
+            operation_key_namespace: "mcp.create_ticket".into(),
+        },
+        authority_scope: vec![],
+        latency_ms: None,
+        cost_minor: None,
+        reliability: None,
+        attested_at: None,
+        attested_version: None,
+        version: "0.3".into(),
+    });
+
+    println!("CapabilityGraph ({} capabilities):", graph.iter().count());
+    for cap in graph.iter() {
+        let eff = cap.effective_effect(now);
+        println!(
+            "  {} [{:?}] declared {:?} -> effective {:?}; attested: {}; write-authority: {}",
+            cap.name,
+            cap.source,
+            cap.declared_effect.class,
+            eff.class,
+            cap.is_attested_at(now),
+            cap.may_have_write_authority(now),
+        );
+    }
+
+    // Compare to the objective's required capabilities (CD-4).
+    let required = vec![
+        RequiredCapability { name: "draft_reply".into(), needs_write: true },
+        RequiredCapability { name: "create_ticket".into(), needs_write: true },
+        RequiredCapability { name: "issue_refund".into(), needs_write: true },
+    ];
+    let gaps = graph.gaps(&required, now);
+    println!("\nCapability gaps (CD-4): {}", gaps.len());
+    for g in &gaps {
+        println!("  {} — {:?}", g.name, g.reason);
+    }
+    println!("\nUnattested MCP capabilities get no write authority and default to external+irreversible (CD-7/Q13).");
+    Ok(())
+}
+
+fn cmd_trace() -> anyhow::Result<()> {
+    // Execute the demo and render its journal as a trace (OP-1 / PRD 16.2).
+    let (result, _decisions) = demo::run_demo("trace-run-1");
+    println!("Trace for run '{}' — {}", result.journal.run_id, demo::status_line(&result));
+    for entry in &result.journal.entries {
+        let kind = match &entry.event {
+            entelechy_runtime::JournalEvent::ModelCall { request, .. } => {
+                format!("model-call model={}", request.model)
+            }
+            entelechy_runtime::JournalEvent::ToolEffect { capability, commit, .. } => {
+                format!("tool-effect capability={capability} commit={commit:?}")
+            }
+            entelechy_runtime::JournalEvent::PolicyDecision { policy, allowed } => {
+                format!("policy-decision policy={policy} allowed={allowed}")
+            }
+        };
+        println!("  [{}] {} :: {}", entry.seq, entry.node_path, kind);
+    }
     Ok(())
 }
 
