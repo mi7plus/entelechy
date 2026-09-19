@@ -18,7 +18,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-contracts` | Normative requirement registry & traceability (§17.5, §17.6) | **Implemented** |
 | `entelechy-cli` | Local CLI workflow (§16.1) | **Implemented (core commands)** |
 | `entelechy-eval` | Tasks, checkers, statistics, split discipline, holdout gate (§9) | **Implemented** |
-| `entelechy-policy` | Authority checks, Gate evaluation, policy adapter (§8.3, §5.4, Q6) | Scaffold |
+| `entelechy-policy` | Authority checks, Gate evaluation, policy adapter (§8.3, §5.4, Q6) | **Implemented** |
 | `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | Scaffold |
 | `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | Scaffold |
 | `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | **Implemented** |
@@ -28,7 +28,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-release` | Release bundles, maturity state, promotion records (§14) | Scaffold |
 | `entelechy-ops` | Online eval, drift, incidents, re-study triggers (§15) | Scaffold |
 | `entelechy-server` | API/server mode (§16.2) | Scaffold |
-| `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | Scaffold |
+| `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | **Implemented** |
 | `entelechy-effects` | Effect taxonomy, operation keys, transactional state machine, reconciliation (§7.6, §8.5) | **Implemented** |
 | `entelechy-bench` | Benchmark provenance, split lineage, contamination, manifests (§9.5, §21.1) | **Implemented** |
 | `entelechy-protocol` | Versioned API/plugin manifests, negotiation, compatibility fixtures (§16.6) | Scaffold |
@@ -98,6 +98,18 @@ entelechy requirements  # the §17.6 cross-cutting registry
   Q3 rule that a low-confidence (diagnostic) hypothesis can never confidently
   reject, only end inconclusive.
 
+- **Policy engine (§8.3, Q6, Q19):** a native policy core that authorizes effects
+  at the boundary — forbidden/ungranted capability denial (IR-I2), network-scope
+  egress checks, provider approval by data classification (Q19/7.5), IR-I3
+  tainted→privileged denial without a Gate, and approval/two-person obligations
+  for consequential and irreversible effects (5.4) — behind a `PolicyEngine`
+  adapter trait, with recorded decisions and a versioned `PolicySnapshot`.
+- **Identity & approvals (§5.8, §17.2, §14.5):** principals with the meta-layer
+  "no runtime authority" rule (11.9); an authentication context whose credential
+  expiry and uncertain-clock both fail closed (AU-1/AU-3); hash-bound approval
+  signatures that revalidate at promotion and go `Stale` on any material change
+  (14.5/Q17), `Expired`, `Revoked` or `BadSignature`; a key ring with rotation
+  and revocation where revoked keys can't sign (AU-2); and separation of duties.
 - **Failure intelligence (§10):** the versioned failure ontology (10.1); an
   analyzer that clusters failed observations by structural signature, assigns a
   calibrated class distribution with entropy and an unresolved-cause bucket,
