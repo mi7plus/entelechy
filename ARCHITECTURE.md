@@ -20,7 +20,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-eval` | Tasks, checkers, statistics, split discipline, holdout gate (§9) | **Implemented** |
 | `entelechy-policy` | Authority checks, Gate evaluation, policy adapter (§8.3, §5.4, Q6) | **Implemented** |
 | `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | Scaffold |
-| `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | Scaffold |
+| `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | **Implemented** |
 | `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | **Implemented** |
 | `entelechy-design` | Initial synthesis, DesignHypothesis, patches, repair engine (§11) | **Implemented** |
 | `entelechy-search` | Explorer strategies, archives, budgets, stopping rules (§11.7, §11.8) | **Implemented (study driver)** |
@@ -31,7 +31,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | **Implemented** |
 | `entelechy-effects` | Effect taxonomy, operation keys, transactional state machine, reconciliation (§7.6, §8.5) | **Implemented** |
 | `entelechy-bench` | Benchmark provenance, split lineage, contamination, manifests (§9.5, §21.1) | **Implemented** |
-| `entelechy-protocol` | Versioned API/plugin manifests, negotiation, compatibility fixtures (§16.6) | Scaffold |
+| `entelechy-protocol` | Versioned API/plugin manifests, negotiation, compatibility fixtures (§16.6) | **Implemented** |
 
 ## Implemented today (Phase 0 / early Phase 1 core)
 
@@ -134,6 +134,17 @@ entelechy requirements  # the §17.6 cross-cutting registry
   separate from promote authority and whose auto-rollback triggers are declared
   (14.6). The lifecycle state machine encodes Appendix A including reverse
   transitions.
+
+- **Capability discovery (§13.1, CD-7, Q13):** a `CapabilityGraph` where declared
+  effects are untrusted hints — unattested capabilities take the conservative
+  external+irreversible default and are denied write authority; operator
+  attestations expire after 90 days or on any version change; plus gap analysis
+  (CD-4) and drift events (CD-6).
+- **Protocol compatibility (§16.6, PC-1/2/3, Q29):** highest-common version
+  negotiation that fails closed on no overlap (PC-1), a secure-negotiation path
+  that refuses to silently drop a required security guarantee unless the operator
+  opts in and records it (PC-2), plugin-manifest load checks that fail closed
+  (PC-3), and the Q29 two-minor-plus-six-month deprecation window.
 
 Try it:
 - `entelechy eval` — the helpdesk contract, the power check and the holdout gate + firewall.
