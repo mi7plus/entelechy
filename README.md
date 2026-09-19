@@ -31,6 +31,10 @@ cargo run -p entelechy-cli -- study
 # Compile the EvalContract, check power, exercise the holdout gate + firewall
 cargo run -p entelechy-cli -- eval
 
+# Run the assurance compiler (SafetyCase) and drive a maturity promotion
+cargo run -p entelechy-cli -- assure
+cargo run -p entelechy-cli -- release
+
 # Statically check a Design IR against the compiler invariants (PRD 7.4)
 cargo run -p entelechy-cli -- design --validate ./entelechy-demo/design.json
 

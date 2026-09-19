@@ -24,6 +24,9 @@ entelechy-bench = { workspace = true }
 entelechy-search = { workspace = true }
 entelechy-effects = { workspace = true }
 entelechy-failure = { workspace = true }
+entelechy-assurance = { workspace = true }
+entelechy-release = { workspace = true }
+entelechy-identity = { workspace = true }
 entelechy-contracts = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

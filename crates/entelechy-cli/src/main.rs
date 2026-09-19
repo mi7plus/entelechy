@@ -6,6 +6,7 @@
 //! rather than failing silently.
 
 mod demo;
+mod release;
 mod study;
 
 use clap::{Parser, Subcommand};
@@ -79,8 +80,8 @@ fn main() -> anyhow::Result<()> {
         Command::Study => study::run(),
         Command::Trace => planned("trace", "Phase 1 (trace explorer, PRD 16.2)"),
         Command::Diff => planned("diff", "Phase 3 (IR diff/merge, PRD 16.2)"),
-        Command::Assure => planned("assure", "Phase 4 (assurance compiler, PRD 14.1)"),
-        Command::Release => planned("release", "Phase 4 (release bundles, PRD 14)"),
+        Command::Assure => release::cmd_assure(),
+        Command::Release => release::cmd_release(),
         Command::Serve => planned("serve", "Phase 4 (entelechy-server, PRD 16.2)"),
     }
 }
