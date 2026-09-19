@@ -76,11 +76,15 @@ entelechy requirements  # the §17.6 cross-cutting registry
 - **Gateways (§8.3):** `ModelGateway`/`ToolGateway` traits; a deterministic
   `MockModel` for replay & the quickstart (Q7); provider identity captured on
   every call (PV-1).
-- **Policy-enforced execution (§8.3):** when a runtime is given a `PolicyConfig`,
-  every consequential tool effect is authorized at its boundary before dispatch
-  (forbidden/ungranted → typed `PolicyDenied`; IR-I3 tainted-without-gate denied;
-  unmet approval/irreversibility obligations fail closed). Decisions are recorded
-  in a `DecisionLog` kept off the replay journal, so replay stays byte-identical.
+- **Policy-enforced execution (§8.3, §7.5):** when a runtime is given a
+  `PolicyConfig`, every consequential tool effect is authorized at its boundary
+  before dispatch (forbidden/ungranted → typed `PolicyDenied`; IR-I3
+  tainted-without-gate denied; unmet approval/irreversibility obligations fail
+  closed). Model calls are treated as egress (IR-I9): a value carrying a
+  confidentiality label may only enter a prompt if the selected provider is
+  approved for that label (Q19), else the call is denied before dispatch.
+  Decisions are recorded in a `DecisionLog` kept off the replay journal, so replay
+  stays byte-identical.
 - **Evaluation (§9):** task model with provenance/difficulty/split (EV-1),
   programmatic checkers (EV-4), a governed `EvalContract` with constraint classes
   (§5.6) and per-split power warnings (EV-15); statistics — paired bootstrap

@@ -16,7 +16,8 @@ use std::collections::HashMap;
 
 use entelechy_gateway::{ModelGateway, ModelRequest, ToolCall, ToolGateway};
 use entelechy_ir::{
-    AuthorityEnvelope, Condition, EffectMetadata, MemOp, Node, NodeKind, Program, Taint, Value,
+    AuthorityEnvelope, Condition, Confidentiality, EffectMetadata, MemOp, Node, NodeKind, Program,
+    Taint, Value,
 };
 use entelechy_policy::{Decision, DecisionLog, PolicyEngine, PolicyRequest, PolicySnapshot};
 
@@ -215,6 +216,45 @@ impl<'a> Engine<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Authorize a model call as an egress effect (PRD 7.5, IR-I9). A value with a
+    /// confidentiality label may enter a prompt only if the selected provider is
+    /// approved for that label; enforcement happens before dispatch (equivalent to
+    /// ModelGateway routing-time enforcement). A no-op when policy is not
+    /// configured or the value carries no confidentiality labels.
+    fn authorize_model(
+        &mut self,
+        model: &str,
+        confidentiality: &Confidentiality,
+    ) -> Result<(), FailureReason> {
+        if confidentiality.is_empty() {
+            return Ok(());
+        }
+        let Some(pc) = self.policy.as_ref() else {
+            return Ok(());
+        };
+        let mut denied: Option<String> = None;
+        for label in confidentiality {
+            if !pc.snapshot.provider_approval.is_approved(label, model) {
+                denied = Some(format!(
+                    "provider '{model}' not approved for confidentiality '{label}' (PRD 7.5/Q19)"
+                ));
+                break;
+            }
+        }
+        let version = pc.snapshot.version;
+        let decision = Decision {
+            allowed: denied.is_none(),
+            reason: denied.clone().unwrap_or_else(|| "egress authorized".into()),
+            obligations: vec![],
+            snapshot_version: version,
+        };
+        self.policy_decisions.record(format!("model:{model}"), decision);
+        match denied {
+            Some(reason) => Err(FailureReason::PolicyDenied(reason)),
+            None => Ok(()),
+        }
     }
 
     /// Register a checker for Verify nodes.
@@ -493,6 +533,16 @@ fn exec_node(
             };
             match mode {
                 Mode::Execute { journal, counters } => {
+                    // Model calls are egress (PRD 7.5): enforce confidentiality
+                    // provider routing before dispatch (IR-I9).
+                    if let Err(reason) =
+                        engine.authorize_model(&llm.model, &value.meta.confidentiality)
+                    {
+                        return Err(Halt::Terminal(RunStatus::Failed {
+                            node_path: path.to_string(),
+                            reason,
+                        }));
+                    }
                     counters.model_calls += 1;
                     if counters.model_calls > engine.budget.max_model_calls {
                         return Err(Halt::Terminal(RunStatus::BudgetExhausted {
@@ -802,6 +852,63 @@ mod tests {
         ), "{:?}", r.status);
         // The denial was recorded (PRD 8.3) and the tool never ran.
         assert!(e.policy_decisions().any_denied());
+    }
+
+    #[test]
+    fn model_egress_blocked_for_unapproved_provider() {
+        use entelechy_ir::LlmNode;
+        use entelechy_policy::{NativePolicy, PolicySnapshot, ProviderApproval};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+
+        // Approve mock-small only for "internal" data, not "pii" (PRD 7.5/Q19).
+        let mut approval = ProviderApproval::new();
+        approval.approve("internal", "mock-small");
+        let snapshot = PolicySnapshot { version: 1, provider_approval: approval };
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "agent",
+                NodeKind::Llm(LlmNode {
+                    model: "mock-small".into(),
+                    prompt_template: "{input}".into(),
+                    temperature: 0.0,
+                }),
+            ),
+        );
+
+        // A PII-labeled input must not reach the unapproved provider.
+        let mut input = Value::trusted(serde_json::json!({}));
+        input.meta.confidentiality.insert("pii".into());
+
+        let mut e = Engine::new(&model, &mut tools).with_policy(PolicyConfig {
+            engine: Box::new(NativePolicy::new()),
+            authority: AuthorityEnvelope::empty(),
+            snapshot: snapshot.clone(),
+            catalog: HashMap::new(),
+            principal: "runtime".into(),
+        });
+        let r = e.execute(&prog, input.clone(), "run-egress");
+        assert!(matches!(
+            r.status,
+            RunStatus::Failed { reason: FailureReason::PolicyDenied(_), .. }
+        ), "{:?}", r.status);
+
+        // Approve pii → mock-small and it goes through.
+        let mut approval2 = ProviderApproval::new();
+        approval2.approve("pii", "mock-small");
+        let snapshot2 = PolicySnapshot { version: 2, provider_approval: approval2 };
+        let mut e2 = Engine::new(&model, &mut tools).with_policy(PolicyConfig {
+            engine: Box::new(NativePolicy::new()),
+            authority: AuthorityEnvelope::empty(),
+            snapshot: snapshot2,
+            catalog: HashMap::new(),
+            principal: "runtime".into(),
+        });
+        let ok = e2.execute(&prog, input, "run-egress-2");
+        assert_eq!(ok.status, RunStatus::Succeeded, "{:?}", ok.status);
     }
 
     #[test]
