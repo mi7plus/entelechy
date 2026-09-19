@@ -17,8 +17,8 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-runtime` | Interpreter, append-only journal, deterministic replay, typed terminal states (§8) | **Implemented** |
 | `entelechy-contracts` | Normative requirement registry & traceability (§17.5, §17.6) | **Implemented** |
 | `entelechy-cli` | Local CLI workflow (§16.1) | **Implemented (core commands)** |
+| `entelechy-eval` | Tasks, checkers, statistics, split discipline, holdout gate (§9) | **Implemented** |
 | `entelechy-policy` | Authority checks, Gate evaluation, policy adapter (§8.3, §5.4, Q6) | Scaffold |
-| `entelechy-eval` | Tasks, checkers, environments, statistics, split discipline (§9) | Scaffold |
 | `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | Scaffold |
 | `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | Scaffold |
 | `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | Scaffold |
@@ -67,8 +67,19 @@ entelechy requirements  # the §17.6 cross-cutting registry
 - **Gateways (§8.3):** `ModelGateway`/`ToolGateway` traits; a deterministic
   `MockModel` for replay & the quickstart (Q7); provider identity captured on
   every call (PV-1).
+- **Evaluation (§9):** task model with provenance/difficulty/split (EV-1),
+  programmatic checkers (EV-4), a governed `EvalContract` with constraint classes
+  (§5.6) and per-split power warnings (EV-15); statistics — paired bootstrap
+  comparison (EV-9), the rule-of-three / Wilson negative-goal upper bound (§5.6),
+  risk-class epsilon defaults (Q11), and the §9.4 minimum-detectable-effect
+  table; the audited, budgeted `HoldoutVault` gate with the identity leakage
+  firewall (EV-14/EL-1/§9.6) — design/search identities are refused, responses
+  are coarse pass/fail with an interval, and every query is audited.
 - **Traceability (§17.5/§17.6):** the 27 cross-cutting requirement IDs as data,
   with verification owner and first-enforced phase.
+
+Try it: `entelechy eval` builds the helpdesk contract, runs the power check,
+and exercises the holdout gate and its firewall.
 
 ### Known limitations (tracked)
 

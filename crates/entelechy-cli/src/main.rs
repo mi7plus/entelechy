@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
         Command::Objective => planned("objective", "Phase 2 (Objective Compiler, PRD 5.5)"),
         Command::Capability => planned("capability", "Phase 1/2 (capability discovery, PRD 13.1)"),
-        Command::Eval => planned("eval", "Phase 2 (EvalContract, PRD 9)"),
+        Command::Eval => cmd_eval(),
         Command::Study => planned("study", "Phase 2 (search & studies, PRD 11.7/21.1)"),
         Command::Trace => planned("trace", "Phase 1 (trace explorer, PRD 16.2)"),
         Command::Diff => planned("diff", "Phase 3 (IR diff/merge, PRD 16.2)"),
@@ -94,6 +94,117 @@ fn cmd_init() -> anyhow::Result<()> {
     println!("Entelechy local workspace.");
     println!("Deployment profile: local (single security domain, no HA claim) — PRD 17.1.");
     println!("Next: `entelechy demo` runs the bundled execute/journal/replay slice.");
+    Ok(())
+}
+
+fn cmd_eval() -> anyhow::Result<()> {
+    use entelechy_eval::{
+        CallerIdentity, ConstraintClass, EvalContract, GateResponse, HoldoutVault, NegativeGoal,
+        Plane, ReleaseRule, RiskClass, SplitPolicy, Split, Task, Difficulty, Provenance,
+    };
+
+    // The Phase 0 support-triage EvalContract (PRD 21, Q1), hand-authored.
+    let contract = EvalContract {
+        version: 1,
+        criteria: vec!["resolves_tier1_ticket".into()],
+        negative_goals: vec![
+            NegativeGoal {
+                name: "no_refund".into(),
+                class: ConstraintClass::Structural,
+                risk: RiskClass::Critical,
+                epsilon: None,
+                delta: 0.05,
+            },
+            NegativeGoal {
+                name: "no_cross_customer_disclosure".into(),
+                class: ConstraintClass::Behavioral,
+                risk: RiskClass::High,
+                epsilon: None,
+                delta: 0.05,
+            },
+        ],
+        splits: SplitPolicy::default(), // 100 / 50 / 100 (Q1)
+        release: ReleaseRule {
+            primary_metric: "task_success".into(),
+            target_improvement_pp: 10.0,
+            holdout_query_budget: 5,
+        },
+    };
+
+    println!("EvalContract v{} — primary metric '{}', target +{}pp (Q1 split {}/{}/{}).",
+        contract.version, contract.release.primary_metric, contract.release.target_improvement_pp,
+        contract.splits.tune, contract.splits.validation, contract.splits.holdout);
+
+    println!("\nNegative goals:");
+    for g in &contract.negative_goals {
+        match g.class {
+            ConstraintClass::Structural => {
+                println!("  {} [structural] — proven by IR analysis; no epsilon.", g.name);
+            }
+            _ => println!(
+                "  {} [{:?}] — upper-bound test, epsilon {:.1}%.",
+                g.name, g.class, g.effective_epsilon() * 100.0
+            ),
+        }
+    }
+
+    // Power check (EV-15 / OC-6).
+    let warnings = contract.power_warnings();
+    if warnings.is_empty() {
+        println!("\nPower: every confirmatory split can detect the target improvement.");
+    } else {
+        println!("\nPower warnings (EV-15): the target is below the minimum detectable effect:");
+        for w in &warnings {
+            println!(
+                "  {:?}: MDE ~{:.0}pp > target {:.0}pp — enlarge this split or raise the target.",
+                w.split, w.mde_pp, w.target_pp
+            );
+        }
+    }
+
+    // Seal a small holdout and exercise the gate (EV-14) + firewall (9.6).
+    let holdout: Vec<Task> = (0..contract.splits.holdout)
+        .map(|i| Task {
+            id: format!("h{i}"),
+            input: serde_json::json!({ "ticket": i }),
+            environment: "helpdesk".into(),
+            checkers: vec!["state".into()],
+            tags: vec![],
+            difficulty: Difficulty::Medium,
+            provenance: Provenance::HumanSeed,
+            split: Split::Holdout,
+            source_task: None,
+        })
+        .collect();
+    let mut vault = HoldoutVault::seal(&contract, holdout)?;
+    println!("\nHoldout sealed: {} tasks (content is not readable — EV-14).", vault.len());
+
+    // Firewall: a design/search identity is refused (9.6).
+    let design = CallerIdentity { id: "search".into(), plane: Plane::DesignSearch };
+    let refused = vault.gate_query(&design, "cand#tuned", &contract, &|_| false, &|_| true);
+    if let GateResponse::Refused { reason } = &refused {
+        println!("Firewall: design/search gate query refused — {reason}");
+    }
+
+    // Assurance queries the gate: naive baseline (fails all) vs tuned candidate.
+    let assurance = CallerIdentity { id: "assure".into(), plane: Plane::Assurance };
+    let resp = vault.gate_query(
+        &assurance,
+        "cand#tuned",
+        &contract,
+        &|t| t.input.get("ticket").and_then(|x| x.as_u64()).unwrap_or(0) % 3 == 0, // baseline ~33%
+        &|_| true,                                                                  // candidate 100%
+    );
+    match resp {
+        GateResponse::Pass { ci_low_pp, ci_high_pp } => println!(
+            "Gate: PASS — improvement 95% interval [{ci_low_pp:.1}, {ci_high_pp:.1}]pp (coarse)."
+        ),
+        GateResponse::Fail { ci_low_pp, ci_high_pp } => println!(
+            "Gate: FAIL — improvement 95% interval [{ci_low_pp:.1}, {ci_high_pp:.1}]pp."
+        ),
+        GateResponse::Refused { reason } => println!("Gate: REFUSED — {reason}"),
+    }
+    println!("Remaining holdout query budget: {}.", vault.remaining_budget());
     Ok(())
 }
 

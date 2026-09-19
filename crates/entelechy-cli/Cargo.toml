@@ -17,6 +17,7 @@ entelechy-ir = { workspace = true }
 entelechy-artifacts = { workspace = true }
 entelechy-runtime = { workspace = true }
 entelechy-gateway = { workspace = true }
+entelechy-eval = { workspace = true }
 entelechy-contracts = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

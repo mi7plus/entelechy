@@ -48,13 +48,19 @@ Implemented (the runtime substrate the exit criteria depend on):
   terminal, not a model failure. (Exit: *Budget*.)
 - **Provider identity** — every model call captures provider identity (PV-1),
   the substrate for the *Provider stability* fingerprint checks.
+- **Evaluation contract, power and the holdout gate** — `entelechy-eval`
+  provides the EvalContract with constraint classes (§5.6), per-split power
+  warnings (EV-15), the paired-bootstrap comparison used by the exit rule
+  (§9.4/§21), the negative-goal upper-bound test (§5.6), and the audited,
+  budgeted holdout gate with the identity firewall (EV-14/EL-1/§9.6). (Exit:
+  *Improvement*, *Safety* behavioral half, *Holdout sealing*.)
 
 Not yet implemented (later Phase 0 / Phase 2 per §21.2):
 
 - Signed **StudyPlan** artifact and candidate accounting (`entelechy-bench`,
   `entelechy-search`).
-- **EvalContract**, checkers, splits, statistics engine and the audited,
-  budgeted **holdout gate API** (`entelechy-eval`, EL-1/EL-2).
+- **Task synthesis** and near-duplicate contamination detection (Q18); Phase 0
+  tasks are hand-authored seeds (Q2).
 - **Design Repair Engine** and DesignHypothesis lifecycle (`entelechy-design`).
 - Crash-injection conformance for the simulator's write tools (RS-1, §8.5).
 - The hand-authored GoalSpec / EvalContract / seed tasks (Phase 0 is hand
