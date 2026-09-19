@@ -12,6 +12,7 @@ description = "Interpreter, scheduler, journal, replay and checkpoints"
 entelechy-ir = { workspace = true }
 entelechy-gateway = { workspace = true }
 entelechy-artifacts = { workspace = true }
+entelechy-policy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

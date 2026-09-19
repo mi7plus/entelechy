@@ -18,6 +18,7 @@ entelechy-artifacts = { workspace = true }
 entelechy-runtime = { workspace = true }
 entelechy-gateway = { workspace = true }
 entelechy-eval = { workspace = true }
+entelechy-policy = { workspace = true }
 entelechy-design = { workspace = true }
 entelechy-bench = { workspace = true }
 entelechy-search = { workspace = true }

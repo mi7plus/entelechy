@@ -8,7 +8,8 @@ use entelechy_ir::{
     AttestationLevel, AuthorityEnvelope, CodeNode, Condition, EffectClass, EffectMetadata,
     GateNode, LlmNode, Node, NodeKind, Program, ToolNode, VerifyNode,
 };
-use entelechy_runtime::{Engine, RunResult, RunStatus};
+use entelechy_policy::{NativePolicy, PolicySnapshot};
+use entelechy_runtime::{Engine, PolicyConfig, RunResult, RunStatus};
 use std::collections::HashMap;
 
 /// Build the demo single-agent program.
@@ -88,8 +89,9 @@ pub fn demo_catalog() -> HashMap<String, EffectMetadata> {
     c
 }
 
-/// Run the demo end to end, returning the execution result.
-pub fn run_demo(run_id: &str) -> RunResult {
+/// Run the demo end to end, returning the execution result and the number of
+/// policy decisions recorded at effect boundaries (PRD 8.3).
+pub fn run_demo(run_id: &str) -> (RunResult, usize) {
     let model = MockModel::new();
     let mut tools = NativeToolGateway::new();
     // Simulated helpdesk draft tool with resettable, deterministic behavior.
@@ -104,7 +106,15 @@ pub fn run_demo(run_id: &str) -> RunResult {
         }))
     });
 
-    let mut engine = Engine::new(&model, &mut tools);
+    // Enforce authority at effect boundaries (PRD 8.3): draft_reply is granted,
+    // refund is forbidden by the envelope.
+    let mut engine = Engine::new(&model, &mut tools).with_policy(PolicyConfig {
+        engine: Box::new(NativePolicy::new()),
+        authority: demo_program().authority.clone(),
+        snapshot: PolicySnapshot::default(),
+        catalog: demo_catalog(),
+        principal: "runtime".into(),
+    });
     // route_ticket: mark the ticket as reply-eligible unless it is a refund.
     engine.register_code("route_ticket", |v| {
         let text = v.data.get("text").and_then(|t| t.as_str()).unwrap_or("");
@@ -123,7 +133,13 @@ pub fn run_demo(run_id: &str) -> RunResult {
             .unwrap_or(false)
     });
 
-    engine.execute(&demo_program(), entelechy_ir::Value::trusted(serde_json::json!({})), run_id)
+    let result = engine.execute(
+        &demo_program(),
+        entelechy_ir::Value::trusted(serde_json::json!({})),
+        run_id,
+    );
+    let decisions = engine.policy_decisions().entries.len();
+    (result, decisions)
 }
 
 /// A short human-readable status line for a run result.

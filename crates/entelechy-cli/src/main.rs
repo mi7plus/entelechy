@@ -254,9 +254,13 @@ fn cmd_demo(out_dir: &str) -> anyhow::Result<()> {
         println!("   {} at {}: {}", v.code, v.node_id, v.message);
     }
 
-    // 2. Execute, journaling every effect (RK-2).
-    let result = demo::run_demo("demo-run-1");
-    println!("2. Execute: {}", demo::status_line(&result));
+    // 2. Execute, journaling every effect (RK-2) and authorizing effects at the
+    //    boundary via the policy engine (PRD 8.3).
+    let (result, decisions) = demo::run_demo("demo-run-1");
+    println!(
+        "2. Execute: {} ({decisions} policy decision(s) recorded at effect boundaries).",
+        demo::status_line(&result)
+    );
 
     // 3. Persist design + journal (content-addressed-ready artifacts).
     let design_path = format!("{out_dir}/design.json");

@@ -15,7 +15,10 @@ pub mod journal;
 use std::collections::HashMap;
 
 use entelechy_gateway::{ModelGateway, ModelRequest, ToolCall, ToolGateway};
-use entelechy_ir::{Condition, MemOp, Node, NodeKind, Program, Value};
+use entelechy_ir::{
+    AuthorityEnvelope, Condition, EffectMetadata, MemOp, Node, NodeKind, Program, Taint, Value,
+};
+use entelechy_policy::{Decision, DecisionLog, PolicyEngine, PolicyRequest, PolicySnapshot};
 
 pub use journal::{
     CommitStatus, Journal, JournalEvent, JournalReader, ReplayMismatch,
@@ -80,6 +83,8 @@ pub enum FailureReason {
     VerificationFailed(String),
     /// A code function failed.
     CodeError(String),
+    /// The policy engine denied the effect at its boundary (PRD 8.3).
+    PolicyDenied(String),
     /// A node kind is not supported in this runtime slice.
     Unsupported(String),
     /// A schema/shape error in the value flow.
@@ -102,6 +107,27 @@ enum Halt {
     Terminal(RunStatus),
 }
 
+/// Optional policy enforcement configuration for the runtime (PRD 8.3).
+///
+/// When present, every consequential tool effect is authorized at its boundary by
+/// the [`PolicyEngine`] before dispatch, and denials become a typed
+/// [`FailureReason::PolicyDenied`]. Decisions are recorded in a [`DecisionLog`]
+/// (kept off the replay journal so replay stays byte-identical; policy is
+/// deterministic and re-derivable).
+pub struct PolicyConfig {
+    /// The policy engine (e.g. the native core, or a Cedar adapter).
+    pub engine: Box<dyn PolicyEngine + Send>,
+    /// The system authority envelope authorization is checked against (PRD 5.4).
+    pub authority: AuthorityEnvelope,
+    /// The policy snapshot in force (PRD 5.2).
+    pub snapshot: PolicySnapshot,
+    /// Effect metadata per capability (PRD 7.6); unknown capabilities default
+    /// conservative (CD-7).
+    pub catalog: HashMap<String, EffectMetadata>,
+    /// The principal effects are attributed to (PRD 5.8).
+    pub principal: String,
+}
+
 /// The interpreter engine (PRD 8.1). Holds gateways and registries.
 pub struct Engine<'a> {
     model: &'a dyn ModelGateway,
@@ -110,6 +136,8 @@ pub struct Engine<'a> {
     code: HashMap<String, CodeFn>,
     memory: HashMap<String, Value>,
     budget: Budget,
+    policy: Option<PolicyConfig>,
+    policy_decisions: DecisionLog,
 }
 
 impl<'a> Engine<'a> {
@@ -122,6 +150,8 @@ impl<'a> Engine<'a> {
             code: HashMap::new(),
             memory: HashMap::new(),
             budget: Budget::default(),
+            policy: None,
+            policy_decisions: DecisionLog::new(),
         }
     }
 
@@ -129,6 +159,62 @@ impl<'a> Engine<'a> {
     pub fn with_budget(mut self, budget: Budget) -> Self {
         self.budget = budget;
         self
+    }
+
+    /// Enable policy enforcement at effect boundaries (PRD 8.3).
+    pub fn with_policy(mut self, policy: PolicyConfig) -> Self {
+        self.policy = Some(policy);
+        self
+    }
+
+    /// The recorded policy decisions (PRD 8.3 records decisions).
+    pub fn policy_decisions(&self) -> &DecisionLog {
+        &self.policy_decisions
+    }
+
+    /// Authorize a tool effect at its boundary (PRD 8.3). Returns a typed
+    /// [`FailureReason`] on denial or an unmet obligation (fail closed). A no-op
+    /// when policy enforcement is not configured.
+    fn authorize_tool(&mut self, capability: &str, taint: Taint) -> Result<(), FailureReason> {
+        // Evaluate under an immutable borrow that ends before we record.
+        let outcome: Option<(Decision, String)> = self.policy.as_ref().map(|pc| {
+            let meta = pc
+                .catalog
+                .get(capability)
+                .cloned()
+                .unwrap_or_else(|| EffectMetadata::conservative_default(capability));
+            let req = PolicyRequest {
+                principal: pc.principal.clone(),
+                capability: capability.to_string(),
+                effect_class: meta.class,
+                taint,
+                // A gate declassifies taint to Trusted; a still-tainted value here
+                // never crossed a Gate (IR-I3).
+                gate_satisfied: taint == Taint::Trusted,
+                egress_host: None,
+                data_classification: None,
+                provider: None,
+            };
+            (pc.engine.evaluate(&pc.authority, &pc.snapshot, &req), capability.to_string())
+        });
+
+        if let Some((decision, cap)) = outcome {
+            let allowed = decision.allowed;
+            let reason = decision.reason.clone();
+            let unmet_obligation = decision.obligations.first().map(|o| format!("{o:?}"));
+            self.policy_decisions.record(cap.clone(), decision);
+            if !allowed {
+                return Err(FailureReason::PolicyDenied(reason));
+            }
+            // Phase 0 runtime cannot discharge approval obligations inline, so an
+            // outstanding obligation fails closed (PRD 5.4).
+            if let Some(o) = unmet_obligation {
+                return Err(FailureReason::PolicyDenied(format!(
+                    "unmet obligation {o} for '{cap}'"
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Register a checker for Verify nodes.
@@ -455,6 +541,13 @@ fn exec_node(
                 .unwrap_or_default();
             match mode {
                 Mode::Execute { journal, counters } => {
+                    // Authorize the effect at its boundary before dispatch (PRD 8.3).
+                    if let Err(reason) = engine.authorize_tool(&tool.capability, value.meta.taint) {
+                        return Err(Halt::Terminal(RunStatus::Failed {
+                            node_path: path.to_string(),
+                            reason,
+                        }));
+                    }
                     counters.tool_calls += 1;
                     if counters.tool_calls > engine.budget.max_tool_calls {
                         return Err(Halt::Terminal(RunStatus::BudgetExhausted {
@@ -655,6 +748,60 @@ mod tests {
             RunStatus::Failed { reason: FailureReason::VerificationFailed(_), .. }
         ));
         assert!(r.output.is_none());
+    }
+
+    #[test]
+    fn policy_denies_forbidden_tool_effect() {
+        use entelechy_ir::{AttestationLevel, EffectClass, EffectMetadata, ToolNode};
+        use entelechy_policy::{NativePolicy, PolicySnapshot};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        tools.register("refund", |_| Ok(serde_json::json!({"refunded": true})));
+
+        // Authority forbids refund (PRD 5.4). The tool is registered, but policy
+        // must deny it at the boundary before dispatch.
+        let mut authority = AuthorityEnvelope::empty();
+        authority.forbidden_capabilities.insert("refund".into());
+        let mut catalog = HashMap::new();
+        catalog.insert(
+            "refund".to_string(),
+            EffectMetadata {
+                class: EffectClass::Irreversible,
+                idempotent: false,
+                reversible: false,
+                dry_run_supported: false,
+                read_back_supported: false,
+                attestation: AttestationLevel::OperatorAttested,
+                operation_key_namespace: "pay".into(),
+            },
+        );
+
+        let mut e = Engine::new(&model, &mut tools).with_policy(PolicyConfig {
+            engine: Box::new(NativePolicy::new()),
+            authority: authority.clone(),
+            snapshot: PolicySnapshot::default(),
+            catalog,
+            principal: "runtime".into(),
+        });
+
+        let prog = Program::new(
+            authority,
+            Node::new(
+                "refund",
+                NodeKind::Tool(ToolNode {
+                    capability: "refund".into(),
+                    args: serde_json::Value::Null,
+                }),
+            ),
+        );
+        let r = e.execute(&prog, Value::trusted(serde_json::json!({})), "run-p");
+        assert!(matches!(
+            r.status,
+            RunStatus::Failed { reason: FailureReason::PolicyDenied(_), .. }
+        ), "{:?}", r.status);
+        // The denial was recorded (PRD 8.3) and the tool never ran.
+        assert!(e.policy_decisions().any_denied());
     }
 
     #[test]
