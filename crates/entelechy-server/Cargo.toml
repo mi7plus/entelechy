@@ -9,3 +9,8 @@ repository.workspace = true
 description = "API/server mode, introduced after local core stabilizes"
 
 [dependencies]
+entelechy-identity = { workspace = true }
+entelechy-protocol = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

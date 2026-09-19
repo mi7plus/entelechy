@@ -1,12 +1,268 @@
-//! Online eval, drift, incidents and re-study triggers.
+//! Operations and evolution: drift, incidents, re-studies and quotas.
 //!
-//! PRD v11 reference: section(s) 15.
-//!
-//! # Status
-//! Scaffold. This crate is a documented placeholder created during the initial
-//! workspace bring-up. Its contract surface is designed against the referenced
-//! PRD sections and will be filled in on the phase schedule in section 21.2.
+//! PRD v11 references: section 15 (operations & evolution, OP-1..OP-7), EV-12
+//! (incidents become regression coverage), 14.3/21 (re-study outputs wait at the
+//! release gate; no auto-promotion), 17.4 (quotas enforced outside model output).
 #![forbid(unsafe_code)]
 
-/// Returns the primary PRD section(s) this crate implements.
-pub const PRD_SECTIONS: &str = "15";
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+/// The kind of signal a drift event concerns (PRD OP-3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DriftKind {
+    /// Input distribution drift.
+    Input,
+    /// Tool behavior drift.
+    Tool,
+    /// Model behavior drift (see also provider fingerprint, PRD 5.10).
+    Model,
+    /// Cost drift.
+    Cost,
+    /// Quality drift.
+    Quality,
+}
+
+/// Evidence for a detected drift (PRD OP-3: detect drift with evidence).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DriftEvidence {
+    /// The signal kind.
+    pub kind: DriftKind,
+    /// Baseline mean.
+    pub baseline_mean: f64,
+    /// Recent-window mean.
+    pub window_mean: f64,
+    /// Shift in baseline-standard-deviation units (the drift statistic).
+    pub z_shift: f64,
+}
+
+/// Detect drift by comparing a recent window's mean to the baseline, measured in
+/// baseline standard deviations (PRD OP-3). Returns evidence when the absolute
+/// shift exceeds `k` sigma. A zero-variance baseline drifts on any change.
+pub fn detect_drift(
+    kind: DriftKind,
+    baseline: &[f64],
+    window: &[f64],
+    k: f64,
+) -> Option<DriftEvidence> {
+    if baseline.is_empty() || window.is_empty() {
+        return None;
+    }
+    let bmean = mean(baseline);
+    let wmean = mean(window);
+    let bstd = stddev(baseline, bmean);
+    let z_shift = if bstd > 0.0 {
+        (wmean - bmean) / bstd
+    } else if (wmean - bmean).abs() > f64::EPSILON {
+        f64::INFINITY
+    } else {
+        0.0
+    };
+    if z_shift.abs() > k {
+        Some(DriftEvidence {
+            kind,
+            baseline_mean: bmean,
+            window_mean: wmean,
+            z_shift,
+        })
+    } else {
+        None
+    }
+}
+
+fn mean(xs: &[f64]) -> f64 {
+    xs.iter().sum::<f64>() / xs.len() as f64
+}
+
+fn stddev(xs: &[f64], mean: f64) -> f64 {
+    if xs.len() < 2 {
+        return 0.0;
+    }
+    let var = xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (xs.len() as f64 - 1.0);
+    var.sqrt()
+}
+
+/// A production incident captured as a trace bundle (PRD OP-4).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Incident {
+    /// Incident id.
+    pub id: String,
+    /// References to the trace bundle(s) evidencing the failure.
+    pub trace_refs: Vec<String>,
+    /// Short summary.
+    pub summary: String,
+}
+
+/// A permanent regression task derived from an incident (PRD OP-4, EV-12).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RegressionTask {
+    /// Regression task id.
+    pub id: String,
+    /// The incident it was derived from.
+    pub source_incident: String,
+}
+
+impl Incident {
+    /// Convert an incident into permanent regression coverage (OP-4, EV-12).
+    /// The regression task does not retroactively become independent holdout
+    /// evidence (PRD 9.5).
+    pub fn to_regression_task(&self) -> RegressionTask {
+        RegressionTask {
+            id: format!("regression-from-{}", self.id),
+            source_incident: self.id.clone(),
+        }
+    }
+}
+
+/// Why a bounded re-study was opened (PRD OP-5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReStudyReason {
+    /// Detected drift.
+    Drift,
+    /// A deprecation (e.g. model retirement).
+    Deprecation,
+    /// User feedback.
+    Feedback,
+    /// An incident.
+    Incident,
+}
+
+/// A bounded re-study opened by operations (PRD OP-5). Its outputs wait at the
+/// release gate — it never auto-promotes (PRD non-goal: autonomous production
+/// promotion by default).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReStudy {
+    /// Re-study id.
+    pub id: String,
+    /// Why it was opened.
+    pub reason: ReStudyReason,
+    /// Evidence reference (drift evidence, incident id, feedback ref).
+    pub evidence_ref: String,
+}
+
+impl ReStudy {
+    /// Re-studies never auto-promote; their candidates wait at the release gate
+    /// (PRD OP-5, 14.3).
+    pub const fn auto_promotes(&self) -> bool {
+        false
+    }
+}
+
+/// The scope a quota applies to (PRD OP-7).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum QuotaScope {
+    /// A single run.
+    Run(String),
+    /// The whole system.
+    System,
+    /// A team.
+    Team(String),
+    /// A study.
+    Study(String),
+}
+
+/// Quota exceeded error (a hard stop — PRD OP-7, 17.4).
+#[derive(Debug, thiserror::Error, PartialEq)]
+#[error("quota exceeded for {scope:?}: {used}+{amount} > {limit}")]
+pub struct QuotaExceeded {
+    /// The scope whose quota was exceeded.
+    pub scope: QuotaScope,
+    /// Amount already used.
+    pub used: f64,
+    /// Amount requested.
+    pub amount: f64,
+    /// The limit.
+    pub limit: f64,
+}
+
+/// Per-scope quotas with hard stops, enforced outside model output (PRD OP-7,
+/// 17.4).
+#[derive(Clone, Debug, Default)]
+pub struct QuotaLedger {
+    limits: BTreeMap<QuotaScope, f64>,
+    used: BTreeMap<QuotaScope, f64>,
+}
+
+impl QuotaLedger {
+    /// Create an empty ledger.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set a limit for a scope.
+    pub fn set_limit(&mut self, scope: QuotaScope, limit: f64) {
+        self.limits.insert(scope, limit);
+    }
+
+    /// Charge an amount against a scope, hard-stopping if it would exceed the
+    /// limit (PRD OP-7). Scopes without a limit are unbounded.
+    pub fn charge(&mut self, scope: QuotaScope, amount: f64) -> Result<(), QuotaExceeded> {
+        let used = *self.used.get(&scope).unwrap_or(&0.0);
+        if let Some(&limit) = self.limits.get(&scope) {
+            if used + amount > limit {
+                return Err(QuotaExceeded { scope, used, amount, limit });
+            }
+        }
+        self.used.insert(scope, used + amount);
+        Ok(())
+    }
+
+    /// Amount used against a scope.
+    pub fn used(&self, scope: &QuotaScope) -> f64 {
+        *self.used.get(scope).unwrap_or(&0.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_mean_shift_beyond_k_sigma() {
+        let baseline = vec![10.0, 11.0, 9.0, 10.0, 10.0];
+        let drifted = vec![20.0, 21.0, 19.0];
+        let ev = detect_drift(DriftKind::Cost, &baseline, &drifted, 3.0).unwrap();
+        assert!(ev.z_shift > 3.0);
+        // No drift for a similar window.
+        let steady = vec![10.0, 10.5, 9.5];
+        assert!(detect_drift(DriftKind::Cost, &baseline, &steady, 3.0).is_none());
+    }
+
+    #[test]
+    fn incident_becomes_regression() {
+        let inc = Incident {
+            id: "inc-42".into(),
+            trace_refs: vec!["trace://abc".into()],
+            summary: "refund leaked".into(),
+        };
+        let r = inc.to_regression_task();
+        assert_eq!(r.source_incident, "inc-42");
+        assert_eq!(r.id, "regression-from-inc-42");
+    }
+
+    #[test]
+    fn restudy_never_auto_promotes() {
+        let rs = ReStudy {
+            id: "rs-1".into(),
+            reason: ReStudyReason::Drift,
+            evidence_ref: "drift://cost".into(),
+        };
+        assert!(!rs.auto_promotes());
+    }
+
+    #[test]
+    fn quota_hard_stop() {
+        let mut q = QuotaLedger::new();
+        q.set_limit(QuotaScope::Study("s1".into()), 100.0);
+        assert!(q.charge(QuotaScope::Study("s1".into()), 60.0).is_ok());
+        // Would exceed → hard stop.
+        assert!(q.charge(QuotaScope::Study("s1".into()), 50.0).is_err());
+        assert_eq!(q.used(&QuotaScope::Study("s1".into())), 60.0);
+        // Unlimited scope charges freely.
+        assert!(q.charge(QuotaScope::System, 1e9).is_ok());
+    }
+}

@@ -19,15 +19,15 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-cli` | Local CLI workflow (§16.1) | **Implemented (core commands)** |
 | `entelechy-eval` | Tasks, checkers, statistics, split discipline, holdout gate (§9) | **Implemented** |
 | `entelechy-policy` | Authority checks, Gate evaluation, policy adapter (§8.3, §5.4, Q6) | **Implemented** |
-| `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | Scaffold |
+| `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | **Implemented** |
 | `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | **Implemented** |
 | `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | **Implemented** |
 | `entelechy-design` | Initial synthesis, DesignHypothesis, patches, repair engine (§11) | **Implemented** |
 | `entelechy-search` | Explorer strategies, archives, budgets, stopping rules (§11.7, §11.8) | **Implemented (study driver)** |
 | `entelechy-assurance` | Static assurance, holdout orchestration, SafetyCase (§14.1) | **Implemented** |
 | `entelechy-release` | Release bundles, maturity state, promotion records (§14) | **Implemented** |
-| `entelechy-ops` | Online eval, drift, incidents, re-study triggers (§15) | Scaffold |
-| `entelechy-server` | API/server mode (§16.2) | Scaffold |
+| `entelechy-ops` | Online eval, drift, incidents, re-study triggers (§15) | **Implemented** |
+| `entelechy-server` | API/server mode (§16.2) | **Implemented (core)** |
 | `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | **Implemented** |
 | `entelechy-effects` | Effect taxonomy, operation keys, transactional state machine, reconciliation (§7.6, §8.5) | **Implemented** |
 | `entelechy-bench` | Benchmark provenance, split lineage, contamination, manifests (§9.5, §21.1) | **Implemented** |
@@ -145,6 +145,26 @@ entelechy requirements  # the §17.6 cross-cutting registry
   that refuses to silently drop a required security guarantee unless the operator
   opts in and records it (PC-2), plugin-manifest load checks that fail closed
   (PC-3), and the Q29 two-minor-plus-six-month deprecation window.
+
+- **Objective compiler (§5.5):** a `GoalSpec` with per-field provenance
+  (stated/inferred/defaulted, OC-1), classified negative goals (OC-2), the bounded
+  clarification interview that ranks by expected impact and defers the rest as
+  assumptions (OC-3), the assumption ledger requiring a falsifying task per
+  inferred assumption (OC-4), the constrained-optimization / lexicographic /
+  human-choice selection policy (5.7), and immutable content-addressed sign-off
+  that refuses an unfalsifiable ledger and detects new lineage branches (OC-8).
+- **Operations (§15):** drift detection with a z-shift statistic and evidence
+  (OP-3), incidents converted to permanent regression tasks (OP-4/EV-12), bounded
+  re-studies that never auto-promote (OP-5), and per-scope quotas with hard stops
+  enforced outside model output (OP-7).
+- **Server core (§16.2):** a transport-independent API dispatcher that fails
+  closed on unsupported protocol (PC-1), authenticates with fail-closed expiry
+  (AU-1), and enforces per-operation authorization separately from authentication
+  (17.2) — the core a future HTTP/gRPC layer wraps.
+
+All 21 workspace crates are now implemented at Phase-0 / early-Phase-1 depth
+(134 tests). Later phases deepen them (e.g. real HTTP transport, Cedar policy
+adapter, task synthesis, cluster mode) per PRD §21.2.
 
 Try it:
 - `entelechy eval` — the helpdesk contract, the power check and the holdout gate + firewall.
