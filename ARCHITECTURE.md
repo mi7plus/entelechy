@@ -29,7 +29,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-ops` | Online eval, drift, incidents, re-study triggers (§15) | Scaffold |
 | `entelechy-server` | API/server mode (§16.2) | Scaffold |
 | `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | Scaffold |
-| `entelechy-effects` | Effect taxonomy, operation keys, transactional state machine, reconciliation (§7.6, §8.5) | Scaffold |
+| `entelechy-effects` | Effect taxonomy, operation keys, transactional state machine, reconciliation (§7.6, §8.5) | **Implemented** |
 | `entelechy-bench` | Benchmark provenance, split lineage, contamination, manifests (§9.5, §21.1) | **Implemented** |
 | `entelechy-protocol` | Versioned API/plugin manifests, negotiation, compatibility fixtures (§16.6) | Scaffold |
 
@@ -97,6 +97,13 @@ entelechy requirements  # the §17.6 cross-cutting registry
   respect pinned nodes (IR-I7); and the DesignHypothesis record (11.2) with the
   Q3 rule that a low-confidence (diagnostic) hypothesis can never confidently
   reject, only end inconclusive.
+
+- **Effect safety (§7.6, §8.5, RS-1):** operation keys with logical attempts,
+  the planned→authorized→dispatched→acknowledged→reconciled state machine over a
+  durable write-ahead log, read-back reconciliation for idempotent/read-back
+  effects and reconciliation-required for the rest (Q16), and a crash-injection
+  conformance suite proving no silent duplicate consequential effect at any
+  transition. Surfaced as step 5 of `entelechy demo`.
 
 Try it:
 - `entelechy eval` — the helpdesk contract, the power check and the holdout gate + firewall.

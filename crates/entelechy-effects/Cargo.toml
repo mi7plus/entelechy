@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Effect taxonomy, operation keys, transactional state machine, reconciliation"
+description = "Effect taxonomy, operation keys, transactional state machine, reconciliation and compensation"
 
 [dependencies]
+entelechy-ir = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

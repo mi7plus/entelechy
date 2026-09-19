@@ -270,7 +270,16 @@ fn cmd_demo(out_dir: &str) -> anyhow::Result<()> {
     let replayed = replay(&program, &result.journal)?;
     println!("4. Replay: {replayed}");
 
-    println!("\nDone. This is the Phase 0 execute -> journal -> replay slice (PRD 21).");
+    // 5. Crash-injection conformance for effect safety (RS-1, PRD 8.5).
+    let rows = entelechy_effects::crash_injection_conformance();
+    let passed = rows.iter().filter(|r| r.ok).count();
+    let reconc = rows.iter().filter(|r| r.reconciliation_required).count();
+    println!(
+        "5. Crash-injection conformance: {passed}/{} transitions with no silent duplicate effect; {reconc} required reconciliation (RS-1).",
+        rows.len()
+    );
+
+    println!("\nDone. Phase 0 slice: execute -> journal -> replay + effect-safety conformance (PRD 21).");
     Ok(())
 }
 

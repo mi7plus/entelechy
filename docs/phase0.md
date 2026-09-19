@@ -71,6 +71,12 @@ Implemented (the runtime substrate the exit criteria depend on):
   confirmation → holdout gate. (Exit: *Explainability* — every accepted mutation
   has a DesignHypothesis with an experiment result.)
 
+- **Effect safety (crash injection)** — `entelechy-effects` provides the effect
+  state machine (§8.5), operation keys with logical attempts (§7.6), read-back
+  reconciliation (Q16) and a crash-injection conformance suite proving no silent
+  duplicate consequential effect at any transition (RS-1). Run it via step 5 of
+  `entelechy demo`. (Exit: *Effect safety (minimal)*.)
+
 Not yet implemented (later Phase 0 / Phase 2 per §21.2):
 
 - **Failure clustering / analyzer** (`entelechy-failure`, §10) to propose
