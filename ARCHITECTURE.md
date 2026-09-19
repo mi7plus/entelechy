@@ -39,10 +39,19 @@ The vertical slice the PRD requires for Phase 0 — *execute → journal → rep
 a single-agent IR — runs end to end:
 
 ```
-entelechy demo          # validate IR, execute (journaling every effect), replay
+entelechy objective     # clarification interview -> GoalSpec -> EvalContract -> sign-off (§5.5)
+entelechy capability    # CapabilityGraph, CD-7 attestation, gaps (§13.1)
+entelechy eval          # EvalContract, power check, holdout gate + firewall (§9)
 entelechy design --validate <design.json>   # static compiler invariants (§7.4)
+entelechy study         # full improve loop on the simulated helpdesk (§21)
+entelechy trace         # render a run's journal as a trace (§16.2)
+entelechy demo          # execute -> journal -> replay + effect-safety conformance
 entelechy replay --design <d.json> --journal <j.json>   # deterministic replay (§8.2)
+entelechy diff          # structural IR diff, pinned-node aware (§16.2)
+entelechy assure        # assurance compiler + SafetyCase (§14.1)
+entelechy release       # build a bundle, promote L0->L2 through the gate (§14)
 entelechy requirements  # the §17.6 cross-cutting registry
+# planned: serve (HTTP transport over the entelechy-server dispatcher, §16.2)
 ```
 
 ### What is real
