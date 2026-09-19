@@ -23,14 +23,14 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | Scaffold |
 | `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | Scaffold |
 | `entelechy-design` | Initial synthesis, DesignHypothesis, patches, repair engine (§11) | Scaffold |
-| `entelechy-search` | Explorer strategies, archives, budgets, stopping rules (§11.7, §11.8) | Scaffold |
+| `entelechy-search` | Explorer strategies, archives, budgets, stopping rules (§11.7, §11.8) | **Implemented (study driver)** |
 | `entelechy-assurance` | Static assurance, holdout orchestration, SafetyCase (§14.1) | Scaffold |
 | `entelechy-release` | Release bundles, maturity state, promotion records (§14) | Scaffold |
 | `entelechy-ops` | Online eval, drift, incidents, re-study triggers (§15) | Scaffold |
 | `entelechy-server` | API/server mode (§16.2) | Scaffold |
 | `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | Scaffold |
 | `entelechy-effects` | Effect taxonomy, operation keys, transactional state machine, reconciliation (§7.6, §8.5) | Scaffold |
-| `entelechy-bench` | Benchmark provenance, split lineage, contamination, manifests (§9.5) | Scaffold |
+| `entelechy-bench` | Benchmark provenance, split lineage, contamination, manifests (§9.5, §21.1) | **Implemented** |
 | `entelechy-protocol` | Versioned API/plugin manifests, negotiation, compatibility fixtures (§16.6) | Scaffold |
 
 ## Implemented today (Phase 0 / early Phase 1 core)
@@ -77,6 +77,19 @@ entelechy requirements  # the §17.6 cross-cutting registry
   are coarse pass/fail with an interval, and every query is audited.
 - **Traceability (§17.5/§17.6):** the 27 cross-cutting requirement IDs as data,
   with verification owner and first-enforced phase.
+
+- **Benchmark governance (§9.5, §21.1):** `BenchmarkManifest` with per-task
+  provenance and split lineage and a sealed set of holdout content hashes
+  (EL-2); a cross-split contamination scan; the Q18 detector (normalized-text
+  hashing, word-trigram Jaccard, embedding cosine with the Q18 thresholds); and
+  the signed `StudyPlan` pre-registration whose content hash is its commitment,
+  so any post-hoc change is detectably material (§21.1).
+- **Study driver (§21.1, EV-13):** candidate accounting that counts every
+  evaluated candidate against the budget (no hidden trials), the
+  rolling-validation acceptance rule (accept only if a change wins on tune *and*
+  is confirmed on validation, else revert as inconclusive), and the Phase 0
+  stopping rule (budget cap + a single non-binding futility check at half, no
+  early stopping for success).
 
 Try it: `entelechy eval` builds the helpdesk contract, runs the power check,
 and exercises the holdout gate and its firewall.

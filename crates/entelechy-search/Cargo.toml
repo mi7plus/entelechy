@@ -9,3 +9,7 @@ repository.workspace = true
 description = "Explorer strategies, archives, budgets and stopping rules"
 
 [dependencies]
+entelechy-eval = { workspace = true }
+entelechy-bench = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

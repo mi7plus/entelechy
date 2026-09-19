@@ -55,16 +55,23 @@ Implemented (the runtime substrate the exit criteria depend on):
   budgeted holdout gate with the identity firewall (EV-14/EL-1/§9.6). (Exit:
   *Improvement*, *Safety* behavioral half, *Holdout sealing*.)
 
+- **Pre-registration, candidate accounting and confirmation** — `entelechy-bench`
+  provides the signed StudyPlan (its content hash is the commitment), the
+  BenchmarkManifest with sealed holdout hashes (EL-2) and the Q18 contamination
+  detector; `entelechy-search` provides candidate accounting (every evaluated
+  candidate counts), the rolling-validation acceptance rule (EV-13) and the
+  Phase 0 stopping rule. (Exit: *Confirmation*, *Budget*, *Pre-registration*,
+  *Holdout sealing*, *Candidate accounting*.)
+
 Not yet implemented (later Phase 0 / Phase 2 per §21.2):
 
-- Signed **StudyPlan** artifact and candidate accounting (`entelechy-bench`,
-  `entelechy-search`).
-- **Task synthesis** and near-duplicate contamination detection (Q18); Phase 0
-  tasks are hand-authored seeds (Q2).
-- **Design Repair Engine** and DesignHypothesis lifecycle (`entelechy-design`).
+- **Design Repair Engine** and DesignHypothesis lifecycle (`entelechy-design`) —
+  the piece that proposes candidates for the study driver to account and confirm.
+- **Task synthesis** (Phase 2); Phase 0 tasks are hand-authored seeds (Q2), with
+  the contamination detector already available to gate any generated tasks.
 - Crash-injection conformance for the simulator's write tools (RS-1, §8.5).
-- The hand-authored GoalSpec / EvalContract / seed tasks (Phase 0 is hand
-  authored; the Objective Compiler arrives in Phase 2).
+- The hand-authored GoalSpec / EvalContract / seed tasks wired into a runnable
+  end-to-end study (the Objective Compiler arrives in Phase 2).
 
 ## Phase 0 effect journal (PRD §21)
 

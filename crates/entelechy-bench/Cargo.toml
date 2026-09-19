@@ -6,6 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Benchmark provenance, split lineage, contamination checks, manifests"
+description = "Benchmark provenance, split lineage, contamination checks and benchmark manifests"
 
 [dependencies]
+entelechy-artifacts = { workspace = true }
+entelechy-eval = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
