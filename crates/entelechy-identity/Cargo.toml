@@ -1,0 +1,11 @@
+[package]
+name = "entelechy-identity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Principals, authentication context, approval signatures, separation-of-duties"
+
+[dependencies]

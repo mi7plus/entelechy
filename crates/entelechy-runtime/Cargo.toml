@@ -1,0 +1,17 @@
+[package]
+name = "entelechy-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Interpreter, scheduler, journal, replay and checkpoints"
+
+[dependencies]
+entelechy-ir = { workspace = true }
+entelechy-gateway = { workspace = true }
+entelechy-artifacts = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

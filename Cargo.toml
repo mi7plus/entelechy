@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/entelechy-ir",
+    "crates/entelechy-artifacts",
+    "crates/entelechy-runtime",
+    "crates/entelechy-gateway",
+    "crates/entelechy-policy",
+    "crates/entelechy-eval",
+    "crates/entelechy-objective",
+    "crates/entelechy-capability",
+    "crates/entelechy-failure",
+    "crates/entelechy-design",
+    "crates/entelechy-search",
+    "crates/entelechy-assurance",
+    "crates/entelechy-release",
+    "crates/entelechy-ops",
+    "crates/entelechy-cli",
+    "crates/entelechy-server",
+    "crates/entelechy-identity",
+    "crates/entelechy-effects",
+    "crates/entelechy-bench",
+    "crates/entelechy-protocol",
+    "crates/entelechy-contracts",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+authors = ["George Olteanu"]
+repository = "https://github.com/georgeolteanu/entelechy"
+description = "Objective-driven agentic systems synthesis platform (PRD v11)"
+
+[workspace.dependencies]
+# Internal crates
+entelechy-ir = { path = "crates/entelechy-ir" }
+entelechy-artifacts = { path = "crates/entelechy-artifacts" }
+entelechy-runtime = { path = "crates/entelechy-runtime" }
+entelechy-gateway = { path = "crates/entelechy-gateway" }
+entelechy-policy = { path = "crates/entelechy-policy" }
+entelechy-eval = { path = "crates/entelechy-eval" }
+entelechy-objective = { path = "crates/entelechy-objective" }
+entelechy-capability = { path = "crates/entelechy-capability" }
+entelechy-failure = { path = "crates/entelechy-failure" }
+entelechy-design = { path = "crates/entelechy-design" }
+entelechy-search = { path = "crates/entelechy-search" }
+entelechy-assurance = { path = "crates/entelechy-assurance" }
+entelechy-release = { path = "crates/entelechy-release" }
+entelechy-ops = { path = "crates/entelechy-ops" }
+entelechy-identity = { path = "crates/entelechy-identity" }
+entelechy-effects = { path = "crates/entelechy-effects" }
+entelechy-bench = { path = "crates/entelechy-bench" }
+entelechy-protocol = { path = "crates/entelechy-protocol" }
+entelechy-contracts = { path = "crates/entelechy-contracts" }
+
+# Third-party
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+
+[profile.release]
+lto = "thin"

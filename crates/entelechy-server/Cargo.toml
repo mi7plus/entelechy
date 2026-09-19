@@ -1,0 +1,11 @@
+[package]
+name = "entelechy-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "API/server mode, introduced after local core stabilizes"
+
+[dependencies]

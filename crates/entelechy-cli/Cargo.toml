@@ -1,0 +1,24 @@
+[package]
+name = "entelechy-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "CLI and local workflow"
+
+[[bin]]
+name = "entelechy"
+path = "src/main.rs"
+
+[dependencies]
+entelechy-ir = { workspace = true }
+entelechy-artifacts = { workspace = true }
+entelechy-runtime = { workspace = true }
+entelechy-gateway = { workspace = true }
+entelechy-contracts = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
