@@ -72,9 +72,10 @@ pub struct Candidate {
 }
 
 /// Errors from the study driver.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum StudyError {
     /// No budget remains; the candidate was not accounted.
+    #[error("study candidate budget exhausted (PRD 21.1)")]
     BudgetExhausted,
 }
 

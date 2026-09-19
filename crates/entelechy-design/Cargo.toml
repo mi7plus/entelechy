@@ -9,3 +9,7 @@ repository.workspace = true
 description = "Initial synthesis, DesignHypothesis, patches and repair engine"
 
 [dependencies]
+entelechy-ir = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

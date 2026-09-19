@@ -6,6 +6,7 @@
 //! rather than failing silently.
 
 mod demo;
+mod study;
 
 use clap::{Parser, Subcommand};
 
@@ -75,7 +76,7 @@ fn main() -> anyhow::Result<()> {
         Command::Objective => planned("objective", "Phase 2 (Objective Compiler, PRD 5.5)"),
         Command::Capability => planned("capability", "Phase 1/2 (capability discovery, PRD 13.1)"),
         Command::Eval => cmd_eval(),
-        Command::Study => planned("study", "Phase 2 (search & studies, PRD 11.7/21.1)"),
+        Command::Study => study::run(),
         Command::Trace => planned("trace", "Phase 1 (trace explorer, PRD 16.2)"),
         Command::Diff => planned("diff", "Phase 3 (IR diff/merge, PRD 16.2)"),
         Command::Assure => planned("assure", "Phase 4 (assurance compiler, PRD 14.1)"),

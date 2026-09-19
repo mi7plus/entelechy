@@ -1,12 +1,21 @@
-//! Initial synthesis, DesignHypothesis, patches and repair engine.
+//! Design synthesis and improvement: baseline synthesis, typed edit operators
+//! and the DesignHypothesis lifecycle.
 //!
-//! PRD v11 reference: section(s) 11.
+//! PRD v11 references: section 11 (design synthesis & improvement), 11.1 (initial
+//! design), 11.2 (DesignHypothesis), 11.5 (typed edit operators), IR-I7 (pinned
+//! nodes).
 //!
-//! # Status
-//! Scaffold. This crate is a documented placeholder created during the initial
-//! workspace bring-up. Its contract surface is designed against the referenced
-//! PRD sections and will be filled in on the phase schedule in section 21.2.
+//! The Design Repair Engine is the default improvement path once a viable design
+//! exists (PRD 11.3): diagnose → hypothesize → apply the smallest compiler-valid
+//! patch → evaluate → retain or revert. This crate provides the patch operators
+//! and hypothesis records; the study driver (`entelechy-search`) orchestrates the
+//! loop and the runtime + `entelechy-eval` produce the evidence.
 #![forbid(unsafe_code)]
 
-/// Returns the primary PRD section(s) this crate implements.
-pub const PRD_SECTIONS: &str = "11";
+pub mod edit;
+pub mod hypothesis;
+pub mod synth;
+
+pub use edit::{apply, EditOp, PatchError};
+pub use hypothesis::{DesignHypothesis, HypothesisResult, DIAGNOSTIC_CONFIDENCE};
+pub use synth::synthesize_single_agent;

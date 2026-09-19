@@ -63,15 +63,26 @@ Implemented (the runtime substrate the exit criteria depend on):
   Phase 0 stopping rule. (Exit: *Confirmation*, *Budget*, *Pre-registration*,
   *Holdout sealing*, *Candidate accounting*.)
 
+- **Design synthesis & repair + a runnable study loop** — `entelechy-design`
+  provides single-agent baseline synthesis (11.1), typed edit operators (11.5,
+  pin-safe) and the DesignHypothesis lifecycle (11.2). `entelechy study` runs the
+  whole loop on the simulated helpdesk: baseline → signed StudyPlan → structural
+  safety → one repair hypothesis with candidate accounting and rolling-validation
+  confirmation → holdout gate. (Exit: *Explainability* — every accepted mutation
+  has a DesignHypothesis with an experiment result.)
+
 Not yet implemented (later Phase 0 / Phase 2 per §21.2):
 
-- **Design Repair Engine** and DesignHypothesis lifecycle (`entelechy-design`) —
-  the piece that proposes candidates for the study driver to account and confirm.
+- **Failure clustering / analyzer** (`entelechy-failure`, §10) to propose
+  hypotheses automatically instead of the single hand-written H-1 in the demo.
 - **Task synthesis** (Phase 2); Phase 0 tasks are hand-authored seeds (Q2), with
   the contamination detector already available to gate any generated tasks.
 - Crash-injection conformance for the simulator's write tools (RS-1, §8.5).
-- The hand-authored GoalSpec / EvalContract / seed tasks wired into a runnable
-  end-to-end study (the Objective Compiler arrives in Phase 2).
+- Routing candidate scoring through the real interpreter end to end; the study
+  demo uses a declared simulated environment (see `study.rs`) because the mock
+  model carries no semantic quality signal.
+- The **Objective Compiler** (Phase 2) — Phase 0 GoalSpec/EvalContract/seed tasks
+  are hand authored.
 
 ## Phase 0 effect journal (PRD §21)
 

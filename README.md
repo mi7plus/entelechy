@@ -25,6 +25,12 @@ cargo test --workspace
 # Run the bundled execute -> journal -> replay demo
 cargo run -p entelechy-cli -- demo --out ./entelechy-demo
 
+# Run a full Phase 0 study loop on the simulated helpdesk
+cargo run -p entelechy-cli -- study
+
+# Compile the EvalContract, check power, exercise the holdout gate + firewall
+cargo run -p entelechy-cli -- eval
+
 # Statically check a Design IR against the compiler invariants (PRD 7.4)
 cargo run -p entelechy-cli -- design --validate ./entelechy-demo/design.json
 

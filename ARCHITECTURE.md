@@ -22,7 +22,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | Scaffold |
 | `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | Scaffold |
 | `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | Scaffold |
-| `entelechy-design` | Initial synthesis, DesignHypothesis, patches, repair engine (§11) | Scaffold |
+| `entelechy-design` | Initial synthesis, DesignHypothesis, patches, repair engine (§11) | **Implemented** |
 | `entelechy-search` | Explorer strategies, archives, budgets, stopping rules (§11.7, §11.8) | **Implemented (study driver)** |
 | `entelechy-assurance` | Static assurance, holdout orchestration, SafetyCase (§14.1) | Scaffold |
 | `entelechy-release` | Release bundles, maturity state, promotion records (§14) | Scaffold |
@@ -91,8 +91,18 @@ entelechy requirements  # the §17.6 cross-cutting registry
   stopping rule (budget cap + a single non-binding futility check at half, no
   early stopping for success).
 
-Try it: `entelechy eval` builds the helpdesk contract, runs the power check,
-and exercises the holdout gate and its firewall.
+- **Design synthesis & repair (§11):** mandatory single-agent baseline synthesis
+  (11.1); typed edit operators (11.5) — change model, mutate prompt, set
+  temperature, add verify, delete node — applied as immutable patches that
+  respect pinned nodes (IR-I7); and the DesignHypothesis record (11.2) with the
+  Q3 rule that a low-confidence (diagnostic) hypothesis can never confidently
+  reject, only end inconclusive.
+
+Try it:
+- `entelechy eval` — the helpdesk contract, the power check and the holdout gate + firewall.
+- `entelechy study` — a full Phase 0 loop: baseline → signed StudyPlan → structural
+  safety → one repair hypothesis with candidate accounting and rolling-validation
+  confirmation → holdout gate, on the simulated helpdesk.
 
 ### Known limitations (tracked)
 
