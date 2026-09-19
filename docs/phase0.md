@@ -77,10 +77,17 @@ Implemented (the runtime substrate the exit criteria depend on):
   duplicate consequential effect at any transition (RS-1). Run it via step 5 of
   `entelechy demo`. (Exit: *Effect safety (minimal)*.)
 
+- **Failure intelligence** — `entelechy-failure` provides the ontology (10.1) and
+  an analyzer (10.2) that clusters failures, assigns calibrated class
+  distributions with an unresolved-cause state, maps classes to complexity levels
+  (11.4) and allocates budget by probability × impact with a high-entropy reserve
+  (Q3). Not yet wired into `entelechy study` (which still uses a single
+  hand-written H-1); doing so is the next integration step.
+
 Not yet implemented (later Phase 0 / Phase 2 per §21.2):
 
-- **Failure clustering / analyzer** (`entelechy-failure`, §10) to propose
-  hypotheses automatically instead of the single hand-written H-1 in the demo.
+- Wiring the analyzer's diagnoses into the study loop so hypotheses are proposed
+  from clustered evidence rather than hand-authored.
 - **Task synthesis** (Phase 2); Phase 0 tasks are hand-authored seeds (Q2), with
   the contamination detector already available to gate any generated tasks.
 - Crash-injection conformance for the simulator's write tools (RS-1, §8.5).

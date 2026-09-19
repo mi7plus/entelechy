@@ -9,3 +9,5 @@ repository.workspace = true
 description = "Failure ontology, clustering and causal evidence"
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

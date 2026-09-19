@@ -21,7 +21,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-policy` | Authority checks, Gate evaluation, policy adapter (§8.3, §5.4, Q6) | Scaffold |
 | `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | Scaffold |
 | `entelechy-capability` | Capability discovery & CapabilityGraph (§13.1) | Scaffold |
-| `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | Scaffold |
+| `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | **Implemented** |
 | `entelechy-design` | Initial synthesis, DesignHypothesis, patches, repair engine (§11) | **Implemented** |
 | `entelechy-search` | Explorer strategies, archives, budgets, stopping rules (§11.7, §11.8) | **Implemented (study driver)** |
 | `entelechy-assurance` | Static assurance, holdout orchestration, SafetyCase (§14.1) | Scaffold |
@@ -98,6 +98,13 @@ entelechy requirements  # the §17.6 cross-cutting registry
   Q3 rule that a low-confidence (diagnostic) hypothesis can never confidently
   reject, only end inconclusive.
 
+- **Failure intelligence (§10):** the versioned failure ontology (10.1); an
+  analyzer that clusters failed observations by structural signature, assigns a
+  calibrated class distribution with entropy and an unresolved-cause bucket,
+  distinguishes system from evaluation failure, and keeps low-confidence
+  diagnoses diagnostic-only (10.2, Q3); the class→complexity-level eligibility
+  map (11.4); and Q3 budget allocation (proportional to probability × impact with
+  a reserved share for high-entropy clusters, skipping evaluation-defect clusters).
 - **Effect safety (§7.6, §8.5, RS-1):** operation keys with logical attempts,
   the planned→authorized→dispatched→acknowledged→reconciled state machine over a
   durable write-ahead log, read-back reconciliation for idempotent/read-back
