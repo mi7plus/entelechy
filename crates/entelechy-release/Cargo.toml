@@ -9,3 +9,9 @@ repository.workspace = true
 description = "Release bundles, maturity state and promotion records"
 
 [dependencies]
+entelechy-artifacts = { workspace = true }
+entelechy-assurance = { workspace = true }
+entelechy-identity = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

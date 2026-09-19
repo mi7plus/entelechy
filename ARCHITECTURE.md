@@ -24,8 +24,8 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-failure` | Failure ontology, clustering, causal evidence (§10) | **Implemented** |
 | `entelechy-design` | Initial synthesis, DesignHypothesis, patches, repair engine (§11) | **Implemented** |
 | `entelechy-search` | Explorer strategies, archives, budgets, stopping rules (§11.7, §11.8) | **Implemented (study driver)** |
-| `entelechy-assurance` | Static assurance, holdout orchestration, SafetyCase (§14.1) | Scaffold |
-| `entelechy-release` | Release bundles, maturity state, promotion records (§14) | Scaffold |
+| `entelechy-assurance` | Static assurance, holdout orchestration, SafetyCase (§14.1) | **Implemented** |
+| `entelechy-release` | Release bundles, maturity state, promotion records (§14) | **Implemented** |
 | `entelechy-ops` | Online eval, drift, incidents, re-study triggers (§15) | Scaffold |
 | `entelechy-server` | API/server mode (§16.2) | Scaffold |
 | `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | **Implemented** |
@@ -123,6 +123,17 @@ entelechy requirements  # the §17.6 cross-cutting registry
   effects and reconciliation-required for the rest (Q16), and a crash-injection
   conformance suite proving no silent duplicate consequential effect at any
   transition. Surfaced as step 5 of `entelechy demo`.
+
+- **Assurance & release (§14):** an assurance compiler that runs static IR
+  validation and assembles a `SafetyCase` whose claims are supported per class
+  (structural→proof, behavioral→upper-bound test within epsilon, operational→cap,
+  PRD 5.6); the L0–L5 maturity ladder with monotonic promotion, holdout/negative-
+  goal blocking, recorded overrides (14.3), approval revalidation at promotion
+  that fails on any stale binding (14.5), and RB-2 rollback-readiness for L4/L5;
+  and a deployment controller with rollback/revocation whose stop authority is
+  separate from promote authority and whose auto-rollback triggers are declared
+  (14.6). The lifecycle state machine encodes Appendix A including reverse
+  transitions.
 
 Try it:
 - `entelechy eval` — the helpdesk contract, the power check and the holdout gate + firewall.

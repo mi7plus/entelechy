@@ -9,3 +9,7 @@ repository.workspace = true
 description = "Static assurance, holdout orchestration and SafetyCase"
 
 [dependencies]
+entelechy-ir = { workspace = true }
+entelechy-eval = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
