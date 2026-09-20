@@ -325,6 +325,56 @@ impl<'a> Engine<'a> {
             Err(Halt::Terminal(_)) => Ok(None),
         }
     }
+
+    /// Counterfactual replay (PRD 10.2, RK-8): replay recorded effects until the
+    /// `intervention_path` node, substitute `intervention_value` as that node's
+    /// output, then re-execute everything downstream live. Reports the divergence
+    /// point and the rollout count (a single rollout is weak causal evidence — the
+    /// failure analyzer treats it accordingly, PRD 10.2).
+    pub fn counterfactual(
+        &mut self,
+        program: &Program,
+        input: Value,
+        journal: &Journal,
+        intervention_path: &str,
+        intervention_value: Value,
+    ) -> CounterfactualResult {
+        let mut reader = JournalReader::new(journal);
+        let mut diverged = false;
+        let mut divergence_point: Option<String> = None;
+        let mut rollouts: u32 = 0;
+        let output = {
+            let mut mode = Mode::Counterfactual {
+                reader: &mut reader,
+                diverged: &mut diverged,
+                divergence_point: &mut divergence_point,
+                rollouts: &mut rollouts,
+                intervention_path,
+                intervention_value: &intervention_value,
+            };
+            exec_node(self, &program.root, "root", input, &mut mode).ok()
+        };
+        CounterfactualResult {
+            divergence_point,
+            rollouts,
+            diverged,
+            output,
+        }
+    }
+}
+
+/// The result of a counterfactual replay (PRD 10.2, RK-8).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CounterfactualResult {
+    /// The node at which execution diverged from the recording, if reached.
+    pub divergence_point: Option<String>,
+    /// Number of live re-executions after the divergence point. A single rollout
+    /// is weak evidence (PRD 10.2).
+    pub rollouts: u32,
+    /// Whether the intervention was reached and applied.
+    pub diverged: bool,
+    /// The counterfactual output value, if the run completed.
+    pub output: Option<Value>,
 }
 
 #[derive(Default)]
@@ -341,6 +391,16 @@ enum Mode<'m, 'j> {
     Replay {
         reader: &'m mut JournalReader<'j>,
         divergence: &'m mut Option<ReplayMismatch>,
+    },
+    /// Counterfactual replay (PRD 10.2, RK-8): consume recorded effects until the
+    /// intervention node, substitute its output, then re-execute live downstream.
+    Counterfactual {
+        reader: &'m mut JournalReader<'j>,
+        diverged: &'m mut bool,
+        divergence_point: &'m mut Option<String>,
+        rollouts: &'m mut u32,
+        intervention_path: &'m str,
+        intervention_value: &'m Value,
     },
 }
 
@@ -386,6 +446,24 @@ fn exec_node(
     value: Value,
     mode: &mut Mode,
 ) -> Result<Value, Halt> {
+    // Counterfactual intervention (PRD 10.2): at the intervention node, substitute
+    // its output and diverge; the subtree is not executed and everything after
+    // runs live.
+    if let Mode::Counterfactual {
+        diverged,
+        divergence_point,
+        intervention_path,
+        intervention_value,
+        ..
+    } = mode
+    {
+        if !**diverged && *intervention_path == path {
+            **diverged = true;
+            **divergence_point = Some(path.to_string());
+            return Ok((**intervention_value).clone());
+        }
+    }
+
     match &node.kind {
         NodeKind::Seq(children) => {
             let mut cur = value;
@@ -500,6 +578,13 @@ fn exec_node(
                         divergence.get_or_insert(d);
                     }
                 }
+                Mode::Counterfactual { reader, diverged, .. } => {
+                    // Before divergence, follow the recorded decision; after, the
+                    // gate is evaluated live (no journal consumed).
+                    if !**diverged {
+                        let _ = reader.next_for(path);
+                    }
+                }
             }
             if allowed {
                 // Downstream of an opened gate, the value is declassified for
@@ -587,6 +672,30 @@ fn exec_node(
                         Ok(Value::tainted(serde_json::json!({ "text": "" })))
                     }
                 },
+                Mode::Counterfactual { reader, diverged, rollouts, .. } => {
+                    if **diverged {
+                        // Live re-execution downstream of the divergence (RK-8).
+                        **rollouts += 1;
+                        match engine.model.infer(&request) {
+                            Ok(response) => Ok(egress_output(
+                                serde_json::json!({ "text": response.text }),
+                                &value.meta,
+                            )),
+                            Err(e) => Err(Halt::Terminal(RunStatus::Failed {
+                                node_path: path.to_string(),
+                                reason: FailureReason::ModelError(e.to_string()),
+                            })),
+                        }
+                    } else {
+                        match reader.next_for(path) {
+                            Ok(JournalEvent::ModelCall { response, .. }) => Ok(egress_output(
+                                serde_json::json!({ "text": response.text }),
+                                &value.meta,
+                            )),
+                            _ => Ok(egress_output(serde_json::json!({ "text": "" }), &value.meta)),
+                        }
+                    }
+                }
             }
         }
         NodeKind::Tool(tool) => {
@@ -655,6 +764,31 @@ fn exec_node(
                         Ok(Value::tainted(serde_json::Value::Null))
                     }
                 },
+                Mode::Counterfactual { reader, diverged, rollouts, .. } => {
+                    if **diverged {
+                        // Live re-execution downstream of the divergence (RK-8).
+                        **rollouts += 1;
+                        let call = ToolCall {
+                            capability: tool.capability.clone(),
+                            args: merge_args(&tool.args, &value.data),
+                            operation_key,
+                        };
+                        match engine.tools.call(&call) {
+                            Ok(response) => Ok(egress_output(response, &value.meta)),
+                            Err(e) => Err(Halt::Terminal(RunStatus::Failed {
+                                node_path: path.to_string(),
+                                reason: FailureReason::ToolError(e.to_string()),
+                            })),
+                        }
+                    } else {
+                        match reader.next_for(path) {
+                            Ok(JournalEvent::ToolEffect { response, .. }) => {
+                                Ok(egress_output(response.clone(), &value.meta))
+                            }
+                            _ => Ok(Value::tainted(serde_json::Value::Null)),
+                        }
+                    }
+                }
             }
         }
     }
@@ -664,6 +798,7 @@ fn journal_run_id(mode: &Mode) -> String {
     match mode {
         Mode::Execute { journal, .. } => journal.run_id.clone(),
         Mode::Replay { .. } => "replay".to_string(),
+        Mode::Counterfactual { .. } => "counterfactual".to_string(),
     }
 }
 
@@ -964,6 +1099,54 @@ mod tests {
             }
             other => panic!("expected PolicyDenied at node b, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn counterfactual_diverges_and_reexecutes_live() {
+        use entelechy_ir::{Condition, GateNode, LlmNode, ToolNode};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        tools.register("draft_reply", |_| Ok(serde_json::json!({ "reply": "hi" })));
+        let mut e = Engine::new(&model, &mut tools);
+        e.register_code("route_ticket", |v| {
+            let text = v.data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            Ok(serde_json::json!({ "text": text, "may_reply": !text.contains("refund") }))
+        });
+        e.register_checker("reply_nonempty", |v| {
+            v.data.get("reply").and_then(|r| r.as_str()).map(|s| !s.is_empty()).unwrap_or(false)
+        });
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new("classify", NodeKind::Llm(LlmNode { model: "mock".into(), prompt_template: "{input}".into(), temperature: 0.0 })),
+                    Node::new("route", NodeKind::Code(CodeNode { function: "route_ticket".into() })),
+                    Node::new("gate", NodeKind::Gate(GateNode { policy: "allow_draft".into(), condition: Condition::Truthy { field: "may_reply".into() }, requires_approval: false })),
+                    Node::new("draft", NodeKind::Tool(ToolNode { capability: "draft_reply".into(), args: serde_json::Value::Null })),
+                    Node::new("verify", NodeKind::Verify(VerifyNode { checker: "reply_nonempty".into() })),
+                ]),
+            ),
+        );
+
+        let run = e.execute(&prog, Value::trusted(serde_json::json!({})), "cf-run");
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+
+        // Counterfactual: what if `classify` had produced a non-refund ticket?
+        let cf = e.counterfactual(
+            &prog,
+            Value::trusted(serde_json::json!({})),
+            &run.journal,
+            "root/0:classify",
+            Value::tainted(serde_json::json!({ "text": "hello" })),
+        );
+        assert!(cf.diverged);
+        assert_eq!(cf.divergence_point.as_deref(), Some("root/0:classify"));
+        // The draft tool re-executes live downstream of the divergence.
+        assert!(cf.rollouts >= 1, "expected >=1 rollout, got {}", cf.rollouts);
+        assert!(cf.output.is_some());
     }
 
     #[test]

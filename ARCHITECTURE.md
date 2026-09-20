@@ -72,7 +72,10 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   policy decisions; deterministic replay (§8.2) that reports a divergence point
   (RK-8); typed terminal states — Succeeded / Failed(typed) / BudgetExhausted /
   ReconciliationRequired (§8.6); budget exhaustion as a typed terminal (not a
-  model failure).
+  model failure). Counterfactual replay (§10.2/RK-8) replays recorded effects up
+  to an intervention node, substitutes its output, then re-executes downstream
+  live, reporting the divergence point and rollout count (a single rollout is
+  weak causal evidence).
 - **Gateways (§8.3):** `ModelGateway`/`ToolGateway` traits; a deterministic
   `MockModel` for replay & the quickstart (Q7); provider identity captured on
   every call (PV-1).
