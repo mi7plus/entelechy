@@ -11,10 +11,14 @@
 //! runtime + `entelechy-eval` to produce outcomes.
 #![forbid(unsafe_code)]
 
+pub mod explorer;
+
 use serde::{Deserialize, Serialize};
 
 use entelechy_bench::{StoppingRule, StudyPlan};
 use entelechy_eval::paired_comparison;
+
+pub use explorer::{level_description, ArchitectureExplorer, UnlockDecision, MAX_LEVEL};
 
 /// The decision for a proposed mutation (PRD 11.2 result field, EV-13).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

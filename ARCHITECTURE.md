@@ -115,7 +115,11 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   rolling-validation acceptance rule (accept only if a change wins on tune *and*
   is confirmed on validation, else revert as inconclusive), and the Phase 0
   stopping rule (budget cap + a single non-binding futility check at half, no
-  early stopping for success).
+  early stopping for success). The **Architecture Explorer** (§11.4/Q4) decides
+  hierarchical complexity unlocks: it unlocks the next evidence-justified level
+  automatically only within the GoalSpec complexity ceiling, remaining budget and
+  authority; anything above the ceiling or that adds authority needs approval;
+  levels are a prior, not a strict ladder, so a failure class can justify a jump.
 
 - **Design synthesis & repair (§11):** mandatory single-agent baseline synthesis
   (11.1); typed edit operators (11.5) — change model, mutate prompt, set
