@@ -94,7 +94,10 @@ entelechy requirements  # the §17.6 cross-cutting registry
   firewall (EV-14/EL-1/§9.6) — design/search identities are refused, responses
   are coarse pass/fail with an interval, and every query is audited; plus LLM-free
   retrieval metrics — recall@k, precision@k, MRR and nDCG@k (MK-4) — for tuning
-  retrieval before spending model budget.
+  retrieval before spending model budget; and adversarial generation (EV-6) that
+  derives injection/tool-failure/ambiguity/timeout/scope-violation variants of a
+  seed task with source lineage and Q2 split discipline (holdout only after human
+  review).
 - **Traceability (§17.5/§17.6):** the 27 cross-cutting requirement IDs as data,
   with verification owner and first-enforced phase.
 

@@ -9,6 +9,7 @@
 //! the audited, budgeted [`HoldoutVault`] gate (EV-14).
 #![forbid(unsafe_code)]
 
+pub mod adversarial;
 pub mod checker;
 pub mod contract;
 pub mod holdout;
@@ -16,6 +17,7 @@ pub mod retrieval;
 pub mod stats;
 pub mod task;
 
+pub use adversarial::{generate_variant, generate_variants, AdversarialKind};
 pub use checker::{CheckOutcome, Checker, CheckerKind, CheckerRegistry, Programmatic};
 pub use contract::{
     ConstraintClass, EvalContract, NegativeGoal, PowerWarning, ReleaseRule, SplitPolicy,
