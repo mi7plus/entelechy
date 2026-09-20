@@ -35,6 +35,11 @@ cargo run -p entelechy-cli -- eval
 cargo run -p entelechy-cli -- assure
 cargo run -p entelechy-cli -- release
 
+# Serve the local HTTP API (loopback only), then curl it
+cargo run -p entelechy-cli -- serve --port 8787
+# curl -s -XPOST http://127.0.0.1:8787/v1/status \
+#   -H 'Authorization: Bearer local-dev-token' -H 'X-Protocol-Version: 1.0' -d '{}'
+
 # Statically check a Design IR against the compiler invariants (PRD 7.4)
 cargo run -p entelechy-cli -- design --validate ./entelechy-demo/design.json
 

@@ -49,6 +49,7 @@ entelechy-search = { path = "crates/entelechy-search" }
 entelechy-assurance = { path = "crates/entelechy-assurance" }
 entelechy-release = { path = "crates/entelechy-release" }
 entelechy-ops = { path = "crates/entelechy-ops" }
+entelechy-server = { path = "crates/entelechy-server" }
 entelechy-identity = { path = "crates/entelechy-identity" }
 entelechy-effects = { path = "crates/entelechy-effects" }
 entelechy-bench = { path = "crates/entelechy-bench" }

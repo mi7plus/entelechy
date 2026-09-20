@@ -16,7 +16,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-gateway` | Model/tool gateways, provider identity capture, deterministic mock model (§8.3, §5.10, §7.5) | **Implemented** |
 | `entelechy-runtime` | Interpreter, append-only journal, deterministic replay, typed terminal states (§8) | **Implemented** |
 | `entelechy-contracts` | Normative requirement registry & traceability (§17.5, §17.6) | **Implemented** |
-| `entelechy-cli` | Local CLI workflow (§16.1) | **Implemented (core commands)** |
+| `entelechy-cli` | Local CLI workflow (§16.1) | **Implemented (all §16.1 commands)** |
 | `entelechy-eval` | Tasks, checkers, statistics, split discipline, holdout gate (§9) | **Implemented** |
 | `entelechy-policy` | Authority checks, Gate evaluation, policy adapter (§8.3, §5.4, Q6) | **Implemented** |
 | `entelechy-objective` | Objective interview & GoalSpec compiler (§5.5) | **Implemented** |
@@ -27,7 +27,7 @@ PRD and records what is implemented versus scaffolded.
 | `entelechy-assurance` | Static assurance, holdout orchestration, SafetyCase (§14.1) | **Implemented** |
 | `entelechy-release` | Release bundles, maturity state, promotion records (§14) | **Implemented** |
 | `entelechy-ops` | Online eval, drift, incidents, re-study triggers (§15) | **Implemented** |
-| `entelechy-server` | API/server mode (§16.2) | **Implemented (core)** |
+| `entelechy-server` | API/server mode (§16.2) | **Implemented** |
 | `entelechy-identity` | Principals, authn context, approval signatures, SoD (§5.8, §17.2) | **Implemented** |
 | `entelechy-effects` | Effect taxonomy, operation keys, transactional state machine, reconciliation (§7.6, §8.5) | **Implemented** |
 | `entelechy-bench` | Benchmark provenance, split lineage, contamination, manifests (§9.5, §21.1) | **Implemented** |
@@ -51,7 +51,7 @@ entelechy diff          # structural IR diff, pinned-node aware (§16.2)
 entelechy assure        # assurance compiler + SafetyCase (§14.1)
 entelechy release       # build a bundle, promote L0->L2 through the gate (§14)
 entelechy requirements  # the §17.6 cross-cutting registry
-# planned: serve (HTTP transport over the entelechy-server dispatcher, §16.2)
+entelechy serve         # local HTTP API over the dispatcher (loopback only, §16.2)
 ```
 
 ### What is real
@@ -180,10 +180,13 @@ entelechy requirements  # the §17.6 cross-cutting registry
   (OP-3), incidents converted to permanent regression tasks (OP-4/EV-12), bounded
   re-studies that never auto-promote (OP-5), and per-scope quotas with hard stops
   enforced outside model output (OP-7).
-- **Server core (§16.2):** a transport-independent API dispatcher that fails
-  closed on unsupported protocol (PC-1), authenticates with fail-closed expiry
-  (AU-1), and enforces per-operation authorization separately from authentication
-  (17.2) — the core a future HTTP/gRPC layer wraps.
+- **Server & HTTP transport (§16.2, Q30):** a transport-independent API
+  dispatcher that fails closed on unsupported protocol (PC-1), authenticates with
+  fail-closed expiry (AU-1), and enforces per-operation authorization separately
+  from authentication (17.2); plus a dependency-free `std::net` HTTP/1.1 layer
+  (`HttpServer`) that maps `POST /v1/<operation>` to the dispatcher with
+  loopback-only bearer dev tokens (Q30), machine-readable JSON errors and correct
+  status codes (400/401/403/404/500). `entelechy serve` runs it.
 
 All 21 workspace crates are now implemented at Phase-0 / early-Phase-1 depth
 (134 tests). Later phases deepen them (e.g. real HTTP transport, Cedar policy

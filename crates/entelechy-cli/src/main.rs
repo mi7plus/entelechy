@@ -62,8 +62,12 @@ enum Command {
     Assure,
     /// Manage releases (Phase 4).
     Release,
-    /// Serve the API (Phase 4; entelechy-server).
-    Serve,
+    /// Serve the local HTTP API (loopback only, dev token).
+    Serve {
+        /// Port to bind on 127.0.0.1 (0 picks an ephemeral port).
+        #[arg(long, default_value_t = 8787)]
+        port: u16,
+    },
     /// List the normative requirement registry (PRD 17.6).
     Requirements,
     /// Run the bundled end-to-end demo: execute, journal and replay.
@@ -90,14 +94,8 @@ fn main() -> anyhow::Result<()> {
         Command::Diff { old, new } => cmd_diff(old, new),
         Command::Assure => release::cmd_assure(),
         Command::Release => release::cmd_release(),
-        Command::Serve => planned("serve", "Phase 4 (entelechy-server, PRD 16.2)"),
+        Command::Serve { port } => cmd_serve(port),
     }
-}
-
-fn planned(name: &str, phase: &str) -> anyhow::Result<()> {
-    println!("`entelechy {name}` is planned for {phase}.");
-    println!("This workspace currently implements the Phase 0/1 core: run `entelechy demo`.");
-    Ok(())
 }
 
 fn cmd_init() -> anyhow::Result<()> {
@@ -148,6 +146,46 @@ fn cmd_diff(old: Option<String>, new: Option<String>) -> anyhow::Result<()> {
     if has_pinned_conflict(&diffs) {
         println!("WARNING: a pinned node changed — a merge must not overwrite it (IR-I7).");
     }
+    Ok(())
+}
+
+fn cmd_serve(port: u16) -> anyhow::Result<()> {
+    use entelechy_identity::{Principal, PrincipalKind};
+    use entelechy_protocol::{ProtocolVersion, VersionRange};
+    use entelechy_server::{ApiServer, HttpServer};
+
+    let mut api = ApiServer::new(VersionRange::new(
+        ProtocolVersion::new(1, 0),
+        ProtocolVersion::new(1, 0),
+    ));
+    // A couple of read-only operations any authenticated principal may call.
+    api.register(
+        "status",
+        |_p| true,
+        |p, _payload| Ok(serde_json::json!({ "status": "ok", "principal": p.id })),
+    );
+    api.register(
+        "requirements",
+        |_p| true,
+        |_p, _payload| {
+            Ok(serde_json::json!({ "requirement_count": entelechy_contracts::REGISTRY.len() }))
+        },
+    );
+
+    let mut server = HttpServer::new(api);
+    // Loopback-only development token (PRD Q30); server modes use OIDC/mTLS.
+    let token = "local-dev-token";
+    server.add_dev_token(token, Principal::new("local", PrincipalKind::Operator));
+
+    let listener = HttpServer::bind_local(port)?;
+    let addr = listener.local_addr()?;
+    println!("Entelechy API serving on http://{addr} (loopback only, PRD 16.2/Q30).");
+    println!("Dev token: {token}");
+    println!(
+        "Try: curl -s -XPOST http://{addr}/v1/status -H 'Authorization: Bearer {token}' -H 'X-Protocol-Version: 1.0' -d '{{}}'"
+    );
+    println!("Ctrl-C to stop.");
+    server.serve(&listener)?;
     Ok(())
 }
 

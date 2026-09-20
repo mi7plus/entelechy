@@ -13,10 +13,14 @@
 //! dispatcher; "UI actions map to API operations" (PRD 16.2).
 #![forbid(unsafe_code)]
 
+pub mod http;
+
 use std::collections::BTreeMap;
 
 use entelechy_identity::{AuthContext, Principal, TimeSource};
 use entelechy_protocol::{ProtocolVersion, VersionRange};
+
+pub use http::{HttpServer, SystemClock};
 
 /// An API request (PRD 16.2). Authentication context is explicit on every
 /// request (PRD 17.2).
