@@ -12,6 +12,7 @@
 pub mod checker;
 pub mod contract;
 pub mod holdout;
+pub mod retrieval;
 pub mod stats;
 pub mod task;
 
@@ -21,6 +22,9 @@ pub use contract::{
 };
 pub use holdout::{
     AuditEntry, CallerIdentity, GateResponse, HoldoutVault, InformationClass, Plane, VaultError,
+};
+pub use retrieval::{
+    mean_reciprocal_rank, ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank,
 };
 pub use stats::{
     min_detectable_effect_pp, negative_goal_passes, paired_comparison, rule_of_three,

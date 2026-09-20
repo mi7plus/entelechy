@@ -92,7 +92,9 @@ entelechy requirements  # the §17.6 cross-cutting registry
   risk-class epsilon defaults (Q11), and the §9.4 minimum-detectable-effect
   table; the audited, budgeted `HoldoutVault` gate with the identity leakage
   firewall (EV-14/EL-1/§9.6) — design/search identities are refused, responses
-  are coarse pass/fail with an interval, and every query is audited.
+  are coarse pass/fail with an interval, and every query is audited; plus LLM-free
+  retrieval metrics — recall@k, precision@k, MRR and nDCG@k (MK-4) — for tuning
+  retrieval before spending model budget.
 - **Traceability (§17.5/§17.6):** the 27 cross-cutting requirement IDs as data,
   with verification owner and first-enforced phase.
 
