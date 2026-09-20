@@ -134,8 +134,13 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   at the boundary — forbidden/ungranted capability denial (IR-I2), network-scope
   egress checks, provider approval by data classification (Q19/7.5), IR-I3
   tainted→privileged denial without a Gate, and approval/two-person obligations
-  for consequential and irreversible effects (5.4) — behind a `PolicyEngine`
-  adapter trait, with recorded decisions and a versioned `PolicySnapshot`.
+  for consequential and irreversible effects (5.4). The semantic core (taint,
+  egress routing, network scope, obligations) is shared; a backend only supplies
+  the capability decision behind the `PolicyEngine` trait. A second backend, a
+  Cedar-style `RuleAdapter` (permit/forbid with forbid-overrides and default deny,
+  Q6), demonstrates the adapter boundary and still honors the shared core — the
+  real `cedar-policy` crate would slot in the same way. Decisions are recorded and
+  the `PolicySnapshot` is versioned.
 - **Identity & approvals (§5.8, §17.2, §14.5):** principals with the meta-layer
   "no runtime authority" rule (11.9); an authentication context whose credential
   expiry and uncertain-clock both fail closed (AU-1/AU-3); hash-bound approval

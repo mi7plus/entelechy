@@ -11,9 +11,12 @@
 //! adapters behind [`PolicyEngine`] and never define the semantics (Q6).
 #![forbid(unsafe_code)]
 
+pub mod adapter;
 pub mod provider;
 
 use serde::{Deserialize, Serialize};
+
+pub use adapter::{Effect, Match, Rule, RuleAdapter};
 
 use entelechy_ir::{AuthorityEnvelope, EffectClass, Taint};
 
@@ -46,7 +49,7 @@ pub struct Decision {
 }
 
 impl Decision {
-    fn deny(reason: impl Into<String>, version: u32) -> Self {
+    pub(crate) fn deny(reason: impl Into<String>, version: u32) -> Self {
         Self {
             allowed: false,
             reason: reason.into(),
@@ -116,68 +119,86 @@ impl PolicyEngine for NativePolicy {
         snapshot: &PolicySnapshot,
         req: &PolicyRequest,
     ) -> Decision {
-        let v = snapshot.version;
+        // The native core's capability decision: forbidden loses, otherwise the
+        // capability must be granted (PRD 5.4, A1/IR-I2).
+        let capability = if authority.forbidden_capabilities.contains(&req.capability) {
+            Err(format!("capability '{}' is forbidden", req.capability))
+        } else if !authority.allows_capability(&req.capability) {
+            Err(format!("capability '{}' not in AuthorityEnvelope", req.capability))
+        } else {
+            Ok(())
+        };
+        finish_decision(capability, authority, snapshot, req)
+    }
+}
 
-        // 1. Forbidden capability always loses (PRD 5.4).
-        if authority.forbidden_capabilities.contains(&req.capability) {
-            return Decision::deny(format!("capability '{}' is forbidden", req.capability), v);
-        }
-        // 2. Capability must be granted (A1 / IR-I2).
-        if !authority.allows_capability(&req.capability) {
-            return Decision::deny(
-                format!("capability '{}' not in AuthorityEnvelope", req.capability),
-                v,
-            );
-        }
-        // 3. Network scope for egress (PRD 5.4 network scopes).
-        if let Some(host) = &req.egress_host {
-            if !authority.network_scopes.contains(host) {
-                return Decision::deny(format!("egress host '{host}' not in network scopes"), v);
-            }
-        }
-        // 4. Model/egress confidentiality routing (PRD 7.5, IR-I9, Q19).
-        if matches!(req.effect_class, EffectClass::External) {
-            if let Some(class) = &req.data_classification {
-                let provider = req.provider.as_deref().unwrap_or("");
-                if !snapshot.provider_approval.is_approved(class, provider) {
-                    return Decision::deny(
-                        format!(
-                            "provider '{provider}' not approved for classification '{class}' (Q19)"
-                        ),
-                        v,
-                    );
-                }
-            }
-        }
+/// Compose a capability decision with the shared core semantics every backend
+/// must honor (PRD Q6: the native core defines the semantics, adapters supply the
+/// capability decision). Applies network-scope, egress-routing and taint denials,
+/// then attaches approval/irreversibility obligations.
+pub(crate) fn finish_decision(
+    capability: Result<(), String>,
+    authority: &AuthorityEnvelope,
+    snapshot: &PolicySnapshot,
+    req: &PolicyRequest,
+) -> Decision {
+    let v = snapshot.version;
+    if let Err(reason) = capability {
+        return Decision::deny(reason, v);
+    }
+    if let Some(reason) = semantic_denial(authority, snapshot, req) {
+        return Decision::deny(reason, v);
+    }
+    Decision {
+        allowed: true,
+        reason: "authorized".into(),
+        obligations: semantic_obligations(authority, req),
+        snapshot_version: v,
+    }
+}
 
-        let mut obligations = Vec::new();
-
-        // 5. Tainted input must have crossed a Gate before a privileged effect
-        //    (IR-I3). Deny if not satisfied.
-        if req.taint == Taint::Tainted && req.effect_class.is_consequential() && !req.gate_satisfied
-        {
-            return Decision::deny(
-                "tainted value reaches a consequential effect without a Gate (IR-I3)",
-                v,
-            );
-        }
-
-        // 6. Approval obligations for consequential effects (PRD 5.4).
-        if req.effect_class.is_consequential() && authority.approval_required_for_writes {
-            obligations.push(Obligation::RequireApproval);
-        }
-        // 7. Irreversible effects escalate to two-person approval (PRD 5.4).
-        if matches!(req.effect_class, EffectClass::Irreversible) {
-            obligations.push(Obligation::RequireTwoPersonApproval);
-        }
-
-        Decision {
-            allowed: true,
-            reason: "authorized".into(),
-            obligations,
-            snapshot_version: v,
+/// Hard denials mandated by the core semantics regardless of the capability rule:
+/// network scope (5.4), egress confidentiality routing (7.5/IR-I9/Q19) and taint
+/// reaching a privileged effect without a Gate (IR-I3).
+pub(crate) fn semantic_denial(
+    authority: &AuthorityEnvelope,
+    snapshot: &PolicySnapshot,
+    req: &PolicyRequest,
+) -> Option<String> {
+    if let Some(host) = &req.egress_host {
+        if !authority.network_scopes.contains(host) {
+            return Some(format!("egress host '{host}' not in network scopes"));
         }
     }
+    if matches!(req.effect_class, EffectClass::External) {
+        if let Some(class) = &req.data_classification {
+            let provider = req.provider.as_deref().unwrap_or("");
+            if !snapshot.provider_approval.is_approved(class, provider) {
+                return Some(format!(
+                    "provider '{provider}' not approved for classification '{class}' (Q19)"
+                ));
+            }
+        }
+    }
+    if req.taint == Taint::Tainted && req.effect_class.is_consequential() && !req.gate_satisfied {
+        return Some("tainted value reaches a consequential effect without a Gate (IR-I3)".into());
+    }
+    None
+}
+
+/// Obligations the core attaches to an authorized consequential effect (PRD 5.4).
+pub(crate) fn semantic_obligations(
+    authority: &AuthorityEnvelope,
+    req: &PolicyRequest,
+) -> Vec<Obligation> {
+    let mut obligations = Vec::new();
+    if req.effect_class.is_consequential() && authority.approval_required_for_writes {
+        obligations.push(Obligation::RequireApproval);
+    }
+    if matches!(req.effect_class, EffectClass::Irreversible) {
+        obligations.push(Obligation::RequireTwoPersonApproval);
+    }
+    obligations
 }
 
 /// An append-only log of policy decisions recorded at effect boundaries (PRD 8.3).
