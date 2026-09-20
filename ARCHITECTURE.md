@@ -100,7 +100,9 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   retrieval before spending model budget; and adversarial generation (EV-6) that
   derives injection/tool-failure/ambiguity/timeout/scope-violation variants of a
   seed task with source lineage and Q2 split discipline (holdout only after human
-  review).
+  review); and judge-ensemble calibration (EV-7/EV-16/EV-17) — majority verdict
+  with agreement, judge–human agreement and Cohen's κ, per-class precision/recall
+  for the failure analyzer, and self-preference-bias measurement.
 - **Traceability (§17.5/§17.6):** the 27 cross-cutting requirement IDs as data,
   with verification owner and first-enforced phase.
 

@@ -13,6 +13,7 @@ pub mod adversarial;
 pub mod checker;
 pub mod contract;
 pub mod holdout;
+pub mod judge;
 pub mod retrieval;
 pub mod stats;
 pub mod task;
@@ -24,6 +25,9 @@ pub use contract::{
 };
 pub use holdout::{
     AuditEntry, CallerIdentity, GateResponse, HoldoutVault, InformationClass, Plane, VaultError,
+};
+pub use judge::{
+    agreement_rate, cohens_kappa, ensemble, precision_recall, self_preference_bias, EnsembleVerdict,
 };
 pub use retrieval::{
     mean_reciprocal_rank, ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank,
