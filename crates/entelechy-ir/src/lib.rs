@@ -19,8 +19,8 @@ pub use authority::AuthorityEnvelope;
 pub use effect::{AttestationLevel, EffectClass, EffectMetadata};
 pub use invariants::{validate, CapabilityCatalog, Violation};
 pub use node::{
-    CodeNode, Condition, GateNode, HumanNode, LlmNode, MemNode, MemOp, Node, NodeKind, Program,
-    ToolNode, VerifyNode,
+    CodeNode, Condition, GateNode, HumanNode, LlmNode, MemNode, MemOp, MemoryTier, Node, NodeKind,
+    Program, ToolNode, VerifyNode,
 };
 pub use value::{Confidentiality, Taint, Value, ValueMeta, VerificationState};
 

@@ -11,8 +11,11 @@
 #![forbid(unsafe_code)]
 
 pub mod journal;
+pub mod memory;
 
 use std::collections::HashMap;
+
+pub use memory::TieredMemory;
 
 use entelechy_gateway::{ModelGateway, ModelRequest, ToolCall, ToolGateway};
 use entelechy_ir::{
@@ -135,7 +138,7 @@ pub struct Engine<'a> {
     tools: &'a mut dyn ToolGateway,
     checkers: HashMap<String, CheckerFn>,
     code: HashMap<String, CodeFn>,
-    memory: HashMap<String, Value>,
+    memory: TieredMemory,
     budget: Budget,
     policy: Option<PolicyConfig>,
     policy_decisions: DecisionLog,
@@ -149,7 +152,7 @@ impl<'a> Engine<'a> {
             tools,
             checkers: HashMap::new(),
             code: HashMap::new(),
-            memory: HashMap::new(),
+            memory: TieredMemory::new(),
             budget: Budget::default(),
             policy: None,
             policy_decisions: DecisionLog::new(),
@@ -602,11 +605,11 @@ fn exec_node(
         NodeKind::Mem(mem) => match mem.op {
             MemOp::Read => Ok(engine
                 .memory
-                .get(&mem.key)
+                .read(mem.tier, &mem.key)
                 .cloned()
                 .unwrap_or_else(|| Value::trusted(serde_json::Value::Null))),
             MemOp::Write => {
-                engine.memory.insert(mem.key.clone(), value.clone());
+                engine.memory.write(mem.tier, mem.key.clone(), value.clone());
                 Ok(value)
             }
         },

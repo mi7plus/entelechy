@@ -144,6 +144,10 @@ pub struct MemNode {
     pub op: MemOp,
     /// Memory key.
     pub key: String,
+    /// The memory tier this node addresses (PRD 12, MK-2). Defaults to working
+    /// memory so existing IR remains valid.
+    #[serde(default)]
+    pub tier: MemoryTier,
 }
 
 /// Memory operation.
@@ -154,6 +158,23 @@ pub enum MemOp {
     Read,
     /// Write the current value to memory.
     Write,
+}
+
+/// Memory tiers (PRD 12, MK-2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MemoryTier {
+    /// Short-lived scratch memory for the current run (the default).
+    #[default]
+    Working,
+    /// Episodic memory: records of past runs/interactions.
+    Episodic,
+    /// Semantic memory: durable facts and knowledge.
+    Semantic,
+    /// Shared blackboard: memory shared between coordinating agents.
+    SharedBlackboard,
+    /// Procedural memory: learned skills and procedures.
+    Procedural,
 }
 
 /// A gate node (PRD 7.3): evaluates a condition against evidence/policy and

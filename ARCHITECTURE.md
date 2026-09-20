@@ -79,6 +79,11 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
 - **Gateways (§8.3):** `ModelGateway`/`ToolGateway` traits; a deterministic
   `MockModel` for replay & the quickstart (Q7); provider identity captured on
   every call (PV-1).
+- **Memory tiers & context assembly (§12):** the runtime's `Mem` nodes address
+  five tiers — working, episodic, semantic, shared-blackboard, procedural (MK-2);
+  `TieredMemory` preserves each value's provenance and taint envelope across
+  read/write (MK-7) and assembles a context within a token budget by progressive
+  disclosure (MK-1).
 - **Policy-enforced execution (§8.3, §7.5):** when a runtime is given a
   `PolicyConfig`, every consequential tool effect is authorized at its boundary
   before dispatch (forbidden/ungranted → typed `PolicyDenied`; IR-I3
