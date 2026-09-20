@@ -2,3 +2,6 @@
 Cargo.lock
 /entelechy-demo
 *.pdb
+
+# gstack/forge session artifacts
+.forge/
