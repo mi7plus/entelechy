@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use entelechy_gateway::{ModelGateway, ModelRequest, ToolCall, ToolGateway};
 use entelechy_ir::{
     AuthorityEnvelope, Condition, Confidentiality, EffectMetadata, MemOp, Node, NodeKind, Program,
-    Taint, Value,
+    Taint, Value, ValueMeta,
 };
 use entelechy_policy::{Decision, DecisionLog, PolicyEngine, PolicyRequest, PolicySnapshot};
 
@@ -370,6 +370,15 @@ fn initial_input() -> Value {
     Value::trusted(serde_json::json!({}))
 }
 
+/// Build a tainted egress output that inherits the input's confidentiality labels
+/// (PRD 7.5: an output inherits the union of its input labels unless a Verify or
+/// declassification policy lowers it).
+fn egress_output(data: serde_json::Value, from: &ValueMeta) -> Value {
+    let mut v = Value::tainted(data);
+    v.meta.confidentiality = from.confidentiality.clone();
+    v
+}
+
 fn exec_node(
     engine: &mut Engine,
     node: &Node,
@@ -553,7 +562,7 @@ fn exec_node(
                         Ok(response) => {
                             let text = response.text.clone();
                             journal.append(path, JournalEvent::ModelCall { request, response });
-                            Ok(Value::tainted(serde_json::json!({ "text": text })))
+                            Ok(egress_output(serde_json::json!({ "text": text }), &value.meta))
                         }
                         Err(e) => Err(Halt::Terminal(RunStatus::Failed {
                             node_path: path.to_string(),
@@ -563,7 +572,7 @@ fn exec_node(
                 }
                 Mode::Replay { reader, divergence } => match reader.next_for(path) {
                     Ok(JournalEvent::ModelCall { response, .. }) => {
-                        Ok(Value::tainted(serde_json::json!({ "text": response.text })))
+                        Ok(egress_output(serde_json::json!({ "text": response.text }), &value.meta))
                     }
                     Ok(_) => {
                         divergence.get_or_insert(ReplayMismatch::Divergence {
@@ -621,7 +630,7 @@ fn exec_node(
                                     commit: CommitStatus::Committed,
                                 },
                             );
-                            Ok(Value::tainted(response))
+                            Ok(egress_output(response, &value.meta))
                         }
                         Err(e) => Err(Halt::Terminal(RunStatus::Failed {
                             node_path: path.to_string(),
@@ -631,7 +640,7 @@ fn exec_node(
                 }
                 Mode::Replay { reader, divergence } => match reader.next_for(path) {
                     Ok(JournalEvent::ToolEffect { response, .. }) => {
-                        Ok(Value::tainted(response.clone()))
+                        Ok(egress_output(response.clone(), &value.meta))
                     }
                     Ok(_) => {
                         divergence.get_or_insert(ReplayMismatch::Divergence {
@@ -909,6 +918,52 @@ mod tests {
         });
         let ok = e2.execute(&prog, input, "run-egress-2");
         assert_eq!(ok.status, RunStatus::Succeeded, "{:?}", ok.status);
+    }
+
+    #[test]
+    fn confidentiality_label_propagates_through_egress() {
+        use entelechy_ir::LlmNode;
+        use entelechy_policy::{NativePolicy, PolicySnapshot, ProviderApproval};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+
+        // Approve "pii" for the first model only. The label must carry from the
+        // first Llm's output into the second Llm's egress check (PRD 7.5).
+        let mut approval = ProviderApproval::new();
+        approval.approve("pii", "model-a");
+        let snapshot = PolicySnapshot { version: 1, provider_approval: approval };
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new("a", NodeKind::Llm(LlmNode { model: "model-a".into(), prompt_template: "{input}".into(), temperature: 0.0 })),
+                    Node::new("b", NodeKind::Llm(LlmNode { model: "model-b".into(), prompt_template: "{input}".into(), temperature: 0.0 })),
+                ]),
+            ),
+        );
+
+        let mut input = Value::trusted(serde_json::json!({}));
+        input.meta.confidentiality.insert("pii".into());
+
+        let mut e = Engine::new(&model, &mut tools).with_policy(PolicyConfig {
+            engine: Box::new(NativePolicy::new()),
+            authority: AuthorityEnvelope::empty(),
+            snapshot,
+            catalog: HashMap::new(),
+            principal: "runtime".into(),
+        });
+        let r = e.execute(&prog, input, "run-prop");
+        // First node passes (model-a approved for pii); second fails because the
+        // label propagated and model-b is not approved.
+        match r.status {
+            RunStatus::Failed { node_path, reason: FailureReason::PolicyDenied(_) } => {
+                assert!(node_path.contains(":b"), "expected failure at node b, got {node_path}");
+            }
+            other => panic!("expected PolicyDenied at node b, got {other:?}"),
+        }
     }
 
     #[test]
