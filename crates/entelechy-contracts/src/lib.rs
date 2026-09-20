@@ -10,7 +10,11 @@
 //! the types a CI traceability check (TR-1) consumes.
 #![forbid(unsafe_code)]
 
+pub mod traceability;
+
 use serde::{Deserialize, Serialize};
+
+pub use traceability::{Gap, GapReason, TraceabilityIndex, VerificationRecord, Waiver};
 
 /// A lifecycle phase (PRD section 21).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

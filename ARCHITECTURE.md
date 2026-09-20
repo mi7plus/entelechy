@@ -108,8 +108,12 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   review); and judge-ensemble calibration (EV-7/EV-16/EV-17) — majority verdict
   with agreement, judge–human agreement and Cohen's κ, per-class precision/recall
   for the failure analyzer, and self-preference-bias measurement.
-- **Traceability (§17.5/§17.6):** the 27 cross-cutting requirement IDs as data,
-  with verification owner and first-enforced phase.
+- **Traceability (§17.5/§17.6, TR-1):** the 27 cross-cutting requirement IDs as
+  data, with verification owner and first-enforced phase; plus a
+  `TraceabilityIndex` linking requirements to verification artifacts and last
+  passing version, expiring/scoped waivers (a static-proof requirement is
+  non-waivable — a waiver never launders a failed safety proof), and phase-gate
+  gap detection that a CI check fails on.
 
 - **Benchmark governance (§9.5, §21.1):** `BenchmarkManifest` with per-task
   provenance and split lineage and a sealed set of holdout content hashes
