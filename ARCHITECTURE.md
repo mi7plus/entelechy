@@ -216,10 +216,11 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   inferred assumption (OC-4), the constrained-optimization / lexicographic /
   human-choice selection policy (5.7), and immutable content-addressed sign-off
   that refuses an unfalsifiable ledger and detects new lineage branches (OC-8).
-- **Operations (§15):** drift detection with a z-shift statistic and evidence
-  (OP-3), incidents converted to permanent regression tasks (OP-4/EV-12), bounded
-  re-studies that never auto-promote (OP-5), and per-scope quotas with hard stops
-  enforced outside model output (OP-7).
+- **Operations (§15):** deterministic online-eval sampling and user-feedback
+  ingestion with a satisfaction rate (OP-2), drift detection with a z-shift
+  statistic and evidence (OP-3), incidents converted to permanent regression tasks
+  (OP-4/EV-12), bounded re-studies that never auto-promote (OP-5), and per-scope
+  quotas with hard stops enforced outside model output (OP-7).
 - **Server & HTTP transport (§16.2, Q30):** a transport-independent API
   dispatcher that fails closed on unsupported protocol (PC-1), authenticates with
   fail-closed expiry (AU-1), and enforces per-operation authorization separately

@@ -9,6 +9,80 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Deterministically decide whether a run is sampled for online evaluation at the
+/// given rate (PRD OP-2: online sampled evaluation). Uses a hash of the run id so
+/// the decision is stable and reproducible for a given id.
+pub fn sample_for_eval(run_id: &str, rate: f64) -> bool {
+    if rate <= 0.0 {
+        return false;
+    }
+    if rate >= 1.0 {
+        return true;
+    }
+    // FNV-1a over the run id -> a fraction in [0,1).
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in run_id.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    let fraction = (h % 1_000_000) as f64 / 1_000_000.0;
+    fraction < rate
+}
+
+/// A unit of ingested user feedback for a run (PRD OP-2).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Feedback {
+    /// The run the feedback concerns.
+    pub run_id: String,
+    /// Whether the outcome was satisfactory.
+    pub positive: bool,
+    /// Optional free-text note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// A store of ingested user feedback (PRD OP-2). Feeds regression coverage and
+/// re-study triggers; it does not itself promote anything.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct FeedbackStore {
+    items: Vec<Feedback>,
+}
+
+impl FeedbackStore {
+    /// Create an empty store.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Ingest a feedback item.
+    pub fn ingest(&mut self, feedback: Feedback) {
+        self.items.push(feedback);
+    }
+    /// Number of feedback items.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+    /// Whether the store is empty.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+    /// Fraction of positive feedback in `[0,1]` (1.0 when empty).
+    pub fn satisfaction_rate(&self) -> f64 {
+        if self.items.is_empty() {
+            return 1.0;
+        }
+        let pos = self.items.iter().filter(|f| f.positive).count();
+        pos as f64 / self.items.len() as f64
+    }
+    /// Run ids with negative feedback — candidates for incident/regression capture.
+    pub fn negative_run_ids(&self) -> Vec<String> {
+        self.items
+            .iter()
+            .filter(|f| !f.positive)
+            .map(|f| f.run_id.clone())
+            .collect()
+    }
+}
+
 /// The kind of signal a drift event concerns (PRD OP-3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -252,6 +326,27 @@ mod tests {
             evidence_ref: "drift://cost".into(),
         };
         assert!(!rs.auto_promotes());
+    }
+
+    #[test]
+    fn online_sampling_is_deterministic_and_rate_sensitive() {
+        // Deterministic for a given id.
+        assert_eq!(sample_for_eval("run-1", 0.5), sample_for_eval("run-1", 0.5));
+        // Extremes.
+        assert!(!sample_for_eval("run-1", 0.0));
+        assert!(sample_for_eval("run-1", 1.0));
+        // Over many ids, a ~50% rate samples a middling fraction.
+        let sampled = (0..1000).filter(|i| sample_for_eval(&format!("run-{i}"), 0.5)).count();
+        assert!((400..600).contains(&sampled), "sampled={sampled}");
+    }
+
+    #[test]
+    fn feedback_store_aggregates() {
+        let mut fb = FeedbackStore::new();
+        fb.ingest(Feedback { run_id: "a".into(), positive: true, note: None });
+        fb.ingest(Feedback { run_id: "b".into(), positive: false, note: Some("wrong answer".into()) });
+        assert!((fb.satisfaction_rate() - 0.5).abs() < 1e-9);
+        assert_eq!(fb.negative_run_ids(), vec!["b".to_string()]);
     }
 
     #[test]
