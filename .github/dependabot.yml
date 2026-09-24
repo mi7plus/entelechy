@@ -31,10 +31,12 @@ updates:
       - "dependencies"
       - "rust"
     open-pull-requests-limit: 5
-    # Group routine bumps: non-breaking (patch/minor) together, majors separate
-    # so a breaking change gets its own reviewable PR.
+    # Lockfile-only: update Cargo.lock to newer compatible versions without
+    # touching the manifests' version requirements. The committed Cargo.lock is
+    # the source of truth for these updates.
+    versioning-strategy: "lockfile-only"
+    # One grouped PR for routine lockfile bumps.
     groups:
-      cargo-minor:
-        update-types:
-          - "minor"
-          - "patch"
+      cargo:
+        patterns:
+          - "*"
