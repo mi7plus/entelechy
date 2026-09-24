@@ -13,12 +13,14 @@
 mod canonical;
 mod erasure;
 mod id;
+mod metadata;
 mod platform;
 mod store;
 
 pub use canonical::{serialize_canonical, to_canonical_bytes};
 pub use erasure::ErasureLedger;
 pub use id::{ArtifactId, DigestAlgorithm, IdParseError};
+pub use metadata::{Event, InMemoryMetadataStore, MetadataStore};
 pub use platform::{DeploymentProfile, EvidenceState, RecoveryObjectives};
 pub use store::{BlobStore, InMemoryStore, StoreError};
 

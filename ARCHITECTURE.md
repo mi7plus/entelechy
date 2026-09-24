@@ -64,7 +64,11 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   (Q24), HA claim and restore-drill requirement; an `EvidenceState` that blocks
   promotion after partial loss (DR-3); and an `ErasureLedger` (crypto-shredding
   tombstones) whose erasures survive restore and mark affected replays incomplete
-  (§17/Q14/DR-2).
+  (§17/Q14/DR-2). A `MetadataStore` trait (SQLite local / Postgres cluster) holds
+  mutable product state as append-only, tenant-scoped events plus artifact-version
+  lookup (§17/§17.2); the `BlobStore` covers content-addressed blobs (S3 in
+  cluster) — both are the control-plane storage backends a cluster deployment
+  swaps for durable implementations.
 - **IR (§7):** node model (Llm/Tool/Code/Seq/Par/Map/Branch/Loop/Delegate/Verify/
   Mem/Gate/Human), value envelope with taint (§7.5) and confidentiality labels,
   effect taxonomy (§7.6) with conservative defaults for unknown effects (CD-7),
