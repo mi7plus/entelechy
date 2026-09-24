@@ -9,12 +9,16 @@
 #![forbid(unsafe_code)]
 
 pub mod model;
+#[cfg(feature = "openai")]
+pub mod openai;
 pub mod sandbox;
 pub mod tool;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
 pub use model::{MockModel, ModelError, ModelGateway, ModelRequest, ModelResponse, ProviderIdentity};
+#[cfg(feature = "openai")]
+pub use openai::{OpenAiConfig, OpenAiGateway};
 pub use sandbox::{
     isolation_for, HostError, Isolation, LoadedPlugin, PluginHost, RiskLevel, SandboxEngine,
     SandboxError, SandboxScope,

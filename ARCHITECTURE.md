@@ -87,7 +87,11 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   weak causal evidence).
 - **Gateways (§8.3):** `ModelGateway`/`ToolGateway` traits; a deterministic
   `MockModel` for replay & the quickstart (Q7); provider identity captured on
-  every call (PV-1).
+  every call (PV-1). An OpenAI-compatible `OpenAiGateway` (optional `openai`
+  feature, dependency-free `std::net`) drives **self-hosted open-source models** —
+  Ollama, vLLM, llama.cpp, LM Studio, LocalAI — over their `/v1/chat/completions`
+  API, capturing the served model and `system_fingerprint` as provider identity
+  (5.10). Run it via `entelechy infer --features openai`.
 - **Plugin host & sandbox (§16.3, §8.3, TS-2/TS-3):** a `PluginHost` loads a
   plugin only when every capability its manifest declares is operator-granted
   (fails closed otherwise), and a `LoadedPlugin` may invoke *only* its declared

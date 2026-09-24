@@ -35,6 +35,12 @@ cargo run -p entelechy-cli -- eval
 cargo run -p entelechy-cli -- assure
 cargo run -p entelechy-cli -- release
 
+# Talk to a self-hosted open-source model (Ollama/vLLM/llama.cpp/LM Studio)
+#   ollama serve && ollama pull llama3.1
+cargo run -p entelechy-cli --features openai -- infer --model llama3.1
+#   vLLM:      --base-url http://localhost:8000/v1 --api-key <token>
+#   llama.cpp: --base-url http://localhost:8080/v1
+
 # Serve the local HTTP API (loopback only), then curl it
 cargo run -p entelechy-cli -- serve --port 8787
 # curl -s -XPOST http://127.0.0.1:8787/v1/status \

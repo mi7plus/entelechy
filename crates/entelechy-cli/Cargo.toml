@@ -36,3 +36,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
+
+[features]
+# Enable `entelechy infer` against a self-hosted OpenAI-compatible model (Q7).
+openai = ["entelechy-gateway/openai"]

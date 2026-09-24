@@ -22,3 +22,7 @@ wasmtime = { version = "34.0.2", default-features = false, features = ["runtime"
 # Real WASM execution engine for the sandbox (PRD 8.3/16.3). Off by default so the
 # core workspace stays lean; enable with `--features wasm`.
 wasm = ["dep:wasmtime"]
+# OpenAI-compatible model gateway for self-hosted OSS models (Ollama/vLLM/
+# llama.cpp/LM Studio/LocalAI). Dependency-free (std::net); enable with
+# `--features openai`.
+openai = []

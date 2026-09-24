@@ -68,6 +68,23 @@ enum Command {
         #[arg(long, default_value_t = 8787)]
         port: u16,
     },
+    /// Run one inference against a self-hosted OpenAI-compatible model (Q7).
+    /// Requires the `openai` feature: `cargo run -p entelechy-cli --features openai`.
+    #[cfg(feature = "openai")]
+    Infer {
+        /// Endpoint base URL (Ollama 11434, vLLM 8000, llama.cpp 8080, LM Studio 1234).
+        #[arg(long, default_value = "http://localhost:11434/v1")]
+        base_url: String,
+        /// Model name as the server knows it (e.g. `llama3.1`).
+        #[arg(long)]
+        model: String,
+        /// Prompt to send.
+        #[arg(long, default_value = "Say hello in exactly five words.")]
+        prompt: String,
+        /// Optional bearer token (vLLM/LocalAI); omit for Ollama.
+        #[arg(long)]
+        api_key: Option<String>,
+    },
     /// List the normative requirement registry (PRD 17.6).
     Requirements,
     /// Run the bundled end-to-end demo: execute, journal and replay.
@@ -83,6 +100,8 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Init => cmd_init(),
         Command::Requirements => cmd_requirements(),
+        #[cfg(feature = "openai")]
+        Command::Infer { base_url, model, prompt, api_key } => cmd_infer(base_url, model, prompt, api_key),
         Command::Design { validate } => cmd_design(validate),
         Command::Demo { out } => cmd_demo(&out),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
@@ -147,6 +166,39 @@ fn cmd_diff(old: Option<String>, new: Option<String>) -> anyhow::Result<()> {
         println!("WARNING: a pinned node changed — a merge must not overwrite it (IR-I7).");
     }
     Ok(())
+}
+
+#[cfg(feature = "openai")]
+fn cmd_infer(base_url: String, model: String, prompt: String, api_key: Option<String>) -> anyhow::Result<()> {
+    use entelechy_gateway::{ModelGateway, ModelRequest, OpenAiGateway};
+
+    let gateway = OpenAiGateway::new(&base_url, api_key);
+    let req = ModelRequest { model, prompt, temperature: 0.0 };
+    println!("Calling {base_url} (self-hosted OpenAI-compatible)...");
+    match gateway.infer(&req) {
+        Ok(resp) => {
+            println!("\n{}\n", resp.text);
+            let id = resp.identity;
+            println!(
+                "[provider={} model={} endpoint={} revision={}]",
+                id.provider,
+                id.advertised_model,
+                id.endpoint,
+                id.revision.as_deref().unwrap_or("-")
+            );
+        }
+        Err(e) => {
+            println!("inference failed: {e}");
+            println!("Is a model server running? e.g. `ollama serve` then `ollama pull {}`.",
+                req_model_hint());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "openai")]
+fn req_model_hint() -> &'static str {
+    "llama3.1"
 }
 
 fn cmd_serve(port: u16) -> anyhow::Result<()> {
