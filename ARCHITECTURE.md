@@ -95,6 +95,14 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   instantiate — no ambient authority) and **fuel-bounded** execution (an infinite
   loop is trapped). Build/test it with `cargo test -p entelechy-gateway --features
   wasm`; the core workspace stays lean with the feature off.
+- **Cluster execution (§17, §17.4, RK-1):** a `WorkQueue` boundary with an
+  in-process reference queue providing visibility leases and at-least-once
+  redelivery (an unacked, lease-expired item is redelivered — safe because effects
+  carry operation keys), priority-based load shedding that serves
+  reconciliation/revocation/safety-critical work before new optimization work
+  (17.4), and a bounded `WorkerPool` with graceful shutdown (RK-1). A
+  Redis/SQS/Postgres backend implements the same trait, as `wasmtime` does for the
+  sandbox.
 - **Memory tiers & context assembly (§12):** the runtime's `Mem` nodes address
   five tiers — working, episodic, semantic, shared-blackboard, procedural (MK-2);
   `TieredMemory` preserves each value's provenance and taint envelope across

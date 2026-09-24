@@ -10,11 +10,13 @@
 //! journal state (PRD 8.6).
 #![forbid(unsafe_code)]
 
+pub mod cluster;
 pub mod journal;
 pub mod memory;
 
 use std::collections::HashMap;
 
+pub use cluster::{InMemoryQueue, LeasedItem, Priority, WorkItem, WorkQueue, WorkerPool};
 pub use memory::TieredMemory;
 
 use entelechy_gateway::{ModelGateway, ModelRequest, ToolCall, ToolGateway};
