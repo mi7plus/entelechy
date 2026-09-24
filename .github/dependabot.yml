@@ -17,3 +17,24 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  # Keep the Rust dependencies of the Cargo workspace up to date (scans every
+  # member's Cargo.toml, including the optional wasmtime / native-tls backends).
+  # Each PR is gated by the SHA-pinned, licence-audited CI.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "rust"
+    open-pull-requests-limit: 5
+    # Group routine bumps: non-breaking (patch/minor) together, majors separate
+    # so a breaking change gets its own reviewable PR.
+    groups:
+      cargo-minor:
+        update-types:
+          - "minor"
+          - "patch"
