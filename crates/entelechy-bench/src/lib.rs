@@ -14,7 +14,12 @@
 pub mod contamination;
 pub mod manifest;
 pub mod studyplan;
+pub mod synthesis;
 
 pub use contamination::{assess, cosine, ngram_jaccard, normalize, normalized_hash, Contamination};
 pub use manifest::{BenchmarkManifest, CrossSplitFinding, ManifestEntry};
 pub use studyplan::{StoppingRule, StudyPlan};
+pub use synthesis::{
+    admit_candidates, check_seed_set, parse_generated_tasks, ModelTaskGenerator, SeedDeficiency,
+    SynthesisError,
+};

@@ -11,6 +11,7 @@ description = "Benchmark provenance, split lineage, contamination checks and ben
 [dependencies]
 entelechy-artifacts = { workspace = true }
 entelechy-eval = { workspace = true }
+entelechy-gateway = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

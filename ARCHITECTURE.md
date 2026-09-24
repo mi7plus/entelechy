@@ -162,6 +162,13 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   hashing, word-trigram Jaccard, embedding cosine with the Q18 thresholds); and
   the signed `StudyPlan` pre-registration whose content hash is its commitment,
   so any post-hoc change is detectably material (§21.1).
+- **Task synthesis (§EV-3, Q2, §9.5, EV-17):** model-driven generation of task
+  variations from human seeds via any `ModelGateway` (including the self-hosted
+  `OpenAiGateway`), governed by Q2 seed gating (≥30 seeds, ≥3 per criterion /
+  negative goal, ≥5 adversarial before synthetic expansion), §9.5 contamination
+  admission (near-duplicates of existing tasks are rejected), and split discipline
+  (synthetic tasks never enter the holdout directly). Generated tasks carry
+  `Synthetic` provenance and source lineage.
 - **Study driver (§21.1, EV-13):** candidate accounting that counts every
   evaluated candidate against the budget (no hidden trials), the
   rolling-validation acceptance rule (accept only if a change wins on tune *and*
