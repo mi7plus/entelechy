@@ -167,7 +167,9 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   expiry and uncertain-clock both fail closed (AU-1/AU-3); hash-bound approval
   signatures that revalidate at promotion and go `Stale` on any material change
   (14.5/Q17), `Expired`, `Revoked` or `BadSignature`; a key ring with rotation
-  and revocation where revoked keys can't sign (AU-2); and separation of duties.
+  and revocation where revoked keys can't sign (AU-2); separation of duties; and a
+  hash-chained, append-only `AuditLog` (§17.2) where tampering with any past entry
+  breaks the chain and an externally-held periodic anchor detects a full rewrite.
 - **Failure intelligence (§10):** the versioned failure ontology (10.1); an
   analyzer that clusters failed observations by structural signature, assigns a
   calibrated class distribution with entropy and an unresolved-cause bucket,

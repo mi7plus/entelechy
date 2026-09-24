@@ -8,12 +8,14 @@
 //! Q30 (short-lived credentials).
 #![forbid(unsafe_code)]
 
+pub mod audit;
 pub mod keyring;
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub use audit::{AuditEntry, AuditLog};
 pub use keyring::KeyRing;
 
 /// The kind of principal (PRD 5.8).
