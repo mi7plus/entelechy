@@ -148,11 +148,28 @@ pub fn parse_chat_response(body: &str) -> Result<ChatParsed, ModelError> {
     })
 }
 
-/// Parse an `http://host[:port]/path` URL into `(host, port, path)`.
-pub fn parse_http_url(url: &str) -> Result<(String, u16, String), ModelError> {
-    let rest = url
-        .strip_prefix("http://")
-        .ok_or_else(|| ModelError::Provider(format!("only http:// endpoints are supported (got '{url}'); use a TLS build for https")))?;
+/// A parsed endpoint URL.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Url {
+    /// `http` or `https`.
+    pub scheme: String,
+    /// Host.
+    pub host: String,
+    /// Port (defaults: 80 for http, 443 for https).
+    pub port: u16,
+    /// Request path.
+    pub path: String,
+}
+
+/// Parse an `http(s)://host[:port]/path` URL.
+pub fn parse_url(url: &str) -> Result<Url, ModelError> {
+    let (scheme, rest, default_port) = if let Some(r) = url.strip_prefix("https://") {
+        ("https", r, 443u16)
+    } else if let Some(r) = url.strip_prefix("http://") {
+        ("http", r, 80u16)
+    } else {
+        return Err(ModelError::Provider(format!("URL must be http:// or https:// (got '{url}')")));
+    };
     let (authority, path) = match rest.find('/') {
         Some(i) => (&rest[..i], &rest[i..]),
         None => (rest, "/"),
@@ -162,26 +179,56 @@ pub fn parse_http_url(url: &str) -> Result<(String, u16, String), ModelError> {
             h.to_string(),
             p.parse::<u16>().map_err(|_| ModelError::Provider(format!("bad port in '{authority}'")))?,
         ),
-        None => (authority.to_string(), 80),
+        None => (authority.to_string(), default_port),
     };
     if host.is_empty() {
         return Err(ModelError::Provider("empty host in URL".into()));
     }
-    Ok((host, port, path.to_string()))
+    Ok(Url { scheme: scheme.into(), host, port, path: path.to_string() })
 }
 
-/// POST a JSON body to an `http://` URL and return the response body (PRD Q7).
+/// Read+Write transport (a plain TCP stream, or a TLS stream over one).
+trait ReadWrite: Read + Write {}
+impl<T: Read + Write> ReadWrite for T {}
+
+/// Open a transport for the URL. `https` requires the `openai-tls` feature.
+fn connect(url: &Url, timeout: Duration) -> Result<Box<dyn ReadWrite>, ModelError> {
+    let tcp = TcpStream::connect((url.host.as_str(), url.port))
+        .map_err(|e| ModelError::Provider(format!("connect {}:{} failed: {e}", url.host, url.port)))?;
+    tcp.set_read_timeout(Some(timeout)).ok();
+    tcp.set_write_timeout(Some(timeout)).ok();
+
+    if url.scheme == "https" {
+        #[cfg(feature = "openai-tls")]
+        {
+            let connector = native_tls::TlsConnector::new()
+                .map_err(|e| ModelError::Provider(format!("TLS init failed: {e}")))?;
+            let stream = connector
+                .connect(&url.host, tcp)
+                .map_err(|e| ModelError::Provider(format!("TLS handshake with {} failed: {e}", url.host)))?;
+            return Ok(Box::new(stream));
+        }
+        #[cfg(not(feature = "openai-tls"))]
+        {
+            return Err(ModelError::Provider(
+                "https endpoints require the `openai-tls` feature; self-hosted http:// works without it".into(),
+            ));
+        }
+    }
+    Ok(Box::new(tcp))
+}
+
+/// POST a JSON body to an `http(s)://` URL and return the response body (PRD Q7).
 fn http_post_json(
     url: &str,
     api_key: Option<&str>,
     body: &str,
     timeout: Duration,
 ) -> Result<String, ModelError> {
-    let (host, port, path) = parse_http_url(url)?;
-    let mut stream = TcpStream::connect((host.as_str(), port))
-        .map_err(|e| ModelError::Provider(format!("connect {host}:{port} failed: {e}")))?;
-    stream.set_read_timeout(Some(timeout)).ok();
-    stream.set_write_timeout(Some(timeout)).ok();
+    let parsed = parse_url(url)?;
+    let mut stream = connect(&parsed, timeout)?;
+    let host = &parsed.host;
+    let path = &parsed.path;
 
     let mut auth = String::new();
     if let Some(key) = api_key {
@@ -285,14 +332,26 @@ mod tests {
 
     #[test]
     fn parses_endpoint_urls() {
-        assert_eq!(
-            parse_http_url("http://localhost:11434/v1/chat/completions").unwrap(),
-            ("localhost".into(), 11434, "/v1/chat/completions".into())
-        );
-        // Default port 80 when omitted.
-        assert_eq!(parse_http_url("http://model.local/v1").unwrap(), ("model.local".into(), 80, "/v1".into()));
-        // https is refused (needs a TLS build).
-        assert!(parse_http_url("https://api.openai.com/v1").is_err());
+        let u = parse_url("http://localhost:11434/v1/chat/completions").unwrap();
+        assert_eq!((u.scheme.as_str(), u.host.as_str(), u.port, u.path.as_str()), ("http", "localhost", 11434, "/v1/chat/completions"));
+        // Default ports by scheme.
+        assert_eq!(parse_url("http://model.local/v1").unwrap().port, 80);
+        let https = parse_url("https://api.openai.com/v1").unwrap();
+        assert_eq!((https.scheme.as_str(), https.port), ("https", 443));
+        // Unknown scheme is rejected.
+        assert!(parse_url("ftp://x/y").is_err());
+    }
+
+    #[cfg(not(feature = "openai-tls"))]
+    #[test]
+    fn https_requires_the_tls_feature() {
+        // Without openai-tls, an https call fails fast (before any TCP connect)
+        // with a clear message; self-hosted http:// works without it.
+        let gw = OpenAiGateway::new("https://api.openai.com/v1", Some("sk-x".into()));
+        let err = gw
+            .infer(&ModelRequest { model: "gpt".into(), prompt: "hi".into(), temperature: 0.0 })
+            .unwrap_err();
+        assert!(format!("{err}").contains("openai-tls"), "{err}");
     }
 
     #[test]

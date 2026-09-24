@@ -17,6 +17,7 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 wasmtime = { version = "34.0.2", default-features = false, features = ["runtime", "cranelift", "wat"], optional = true }
+native-tls = { version = "0.2.18", optional = true }
 
 [features]
 # Real WASM execution engine for the sandbox (PRD 8.3/16.3). Off by default so the
@@ -26,3 +27,7 @@ wasm = ["dep:wasmtime"]
 # llama.cpp/LM Studio/LocalAI). Dependency-free (std::net); enable with
 # `--features openai`.
 openai = []
+# Adds a TLS transport so the OpenAI-compatible gateway can reach hosted https://
+# providers as well as self-hosted http:// ones. Uses the platform TLS stack
+# (schannel/Secure Transport/openssl) via native-tls.
+openai-tls = ["openai", "dep:native-tls"]

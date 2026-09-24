@@ -40,6 +40,7 @@ cargo run -p entelechy-cli -- release
 cargo run -p entelechy-cli --features openai -- infer --model llama3.1
 #   vLLM:      --base-url http://localhost:8000/v1 --api-key <token>
 #   llama.cpp: --base-url http://localhost:8080/v1
+#   hosted https provider (adds TLS): --features openai-tls --base-url https://... --api-key <token>
 
 # Serve the local HTTP API (loopback only), then curl it
 cargo run -p entelechy-cli -- serve --port 8787

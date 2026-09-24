@@ -40,3 +40,5 @@ anyhow = { workspace = true }
 [features]
 # Enable `entelechy infer` against a self-hosted OpenAI-compatible model (Q7).
 openai = ["entelechy-gateway/openai"]
+# Also reach hosted https:// providers (adds a TLS transport).
+openai-tls = ["openai", "entelechy-gateway/openai-tls"]
