@@ -99,6 +99,15 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   instantiate — no ambient authority) and **fuel-bounded** execution (an infinite
   loop is trapped). Build/test it with `cargo test -p entelechy-gateway --features
   wasm`; the core workspace stays lean with the feature off.
+- **Codegen backend & conformance (§21 Phase 4, Q10):** `CompiledPlan::compile`
+  lowers a linear IR program to a flat op list (a real compilation step distinct
+  from the tree-walking interpreter); `Engine::run_compiled` executes it;
+  `observable_equivalent` checks interpreter-vs-codegen conformance (the
+  runtime/codegen-divergence mitigation); and `CodegenEvidence::codegen_eligible`
+  encodes the Q10 promotion gate (100% conformance, ≥1000 identical replays, no
+  holdout regression, ≥30% p95/cost win on ≥3 objectives) — the interpreter stays
+  the production runtime until all are met. Unsupported IR shapes are refused, so
+  the interpreter remains the fallback.
 - **Cluster execution (§17, §17.4, RK-1):** a `WorkQueue` boundary with an
   in-process reference queue providing visibility leases and at-least-once
   redelivery (an unacked, lease-expired item is redelivered — safe because effects
