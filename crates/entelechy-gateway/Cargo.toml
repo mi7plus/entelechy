@@ -10,6 +10,7 @@ description = "Model/tool/secret gateway traits and adapters, including provider
 
 [dependencies]
 entelechy-ir = { workspace = true }
+entelechy-protocol = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

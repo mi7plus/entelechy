@@ -79,6 +79,13 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
 - **Gateways (§8.3):** `ModelGateway`/`ToolGateway` traits; a deterministic
   `MockModel` for replay & the quickstart (Q7); provider identity captured on
   every call (PV-1).
+- **Plugin host & sandbox (§16.3, §8.3, TS-2/TS-3):** a `PluginHost` loads a
+  plugin only when every capability its manifest declares is operator-granted
+  (fails closed otherwise), and a `LoadedPlugin` may invoke *only* its declared
+  capabilities — a call outside scope is denied even if the `ToolGateway` has it
+  registered, so plugins **never receive ambient authority**. Isolation
+  (WASM/container/microVM) is chosen by risk class; a real `wasmtime` engine would
+  plug in behind this boundary without changing the authority model.
 - **Memory tiers & context assembly (§12):** the runtime's `Mem` nodes address
   five tiers — working, episodic, semantic, shared-blackboard, procedural (MK-2);
   `TieredMemory` preserves each value's provenance and taint envelope across

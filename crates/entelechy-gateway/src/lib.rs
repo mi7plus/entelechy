@@ -9,7 +9,12 @@
 #![forbid(unsafe_code)]
 
 pub mod model;
+pub mod sandbox;
 pub mod tool;
 
 pub use model::{MockModel, ModelError, ModelGateway, ModelRequest, ModelResponse, ProviderIdentity};
+pub use sandbox::{
+    isolation_for, HostError, Isolation, LoadedPlugin, PluginHost, RiskLevel, SandboxError,
+    SandboxScope,
+};
 pub use tool::{NativeToolGateway, ToolCall, ToolError, ToolGateway};
