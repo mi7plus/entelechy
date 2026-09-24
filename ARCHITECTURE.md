@@ -192,7 +192,10 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   effects are untrusted hints — unattested capabilities take the conservative
   external+irreversible default and are denied write authority; operator
   attestations expire after 90 days or on any version change; plus gap analysis
-  (CD-4) and drift events (CD-6).
+  (CD-4) and drift events (CD-6). Tool-synthesis governance (§13.2, TS-3/TS-4): a
+  `GeneratedTool` is eligible for a consequential effect only with unit + property
+  tests, static and dependency scans, and approval; `ToolVersions` carries
+  provenance and supports rollback.
 - **Protocol compatibility (§16.6, PC-1/2/3, Q29):** highest-common version
   negotiation that fails closed on no overlap (PC-1), a secure-negotiation path
   that refuses to silently drop a required security guarantee unless the operator

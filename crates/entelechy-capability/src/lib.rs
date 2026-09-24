@@ -11,11 +11,15 @@
 //! no write authority and needs human approval for any call at L3 or above (Q13).
 #![forbid(unsafe_code)]
 
+pub mod synthesis;
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use entelechy_ir::{AttestationLevel, EffectClass, EffectMetadata};
+
+pub use synthesis::{GeneratedTool, ToolChecks, ToolVersions, VersionError};
 
 /// How long an operator attestation remains valid (PRD Q13: 90 days).
 pub const ATTESTATION_TTL_SECS: u64 = 90 * 24 * 60 * 60;
