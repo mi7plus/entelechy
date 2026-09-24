@@ -76,7 +76,7 @@ pub enum HostError {
     },
 }
 
-/// Errors from invoking a plugin capability.
+/// Errors from invoking a plugin capability or executing sandboxed code.
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {
     /// The capability is outside the plugin's declared scope (PRD 16.3).
@@ -85,6 +85,13 @@ pub enum SandboxError {
     /// The underlying tool failed.
     #[error(transparent)]
     Tool(#[from] ToolError),
+    /// The sandboxed code failed to load, instantiate or run.
+    #[error("sandbox execution error: {0}")]
+    Engine(String),
+    /// The sandboxed code exhausted its resource bound (e.g. fuel — bounds like
+    /// IR-I4/RK apply inside the sandbox too).
+    #[error("sandbox resource limit exceeded")]
+    ResourceExhausted,
 }
 
 /// A loaded plugin bound to its sandbox scope (PRD 16.3).
@@ -116,6 +123,18 @@ impl LoadedPlugin {
         }
         Ok(gateway.call(call)?)
     }
+}
+
+/// A sandbox execution engine (PRD 8.3): runs generated tool/plugin code inside a
+/// declared scope. The authority model is enforced by the caller/scope; an engine
+/// implementation (e.g. WASM via `wasmtime`, container, microVM) supplies the
+/// actual isolated execution and must not grant any authority beyond the scope.
+pub trait SandboxEngine {
+    /// Execute `code` within `scope`, passing a single integer argument and
+    /// returning a single integer result. This intentionally minimal contract is
+    /// enough to prove isolated, no-ambient-authority execution; richer byte/JSON
+    /// ABIs layer on top.
+    fn execute(&mut self, code: &[u8], scope: &SandboxScope, arg: i64) -> Result<i64, SandboxError>;
 }
 
 /// The plugin host: loads plugins under the no-ambient-authority contract (PRD

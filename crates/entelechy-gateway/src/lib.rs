@@ -11,10 +11,15 @@
 pub mod model;
 pub mod sandbox;
 pub mod tool;
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 pub use model::{MockModel, ModelError, ModelGateway, ModelRequest, ModelResponse, ProviderIdentity};
 pub use sandbox::{
-    isolation_for, HostError, Isolation, LoadedPlugin, PluginHost, RiskLevel, SandboxError,
-    SandboxScope,
+    isolation_for, HostError, Isolation, LoadedPlugin, PluginHost, RiskLevel, SandboxEngine,
+    SandboxError, SandboxScope,
 };
 pub use tool::{NativeToolGateway, ToolCall, ToolError, ToolGateway};
+
+#[cfg(feature = "wasm")]
+pub use wasm::WasmSandbox;

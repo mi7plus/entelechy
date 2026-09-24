@@ -89,8 +89,12 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   (fails closed otherwise), and a `LoadedPlugin` may invoke *only* its declared
   capabilities — a call outside scope is denied even if the `ToolGateway` has it
   registered, so plugins **never receive ambient authority**. Isolation
-  (WASM/container/microVM) is chosen by risk class; a real `wasmtime` engine would
-  plug in behind this boundary without changing the authority model.
+  (WASM/container/microVM) is chosen by risk class. A real `wasmtime` engine plugs
+  in behind the `SandboxEngine` trait under the optional `wasm` feature: it runs
+  guest WASM with an **empty linker** (a guest importing any host function fails to
+  instantiate — no ambient authority) and **fuel-bounded** execution (an infinite
+  loop is trapped). Build/test it with `cargo test -p entelechy-gateway --features
+  wasm`; the core workspace stays lean with the feature off.
 - **Memory tiers & context assembly (§12):** the runtime's `Mem` nodes address
   five tiers — working, episodic, semantic, shared-blackboard, procedural (MK-2);
   `TieredMemory` preserves each value's provenance and taint envelope across
