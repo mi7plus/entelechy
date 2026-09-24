@@ -64,7 +64,11 @@ impl KeyRing {
 
 fn mac(secret: &str, payload: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in secret.bytes().chain(std::iter::once(0u8)).chain(payload.iter().copied()) {
+    for b in secret
+        .bytes()
+        .chain(std::iter::once(0u8))
+        .chain(payload.iter().copied())
+    {
         h ^= b as u64;
         h = h.wrapping_mul(0x0000_0100_0000_01B3);
     }

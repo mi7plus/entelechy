@@ -24,19 +24,31 @@ pub struct EnsembleVerdict {
 pub fn ensemble(verdicts: &[bool]) -> EnsembleVerdict {
     let n = verdicts.len();
     if n == 0 {
-        return EnsembleVerdict { majority: false, agreement: 0.0, n: 0 };
+        return EnsembleVerdict {
+            majority: false,
+            agreement: 0.0,
+            n: 0,
+        };
     }
     let yes = verdicts.iter().filter(|v| **v).count();
     let no = n - yes;
     let majority = yes > no;
     let agreement = yes.max(no) as f64 / n as f64;
-    EnsembleVerdict { majority, agreement, n }
+    EnsembleVerdict {
+        majority,
+        agreement,
+        n,
+    }
 }
 
 /// Judge–human agreement rate: fraction of items where the judge matches the
 /// human label (EV-7). Vectors must be equal length.
 pub fn agreement_rate(judge: &[bool], human: &[bool]) -> f64 {
-    assert_eq!(judge.len(), human.len(), "agreement requires equal-length vectors");
+    assert_eq!(
+        judge.len(),
+        human.len(),
+        "agreement requires equal-length vectors"
+    );
     if judge.is_empty() {
         return 1.0;
     }
@@ -48,7 +60,11 @@ pub fn agreement_rate(judge: &[bool], human: &[bool]) -> f64 {
 /// (EV-7 calibration). 1.0 is perfect, 0.0 is chance-level, negative is worse
 /// than chance.
 pub fn cohens_kappa(judge: &[bool], human: &[bool]) -> f64 {
-    assert_eq!(judge.len(), human.len(), "kappa requires equal-length vectors");
+    assert_eq!(
+        judge.len(),
+        human.len(),
+        "kappa requires equal-length vectors"
+    );
     let n = judge.len() as f64;
     if n == 0.0 {
         return 1.0;
@@ -67,7 +83,11 @@ pub fn cohens_kappa(judge: &[bool], human: &[bool]) -> f64 {
 /// Per-class precision and recall of a binary predictor against ground truth
 /// (EV-16: evaluate the failure analyzer per class). Returns `(precision, recall)`.
 pub fn precision_recall(predicted: &[bool], actual: &[bool]) -> (f64, f64) {
-    assert_eq!(predicted.len(), actual.len(), "precision/recall need equal-length vectors");
+    assert_eq!(
+        predicted.len(),
+        actual.len(),
+        "precision/recall need equal-length vectors"
+    );
     let mut tp = 0.0;
     let mut fp = 0.0;
     let mut fn_ = 0.0;
@@ -80,7 +100,11 @@ pub fn precision_recall(predicted: &[bool], actual: &[bool]) -> (f64, f64) {
         }
     }
     let precision = if tp + fp == 0.0 { 1.0 } else { tp / (tp + fp) };
-    let recall = if tp + fn_ == 0.0 { 1.0 } else { tp / (tp + fn_) };
+    let recall = if tp + fn_ == 0.0 {
+        1.0
+    } else {
+        tp / (tp + fn_)
+    };
     (precision, recall)
 }
 

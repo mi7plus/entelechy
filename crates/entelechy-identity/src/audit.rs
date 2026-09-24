@@ -69,7 +69,12 @@ impl AuditLog {
 
     /// Append an entry, chaining in the current head (PRD 17.2). Returns the new
     /// head hash.
-    pub fn append(&mut self, principal: impl Into<String>, action: impl Into<String>, timestamp: u64) -> String {
+    pub fn append(
+        &mut self,
+        principal: impl Into<String>,
+        action: impl Into<String>,
+        timestamp: u64,
+    ) -> String {
         let seq = self.entries.len() as u64;
         let prev_hash = self.head();
         let principal = principal.into();

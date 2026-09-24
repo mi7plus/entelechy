@@ -116,7 +116,10 @@ mod tests {
 
     #[test]
     fn reciprocal_rank_finds_first_relevant() {
-        assert_eq!(reciprocal_rank(&ranked(&["x", "a", "b"]), &set(&["a"])), 0.5);
+        assert_eq!(
+            reciprocal_rank(&ranked(&["x", "a", "b"]), &set(&["a"])),
+            0.5
+        );
         assert_eq!(reciprocal_rank(&ranked(&["a"]), &set(&["a"])), 1.0);
         assert_eq!(reciprocal_rank(&ranked(&["x", "y"]), &set(&["a"])), 0.0);
     }
@@ -124,8 +127,8 @@ mod tests {
     #[test]
     fn mrr_averages() {
         let queries = vec![
-            (ranked(&["a", "x"]), set(&["a"])),  // rr 1.0
-            (ranked(&["x", "b"]), set(&["b"])),  // rr 0.5
+            (ranked(&["a", "x"]), set(&["a"])), // rr 1.0
+            (ranked(&["x", "b"]), set(&["b"])), // rr 0.5
         ];
         assert!((mean_reciprocal_rank(&queries) - 0.75).abs() < 1e-9);
     }

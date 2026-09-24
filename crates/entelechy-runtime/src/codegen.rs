@@ -106,11 +106,21 @@ fn lower(kind: &NodeKind) -> Result<CompiledStep, CompileError> {
             prompt_template: l.prompt_template.clone(),
             temperature: l.temperature,
         },
-        NodeKind::Code(c) => CompiledStep::Code { function: c.function.clone() },
-        NodeKind::Verify(v) => CompiledStep::Verify { checker: v.checker.clone() },
+        NodeKind::Code(c) => CompiledStep::Code {
+            function: c.function.clone(),
+        },
+        NodeKind::Verify(v) => CompiledStep::Verify {
+            checker: v.checker.clone(),
+        },
         NodeKind::Mem(m) => match m.op {
-            MemOp::Read => CompiledStep::MemRead { tier: m.tier, key: m.key.clone() },
-            MemOp::Write => CompiledStep::MemWrite { tier: m.tier, key: m.key.clone() },
+            MemOp::Read => CompiledStep::MemRead {
+                tier: m.tier,
+                key: m.key.clone(),
+            },
+            MemOp::Write => CompiledStep::MemWrite {
+                tier: m.tier,
+                key: m.key.clone(),
+            },
         },
         NodeKind::Seq(_) => return Err(CompileError::Unsupported("seq")),
         NodeKind::Par(_) => return Err(CompileError::Unsupported("par")),
@@ -132,7 +142,11 @@ impl Engine<'_> {
         let mut value = input;
         for step in &plan.steps {
             match step {
-                CompiledStep::Llm { model, prompt_template, temperature } => {
+                CompiledStep::Llm {
+                    model,
+                    prompt_template,
+                    temperature,
+                } => {
                     let prompt = prompt_template.replace("{input}", &value.data.to_string());
                     let request = entelechy_gateway::ModelRequest {
                         model: model.clone(),
@@ -153,7 +167,12 @@ impl Engine<'_> {
                 }
                 CompiledStep::Code { function } => match self.code.get(function) {
                     Some(f) => match f(&value) {
-                        Ok(data) => value = Value { data, meta: value.meta },
+                        Ok(data) => {
+                            value = Value {
+                                data,
+                                meta: value.meta,
+                            }
+                        }
                         Err(e) => return failed(run_id, FailureReason::CodeError(e)),
                     },
                     None => {
@@ -168,13 +187,18 @@ impl Engine<'_> {
                         if c(&value) {
                             value.meta.verification = entelechy_ir::VerificationState::Verified;
                         } else {
-                            return failed(run_id, FailureReason::VerificationFailed(checker.clone()));
+                            return failed(
+                                run_id,
+                                FailureReason::VerificationFailed(checker.clone()),
+                            );
                         }
                     }
                     None => {
                         return failed(
                             run_id,
-                            FailureReason::VerificationFailed(format!("unknown checker '{checker}'")),
+                            FailureReason::VerificationFailed(format!(
+                                "unknown checker '{checker}'"
+                            )),
                         )
                     }
                 },
@@ -255,9 +279,26 @@ mod tests {
             Node::new(
                 "root",
                 NodeKind::Seq(vec![
-                    Node::new("classify", NodeKind::Llm(LlmNode { model: "mock".into(), prompt_template: "{input}".into(), temperature: 0.0 })),
-                    Node::new("tag", NodeKind::Code(CodeNode { function: "tag_ok".into() })),
-                    Node::new("check", NodeKind::Verify(VerifyNode { checker: "has_text".into() })),
+                    Node::new(
+                        "classify",
+                        NodeKind::Llm(LlmNode {
+                            model: "mock".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                    Node::new(
+                        "tag",
+                        NodeKind::Code(CodeNode {
+                            function: "tag_ok".into(),
+                        }),
+                    ),
+                    Node::new(
+                        "check",
+                        NodeKind::Verify(VerifyNode {
+                            checker: "has_text".into(),
+                        }),
+                    ),
                 ]),
             ),
         )
@@ -296,7 +337,12 @@ mod tests {
         let compiled = e2.run_compiled(&plan, Value::trusted(serde_json::json!({})), "r");
 
         // Interpreter-vs-codegen conformance (Q10).
-        assert!(observable_equivalent(&interp, &compiled), "interp={:?} compiled={:?}", interp.status, compiled.status);
+        assert!(
+            observable_equivalent(&interp, &compiled),
+            "interp={:?} compiled={:?}",
+            interp.status,
+            compiled.status
+        );
         assert_eq!(compiled.status, RunStatus::Succeeded);
     }
 
@@ -305,9 +351,19 @@ mod tests {
         use entelechy_ir::{Condition, GateNode};
         let prog = Program::new(
             AuthorityEnvelope::empty(),
-            Node::new("g", NodeKind::Gate(GateNode { policy: "p".into(), condition: Condition::Always, requires_approval: false })),
+            Node::new(
+                "g",
+                NodeKind::Gate(GateNode {
+                    policy: "p".into(),
+                    condition: Condition::Always,
+                    requires_approval: false,
+                }),
+            ),
         );
-        assert_eq!(CompiledPlan::compile(&prog), Err(CompileError::Unsupported("gate")));
+        assert_eq!(
+            CompiledPlan::compile(&prog),
+            Err(CompileError::Unsupported("gate"))
+        );
     }
 
     #[test]
@@ -322,10 +378,30 @@ mod tests {
         assert!(ok.codegen_eligible());
 
         // Any single criterion failing keeps the interpreter as the runtime.
-        assert!(!CodegenEvidence { identical_replays: 999, ..ok }.codegen_eligible());
-        assert!(!CodegenEvidence { p95_or_cost_improvement: 0.29, ..ok }.codegen_eligible());
-        assert!(!CodegenEvidence { objectives_improved: 2, ..ok }.codegen_eligible());
-        assert!(!CodegenEvidence { holdout_regression: true, ..ok }.codegen_eligible());
-        assert!(!CodegenEvidence { conformance_pass: false, ..ok }.codegen_eligible());
+        assert!(!CodegenEvidence {
+            identical_replays: 999,
+            ..ok
+        }
+        .codegen_eligible());
+        assert!(!CodegenEvidence {
+            p95_or_cost_improvement: 0.29,
+            ..ok
+        }
+        .codegen_eligible());
+        assert!(!CodegenEvidence {
+            objectives_improved: 2,
+            ..ok
+        }
+        .codegen_eligible());
+        assert!(!CodegenEvidence {
+            holdout_regression: true,
+            ..ok
+        }
+        .codegen_eligible());
+        assert!(!CodegenEvidence {
+            conformance_pass: false,
+            ..ok
+        }
+        .codegen_eligible());
     }
 }

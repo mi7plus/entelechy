@@ -124,7 +124,10 @@ impl PolicyEngine for NativePolicy {
         let capability = if authority.forbidden_capabilities.contains(&req.capability) {
             Err(format!("capability '{}' is forbidden", req.capability))
         } else if !authority.allows_capability(&req.capability) {
-            Err(format!("capability '{}' not in AuthorityEnvelope", req.capability))
+            Err(format!(
+                "capability '{}' not in AuthorityEnvelope",
+                req.capability
+            ))
         } else {
             Ok(())
         };
@@ -253,19 +256,31 @@ mod tests {
 
     #[test]
     fn forbidden_capability_denied() {
-        let d = NativePolicy.evaluate(&authority(), &PolicySnapshot::default(), &req("refund", EffectClass::Irreversible));
+        let d = NativePolicy.evaluate(
+            &authority(),
+            &PolicySnapshot::default(),
+            &req("refund", EffectClass::Irreversible),
+        );
         assert!(!d.allowed);
     }
 
     #[test]
     fn ungranted_capability_denied() {
-        let d = NativePolicy.evaluate(&authority(), &PolicySnapshot::default(), &req("delete_account", EffectClass::Write));
+        let d = NativePolicy.evaluate(
+            &authority(),
+            &PolicySnapshot::default(),
+            &req("delete_account", EffectClass::Write),
+        );
         assert!(!d.allowed);
     }
 
     #[test]
     fn write_requires_approval() {
-        let d = NativePolicy.evaluate(&authority(), &PolicySnapshot::default(), &req("draft_reply", EffectClass::Write));
+        let d = NativePolicy.evaluate(
+            &authority(),
+            &PolicySnapshot::default(),
+            &req("draft_reply", EffectClass::Write),
+        );
         assert!(d.allowed);
         assert!(d.obligations.contains(&Obligation::RequireApproval));
     }
@@ -278,12 +293,19 @@ mod tests {
         assert!(!d.allowed, "{d:?}");
         // With a gate satisfied it is allowed.
         r.gate_satisfied = true;
-        assert!(NativePolicy.evaluate(&authority(), &PolicySnapshot::default(), &r).allowed);
+        assert!(
+            NativePolicy
+                .evaluate(&authority(), &PolicySnapshot::default(), &r)
+                .allowed
+        );
     }
 
     #[test]
     fn egress_provider_must_be_approved() {
-        let mut snap = PolicySnapshot { version: 2, provider_approval: ProviderApproval::new() };
+        let mut snap = PolicySnapshot {
+            version: 2,
+            provider_approval: ProviderApproval::new(),
+        };
         snap.provider_approval.approve("internal", "mock");
         let mut r = req("send_email", EffectClass::External);
         r.data_classification = Some("pii".into());
@@ -299,6 +321,10 @@ mod tests {
     fn egress_host_scope_enforced() {
         let mut r = req("send_email", EffectClass::External);
         r.egress_host = Some("evil.example.net".into());
-        assert!(!NativePolicy.evaluate(&authority(), &PolicySnapshot::default(), &r).allowed);
+        assert!(
+            !NativePolicy
+                .evaluate(&authority(), &PolicySnapshot::default(), &r)
+                .allowed
+        );
     }
 }

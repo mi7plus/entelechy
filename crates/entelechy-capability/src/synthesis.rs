@@ -136,7 +136,13 @@ mod tests {
 
     #[test]
     fn read_only_needs_only_unit_tests() {
-        let t = tool("1.0.0", ToolChecks { unit_tests: true, ..Default::default() });
+        let t = tool(
+            "1.0.0",
+            ToolChecks {
+                unit_tests: true,
+                ..Default::default()
+            },
+        );
         assert!(t.eligible_for(EffectClass::Read).is_ok());
         // But a consequential effect is missing the rest (TS-3).
         assert!(t.eligible_for(EffectClass::Write).is_err());
@@ -151,10 +157,17 @@ mod tests {
             dependency_scan: true,
             approved_for_consequential: true,
         };
-        assert!(tool("1.0.0", full).eligible_for(EffectClass::Irreversible).is_ok());
+        assert!(tool("1.0.0", full)
+            .eligible_for(EffectClass::Irreversible)
+            .is_ok());
 
-        let no_approval = ToolChecks { approved_for_consequential: false, ..full };
-        let missing = tool("1.0.0", no_approval).eligible_for(EffectClass::Write).unwrap_err();
+        let no_approval = ToolChecks {
+            approved_for_consequential: false,
+            ..full
+        };
+        let missing = tool("1.0.0", no_approval)
+            .eligible_for(EffectClass::Write)
+            .unwrap_err();
         assert!(missing.contains(&"approval"));
     }
 

@@ -92,7 +92,11 @@ impl Claim {
     pub fn status(&self) -> ClaimStatus {
         match self.class {
             ConstraintClass::Structural => {
-                if self.evidence.iter().any(|e| matches!(e, Evidence::StaticProof { .. })) {
+                if self
+                    .evidence
+                    .iter()
+                    .any(|e| matches!(e, Evidence::StaticProof { .. }))
+                {
                     ClaimStatus::Proven
                 } else {
                     ClaimStatus::Insufficient {
@@ -101,13 +105,14 @@ impl Claim {
                 }
             }
             ConstraintClass::Behavioral => {
-                match self
-                    .evidence
-                    .iter()
-                    .find_map(|e| match e {
-                        Evidence::UpperBoundTest { upper_bound, epsilon, .. } => Some((*upper_bound, *epsilon)),
-                        _ => None,
-                    }) {
+                match self.evidence.iter().find_map(|e| match e {
+                    Evidence::UpperBoundTest {
+                        upper_bound,
+                        epsilon,
+                        ..
+                    } => Some((*upper_bound, *epsilon)),
+                    _ => None,
+                }) {
                     Some((ub, eps)) if ub <= eps => ClaimStatus::StatisticallySupported,
                     Some(_) => ClaimStatus::Insufficient {
                         reason: "upper bound exceeds epsilon (PRD 5.6 Rule 2)".into(),
@@ -118,7 +123,11 @@ impl Claim {
                 }
             }
             ConstraintClass::Operational => {
-                if self.evidence.iter().any(|e| matches!(e, Evidence::RuntimeCap { .. })) {
+                if self
+                    .evidence
+                    .iter()
+                    .any(|e| matches!(e, Evidence::RuntimeCap { .. }))
+                {
                     ClaimStatus::OperationallyBounded
                 } else {
                     ClaimStatus::Insufficient {
@@ -159,12 +168,20 @@ impl SafetyCase {
         let relevant: Vec<&Claim> = self
             .claims
             .iter()
-            .filter(|c| matches!(c.class, ConstraintClass::Structural | ConstraintClass::Behavioral))
+            .filter(|c| {
+                matches!(
+                    c.class,
+                    ConstraintClass::Structural | ConstraintClass::Behavioral
+                )
+            })
             .collect();
         if relevant.is_empty() {
             return 1.0;
         }
-        let structural = relevant.iter().filter(|c| c.class == ConstraintClass::Structural).count();
+        let structural = relevant
+            .iter()
+            .filter(|c| c.class == ConstraintClass::Structural)
+            .count();
         structural as f64 / relevant.len() as f64
     }
 }
@@ -245,7 +262,9 @@ mod tests {
             statement: "the system never issues a refund".into(),
             class: ConstraintClass::Structural,
             evidence: if supported {
-                vec![Evidence::StaticProof { invariant: "IR-I2".into() }]
+                vec![Evidence::StaticProof {
+                    invariant: "IR-I2".into(),
+                }]
             } else {
                 vec![]
             },
@@ -267,12 +286,20 @@ mod tests {
             id: "C-disclosure".into(),
             statement: "no cross-customer disclosure".into(),
             class: ConstraintClass::Behavioral,
-            evidence: vec![Evidence::UpperBoundTest { upper_bound: 0.008, epsilon: 0.01, n: 300 }],
+            evidence: vec![Evidence::UpperBoundTest {
+                upper_bound: 0.008,
+                epsilon: 0.01,
+                n: 300,
+            }],
         };
         assert_eq!(ok.status(), ClaimStatus::StatisticallySupported);
         let bad = Claim {
             class: ConstraintClass::Behavioral,
-            evidence: vec![Evidence::UpperBoundTest { upper_bound: 0.03, epsilon: 0.01, n: 100 }],
+            evidence: vec![Evidence::UpperBoundTest {
+                upper_bound: 0.03,
+                epsilon: 0.01,
+                n: 100,
+            }],
             ..ok.clone()
         };
         assert!(matches!(bad.status(), ClaimStatus::Insufficient { .. }));
@@ -287,7 +314,11 @@ mod tests {
                     id: "C-b".into(),
                     statement: "b".into(),
                     class: ConstraintClass::Behavioral,
-                    evidence: vec![Evidence::UpperBoundTest { upper_bound: 0.0, epsilon: 0.01, n: 300 }],
+                    evidence: vec![Evidence::UpperBoundTest {
+                        upper_bound: 0.0,
+                        epsilon: 0.01,
+                        n: 300,
+                    }],
                 },
             ],
             known_limitations: vec![],

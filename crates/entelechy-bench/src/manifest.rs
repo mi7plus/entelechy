@@ -159,7 +159,11 @@ mod tests {
     fn manifest_seals_holdout_hashes() {
         let suite = Suite::new(vec![
             t("a", Split::Tune, serde_json::json!({"q": "reset password"})),
-            t("h", Split::Holdout, serde_json::json!({"q": "refund order"})),
+            t(
+                "h",
+                Split::Holdout,
+                serde_json::json!({"q": "refund order"}),
+            ),
         ]);
         let m = BenchmarkManifest::from_suite("helpdesk", &suite);
         assert_eq!(m.holdout_hashes().len(), 1);

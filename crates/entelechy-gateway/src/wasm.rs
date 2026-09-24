@@ -60,9 +60,11 @@ impl SandboxEngine for WasmSandbox {
         // Empty linker: any host import the guest declares is unsatisfiable, so a
         // guest cannot obtain ambient authority (PRD 16.3).
         let linker: Linker<()> = Linker::new(&self.engine);
-        let instance = linker
-            .instantiate(&mut store, &module)
-            .map_err(|e| SandboxError::Engine(format!("instantiate failed (ambient imports are refused): {e}")))?;
+        let instance = linker.instantiate(&mut store, &module).map_err(|e| {
+            SandboxError::Engine(format!(
+                "instantiate failed (ambient imports are refused): {e}"
+            ))
+        })?;
 
         let run = instance
             .get_typed_func::<i64, i64>(&mut store, "run")
@@ -138,6 +140,9 @@ mod tests {
         "#;
         let mut sandbox = WasmSandbox::with_fuel(100_000).unwrap();
         let err = sandbox.execute(wat.as_bytes(), &scope(), 1).unwrap_err();
-        assert_eq!(format!("{err:?}"), format!("{:?}", SandboxError::ResourceExhausted));
+        assert_eq!(
+            format!("{err:?}"),
+            format!("{:?}", SandboxError::ResourceExhausted)
+        );
     }
 }

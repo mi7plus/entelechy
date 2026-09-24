@@ -77,20 +77,40 @@ mod tests {
     fn labeled(data: serde_json::Value, taint: Taint) -> Value {
         Value {
             data,
-            meta: ValueMeta { taint, ..Default::default() },
+            meta: ValueMeta {
+                taint,
+                ..Default::default()
+            },
         }
     }
 
     #[test]
     fn tiers_are_isolated_and_preserve_taint() {
         let mut m = TieredMemory::new();
-        m.write(MemoryTier::Working, "k", labeled(serde_json::json!("w"), Taint::Tainted));
-        m.write(MemoryTier::Semantic, "k", labeled(serde_json::json!("s"), Taint::Trusted));
+        m.write(
+            MemoryTier::Working,
+            "k",
+            labeled(serde_json::json!("w"), Taint::Tainted),
+        );
+        m.write(
+            MemoryTier::Semantic,
+            "k",
+            labeled(serde_json::json!("s"), Taint::Trusted),
+        );
         // Same key, different tiers -> distinct entries.
-        assert_eq!(m.read(MemoryTier::Working, "k").unwrap().data, serde_json::json!("w"));
-        assert_eq!(m.read(MemoryTier::Semantic, "k").unwrap().data, serde_json::json!("s"));
+        assert_eq!(
+            m.read(MemoryTier::Working, "k").unwrap().data,
+            serde_json::json!("w")
+        );
+        assert_eq!(
+            m.read(MemoryTier::Semantic, "k").unwrap().data,
+            serde_json::json!("s")
+        );
         // Taint (MK-7) is preserved.
-        assert_eq!(m.read(MemoryTier::Working, "k").unwrap().meta.taint, Taint::Tainted);
+        assert_eq!(
+            m.read(MemoryTier::Working, "k").unwrap().meta.taint,
+            Taint::Tainted
+        );
         assert!(m.read(MemoryTier::Episodic, "k").is_none());
     }
 
@@ -99,7 +119,11 @@ mod tests {
         let mut m = TieredMemory::new();
         // Each ~10-char payload ≈ 3-4 tokens.
         for i in 0..10 {
-            m.write(MemoryTier::Episodic, format!("k{i}"), Value::trusted(serde_json::json!(format!("item-{i:04}"))));
+            m.write(
+                MemoryTier::Episodic,
+                format!("k{i}"),
+                Value::trusted(serde_json::json!(format!("item-{i:04}"))),
+            );
         }
         let all = m.assemble_context(&[MemoryTier::Episodic], 1_000);
         assert_eq!(all.len(), 10);

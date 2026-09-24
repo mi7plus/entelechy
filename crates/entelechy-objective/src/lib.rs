@@ -52,15 +52,24 @@ pub struct Provenanced<T> {
 impl<T> Provenanced<T> {
     /// A stated value.
     pub fn stated(value: T) -> Self {
-        Self { value, provenance: FieldProvenance::Stated }
+        Self {
+            value,
+            provenance: FieldProvenance::Stated,
+        }
     }
     /// An inferred value.
     pub fn inferred(value: T) -> Self {
-        Self { value, provenance: FieldProvenance::Inferred }
+        Self {
+            value,
+            provenance: FieldProvenance::Inferred,
+        }
     }
     /// A defaulted value.
     pub fn defaulted(value: T) -> Self {
-        Self { value, provenance: FieldProvenance::Defaulted }
+        Self {
+            value,
+            provenance: FieldProvenance::Defaulted,
+        }
     }
 }
 
@@ -137,7 +146,10 @@ pub fn run_interview(mut questions: Vec<ClarificationQuestion>, budget: usize) -
         to_ask: questions,
         deferred_assumptions: deferred
             .into_iter()
-            .map(|q| Assumption { text: q.text, falsifying_task: None })
+            .map(|q| Assumption {
+                text: q.text,
+                falsifying_task: None,
+            })
             .collect(),
     }
 }
@@ -209,7 +221,10 @@ impl std::fmt::Display for SignOffError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SignOffError::UnfalsifiableAssumption => {
-                write!(f, "an inferred assumption is not linked to a falsifying task (OC-4)")
+                write!(
+                    f,
+                    "an inferred assumption is not linked to a falsifying task (OC-4)"
+                )
             }
             SignOffError::Serialization => write!(f, "GoalSpec serialization failed"),
         }
@@ -298,23 +313,41 @@ mod tests {
     #[test]
     fn interview_ranks_and_defers() {
         let qs = vec![
-            ClarificationQuestion { text: "q-low".into(), expected_impact: 0.1 },
-            ClarificationQuestion { text: "q-high".into(), expected_impact: 0.9 },
-            ClarificationQuestion { text: "q-mid".into(), expected_impact: 0.5 },
+            ClarificationQuestion {
+                text: "q-low".into(),
+                expected_impact: 0.1,
+            },
+            ClarificationQuestion {
+                text: "q-high".into(),
+                expected_impact: 0.9,
+            },
+            ClarificationQuestion {
+                text: "q-mid".into(),
+                expected_impact: 0.5,
+            },
         ];
         let r = run_interview(qs, 1);
         assert_eq!(r.to_ask.len(), 1);
         assert_eq!(r.to_ask[0].text, "q-high");
         assert_eq!(r.deferred_assumptions.len(), 2);
         // Deferred questions become (as-yet unfalsified) assumptions.
-        assert!(r.deferred_assumptions.iter().all(|a| a.falsifying_task.is_none()));
+        assert!(r
+            .deferred_assumptions
+            .iter()
+            .all(|a| a.falsifying_task.is_none()));
     }
 
     #[test]
     fn sign_off_requires_falsifiable_assumptions() {
         let mut gs = base_goalspec();
-        gs.assumptions.push(Assumption { text: "users write English".into(), falsifying_task: None });
-        assert_eq!(gs.clone().sign_off().unwrap_err(), SignOffError::UnfalsifiableAssumption);
+        gs.assumptions.push(Assumption {
+            text: "users write English".into(),
+            falsifying_task: None,
+        });
+        assert_eq!(
+            gs.clone().sign_off().unwrap_err(),
+            SignOffError::UnfalsifiableAssumption
+        );
         // Link a falsifying task and it signs off.
         gs.assumptions[0].falsifying_task = Some("task-lang-1".into());
         assert!(gs.sign_off().is_ok());
@@ -324,7 +357,10 @@ mod tests {
     fn eval_contract_carries_criteria_and_negative_goals() {
         let gs = base_goalspec();
         let contract = compile_eval_contract(&gs);
-        assert_eq!(contract.criteria, vec!["resolve tier-1 tickets".to_string()]);
+        assert_eq!(
+            contract.criteria,
+            vec!["resolve tier-1 tickets".to_string()]
+        );
         assert_eq!(contract.negative_goals.len(), 1);
         assert_eq!(contract.negative_goals[0].name, "no_refund");
     }

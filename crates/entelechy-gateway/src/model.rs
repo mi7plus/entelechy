@@ -131,6 +131,9 @@ mod tests {
             prompt: p.into(),
             temperature: 0.0,
         };
-        assert_ne!(g.infer(&mk("a")).unwrap().text, g.infer(&mk("b")).unwrap().text);
+        assert_ne!(
+            g.infer(&mk("a")).unwrap().text,
+            g.infer(&mk("b")).unwrap().text
+        );
     }
 }

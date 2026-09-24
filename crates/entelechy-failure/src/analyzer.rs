@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ontology::{class, Family, FailureClass};
+use crate::ontology::{class, FailureClass, Family};
 
 /// The confidence below which a diagnosis is uncertain / diagnostic-only (Q3).
 pub const DIAGNOSTIC_CONFIDENCE: f64 = 0.6;
@@ -113,7 +113,8 @@ impl FailureCluster {
     /// the threshold it must run as a diagnostic experiment and may end
     /// inconclusive (PRD 10.2 unresolved-cause state).
     pub fn is_confident(&self) -> bool {
-        self.top().is_some_and(|c| c.probability >= DIAGNOSTIC_CONFIDENCE)
+        self.top()
+            .is_some_and(|c| c.probability >= DIAGNOSTIC_CONFIDENCE)
     }
 
     /// Whether this is a high-entropy (ambiguous) cluster reserved a budget share.
@@ -140,7 +141,9 @@ pub fn analyze(observations: &[FailureObservation]) -> Vec<FailureCluster> {
             for m in &members {
                 match m.symptom.indicated_class() {
                     Some(c) => {
-                        let entry = counts.entry(c.id()).or_insert((0.0, c.eligible_levels().to_vec()));
+                        let entry = counts
+                            .entry(c.id())
+                            .or_insert((0.0, c.eligible_levels().to_vec()));
                         entry.0 += 1.0;
                     }
                     None => unresolved += 1.0,
@@ -212,7 +215,11 @@ pub fn allocate_budget(clusters: &[FailureCluster], total: f64) -> Vec<(String, 
         .filter(|(_, c)| c.is_high_entropy())
         .map(|(i, _)| i)
         .collect();
-    let per_high = if high.is_empty() { 0.0 } else { reserve / high.len() as f64 };
+    let per_high = if high.is_empty() {
+        0.0
+    } else {
+        reserve / high.len() as f64
+    };
 
     actionable
         .iter()
@@ -230,10 +237,7 @@ pub fn allocate_budget(clusters: &[FailureCluster], total: f64) -> Vec<(String, 
 }
 
 fn shannon_entropy(probs: impl Iterator<Item = f64>) -> f64 {
-    probs
-        .filter(|p| *p > 0.0)
-        .map(|p| -p * p.log2())
-        .sum()
+    probs.filter(|p| *p > 0.0).map(|p| -p * p.log2()).sum()
 }
 
 #[cfg(test)]

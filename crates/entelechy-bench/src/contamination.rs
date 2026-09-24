@@ -130,7 +130,11 @@ mod tests {
         // Jaccard = 10/12 ≈ 0.83, above the 0.8 block threshold.
         let a = "the customer wants a full refund for a broken item received last tuesday";
         let b = "the customer wants a full refund for a broken item received last friday";
-        assert!(ngram_jaccard(a, b, 3) >= 0.8, "jac={}", ngram_jaccard(a, b, 3));
+        assert!(
+            ngram_jaccard(a, b, 3) >= 0.8,
+            "jac={}",
+            ngram_jaccard(a, b, 3)
+        );
         assert_eq!(assess(a, b, None), Contamination::Blocked);
     }
 

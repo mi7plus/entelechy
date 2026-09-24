@@ -18,7 +18,9 @@ pub mod memory;
 use std::collections::HashMap;
 
 pub use cluster::{InMemoryQueue, LeasedItem, Priority, WorkItem, WorkQueue, WorkerPool};
-pub use codegen::{observable_equivalent, CodegenEvidence, CompileError, CompiledPlan, CompiledStep};
+pub use codegen::{
+    observable_equivalent, CodegenEvidence, CompileError, CompiledPlan, CompiledStep,
+};
 pub use memory::TieredMemory;
 
 use entelechy_gateway::{ModelGateway, ModelRequest, ToolCall, ToolGateway};
@@ -28,9 +30,7 @@ use entelechy_ir::{
 };
 use entelechy_policy::{Decision, DecisionLog, PolicyEngine, PolicyRequest, PolicySnapshot};
 
-pub use journal::{
-    CommitStatus, Journal, JournalEvent, JournalReader, ReplayMismatch,
-};
+pub use journal::{CommitStatus, Journal, JournalEvent, JournalReader, ReplayMismatch};
 
 /// A registered deterministic code function (PRD 7.1 Code node).
 pub type CodeFn = Box<dyn Fn(&Value) -> Result<serde_json::Value, String> + Send>;
@@ -203,7 +203,10 @@ impl<'a> Engine<'a> {
                 data_classification: None,
                 provider: None,
             };
-            (pc.engine.evaluate(&pc.authority, &pc.snapshot, &req), capability.to_string())
+            (
+                pc.engine.evaluate(&pc.authority, &pc.snapshot, &req),
+                capability.to_string(),
+            )
         });
 
         if let Some((decision, cap)) = outcome {
@@ -257,7 +260,8 @@ impl<'a> Engine<'a> {
             obligations: vec![],
             snapshot_version: version,
         };
-        self.policy_decisions.record(format!("model:{model}"), decision);
+        self.policy_decisions
+            .record(format!("model:{model}"), decision);
         match denied {
             Some(reason) => Err(FailureReason::PolicyDenied(reason)),
             None => Ok(()),
@@ -493,7 +497,11 @@ fn exec_node(
         }
         NodeKind::Branch { cond, then, els } => {
             let take_then = eval_condition(cond, &value);
-            let (branch, tag) = if take_then { (then, "then") } else { (els, "else") };
+            let (branch, tag) = if take_then {
+                (then, "then")
+            } else {
+                (els, "else")
+            };
             let child_path = format!("{path}/{tag}:{}", branch.id);
             exec_node(engine, branch, &child_path, value, mode)
         }
@@ -533,7 +541,10 @@ fn exec_node(
             let f = engine.code.get(&code.function).ok_or_else(|| {
                 Halt::Terminal(RunStatus::Failed {
                     node_path: path.to_string(),
-                    reason: FailureReason::CodeError(format!("unknown function '{}'", code.function)),
+                    reason: FailureReason::CodeError(format!(
+                        "unknown function '{}'",
+                        code.function
+                    )),
                 })
             })?;
             match f(&value) {
@@ -585,7 +596,9 @@ fn exec_node(
                         divergence.get_or_insert(d);
                     }
                 }
-                Mode::Counterfactual { reader, diverged, .. } => {
+                Mode::Counterfactual {
+                    reader, diverged, ..
+                } => {
                     // Before divergence, follow the recorded decision; after, the
                     // gate is evaluated live (no journal consumed).
                     if !**diverged {
@@ -613,7 +626,9 @@ fn exec_node(
                 .cloned()
                 .unwrap_or_else(|| Value::trusted(serde_json::Value::Null))),
             MemOp::Write => {
-                engine.memory.write(mem.tier, mem.key.clone(), value.clone());
+                engine
+                    .memory
+                    .write(mem.tier, mem.key.clone(), value.clone());
                 Ok(value)
             }
         },
@@ -654,7 +669,10 @@ fn exec_node(
                         Ok(response) => {
                             let text = response.text.clone();
                             journal.append(path, JournalEvent::ModelCall { request, response });
-                            Ok(egress_output(serde_json::json!({ "text": text }), &value.meta))
+                            Ok(egress_output(
+                                serde_json::json!({ "text": text }),
+                                &value.meta,
+                            ))
                         }
                         Err(e) => Err(Halt::Terminal(RunStatus::Failed {
                             node_path: path.to_string(),
@@ -663,9 +681,10 @@ fn exec_node(
                     }
                 }
                 Mode::Replay { reader, divergence } => match reader.next_for(path) {
-                    Ok(JournalEvent::ModelCall { response, .. }) => {
-                        Ok(egress_output(serde_json::json!({ "text": response.text }), &value.meta))
-                    }
+                    Ok(JournalEvent::ModelCall { response, .. }) => Ok(egress_output(
+                        serde_json::json!({ "text": response.text }),
+                        &value.meta,
+                    )),
                     Ok(_) => {
                         divergence.get_or_insert(ReplayMismatch::Divergence {
                             expected: "model-call".into(),
@@ -679,7 +698,12 @@ fn exec_node(
                         Ok(Value::tainted(serde_json::json!({ "text": "" })))
                     }
                 },
-                Mode::Counterfactual { reader, diverged, rollouts, .. } => {
+                Mode::Counterfactual {
+                    reader,
+                    diverged,
+                    rollouts,
+                    ..
+                } => {
                     if **diverged {
                         // Live re-execution downstream of the divergence (RK-8).
                         **rollouts += 1;
@@ -699,7 +723,10 @@ fn exec_node(
                                 serde_json::json!({ "text": response.text }),
                                 &value.meta,
                             )),
-                            _ => Ok(egress_output(serde_json::json!({ "text": "" }), &value.meta)),
+                            _ => Ok(egress_output(
+                                serde_json::json!({ "text": "" }),
+                                &value.meta,
+                            )),
                         }
                     }
                 }
@@ -771,7 +798,12 @@ fn exec_node(
                         Ok(Value::tainted(serde_json::Value::Null))
                     }
                 },
-                Mode::Counterfactual { reader, diverged, rollouts, .. } => {
+                Mode::Counterfactual {
+                    reader,
+                    diverged,
+                    rollouts,
+                    ..
+                } => {
                     if **diverged {
                         // Live re-execution downstream of the divergence (RK-8).
                         **rollouts += 1;
@@ -837,9 +869,10 @@ fn eval_condition(cond: &Condition, value: &Value) -> bool {
             Some(serde_json::Value::Array(a)) => !a.is_empty(),
             Some(serde_json::Value::Object(o)) => !o.is_empty(),
         },
-        Condition::Equals { field, value: expected } => {
-            get_path(&value.data, field) == Some(expected)
-        }
+        Condition::Equals {
+            field,
+            value: expected,
+        } => get_path(&value.data, field) == Some(expected),
         Condition::IsTainted => value.meta.taint == entelechy_ir::Taint::Tainted,
         Condition::Not(inner) => !eval_condition(inner, value),
     }
@@ -858,9 +891,7 @@ fn get_path<'v>(value: &'v serde_json::Value, path: &str) -> Option<&'v serde_js
 mod tests {
     use super::*;
     use entelechy_gateway::{MockModel, NativeToolGateway};
-    use entelechy_ir::{
-        AuthorityEnvelope, CodeNode, LlmNode, Node, NodeKind, Program, VerifyNode,
-    };
+    use entelechy_ir::{AuthorityEnvelope, CodeNode, LlmNode, Node, NodeKind, Program, VerifyNode};
 
     fn demo_program() -> Program {
         Program::new(
@@ -911,7 +942,11 @@ mod tests {
         let model = MockModel::new();
         let mut tools = NativeToolGateway::new();
         let mut e = engine(&model, &mut tools);
-        let result = e.execute(&demo_program(), Value::trusted(serde_json::json!({})), "run-1");
+        let result = e.execute(
+            &demo_program(),
+            Value::trusted(serde_json::json!({})),
+            "run-1",
+        );
         assert_eq!(result.status, RunStatus::Succeeded, "{:?}", result.status);
         // One model call journaled.
         assert_eq!(result.journal.entries.len(), 1);
@@ -928,7 +963,11 @@ mod tests {
 
         // Replay against the recorded journal: no divergence.
         let replayed = e
-            .replay(&prog, Value::trusted(serde_json::json!({})), &result.journal)
+            .replay(
+                &prog,
+                Value::trusted(serde_json::json!({})),
+                &result.journal,
+            )
             .expect("replay should not diverge");
         assert!(replayed.is_some());
     }
@@ -941,12 +980,20 @@ mod tests {
         e.register_checker("always_false", |_| false);
         let prog = Program::new(
             AuthorityEnvelope::empty(),
-            Node::new("v", NodeKind::Verify(VerifyNode { checker: "always_false".into() })),
+            Node::new(
+                "v",
+                NodeKind::Verify(VerifyNode {
+                    checker: "always_false".into(),
+                }),
+            ),
         );
         let r = e.execute(&prog, Value::trusted(serde_json::json!({})), "run-x");
         assert!(matches!(
             r.status,
-            RunStatus::Failed { reason: FailureReason::VerificationFailed(_), .. }
+            RunStatus::Failed {
+                reason: FailureReason::VerificationFailed(_),
+                ..
+            }
         ));
         assert!(r.output.is_none());
     }
@@ -997,10 +1044,17 @@ mod tests {
             ),
         );
         let r = e.execute(&prog, Value::trusted(serde_json::json!({})), "run-p");
-        assert!(matches!(
-            r.status,
-            RunStatus::Failed { reason: FailureReason::PolicyDenied(_), .. }
-        ), "{:?}", r.status);
+        assert!(
+            matches!(
+                r.status,
+                RunStatus::Failed {
+                    reason: FailureReason::PolicyDenied(_),
+                    ..
+                }
+            ),
+            "{:?}",
+            r.status
+        );
         // The denial was recorded (PRD 8.3) and the tool never ran.
         assert!(e.policy_decisions().any_denied());
     }
@@ -1016,7 +1070,10 @@ mod tests {
         // Approve mock-small only for "internal" data, not "pii" (PRD 7.5/Q19).
         let mut approval = ProviderApproval::new();
         approval.approve("internal", "mock-small");
-        let snapshot = PolicySnapshot { version: 1, provider_approval: approval };
+        let snapshot = PolicySnapshot {
+            version: 1,
+            provider_approval: approval,
+        };
 
         let prog = Program::new(
             AuthorityEnvelope::empty(),
@@ -1042,15 +1099,25 @@ mod tests {
             principal: "runtime".into(),
         });
         let r = e.execute(&prog, input.clone(), "run-egress");
-        assert!(matches!(
-            r.status,
-            RunStatus::Failed { reason: FailureReason::PolicyDenied(_), .. }
-        ), "{:?}", r.status);
+        assert!(
+            matches!(
+                r.status,
+                RunStatus::Failed {
+                    reason: FailureReason::PolicyDenied(_),
+                    ..
+                }
+            ),
+            "{:?}",
+            r.status
+        );
 
         // Approve pii → mock-small and it goes through.
         let mut approval2 = ProviderApproval::new();
         approval2.approve("pii", "mock-small");
-        let snapshot2 = PolicySnapshot { version: 2, provider_approval: approval2 };
+        let snapshot2 = PolicySnapshot {
+            version: 2,
+            provider_approval: approval2,
+        };
         let mut e2 = Engine::new(&model, &mut tools).with_policy(PolicyConfig {
             engine: Box::new(NativePolicy::new()),
             authority: AuthorityEnvelope::empty(),
@@ -1074,15 +1141,32 @@ mod tests {
         // first Llm's output into the second Llm's egress check (PRD 7.5).
         let mut approval = ProviderApproval::new();
         approval.approve("pii", "model-a");
-        let snapshot = PolicySnapshot { version: 1, provider_approval: approval };
+        let snapshot = PolicySnapshot {
+            version: 1,
+            provider_approval: approval,
+        };
 
         let prog = Program::new(
             AuthorityEnvelope::empty(),
             Node::new(
                 "root",
                 NodeKind::Seq(vec![
-                    Node::new("a", NodeKind::Llm(LlmNode { model: "model-a".into(), prompt_template: "{input}".into(), temperature: 0.0 })),
-                    Node::new("b", NodeKind::Llm(LlmNode { model: "model-b".into(), prompt_template: "{input}".into(), temperature: 0.0 })),
+                    Node::new(
+                        "a",
+                        NodeKind::Llm(LlmNode {
+                            model: "model-a".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                    Node::new(
+                        "b",
+                        NodeKind::Llm(LlmNode {
+                            model: "model-b".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
                 ]),
             ),
         );
@@ -1101,8 +1185,14 @@ mod tests {
         // First node passes (model-a approved for pii); second fails because the
         // label propagated and model-b is not approved.
         match r.status {
-            RunStatus::Failed { node_path, reason: FailureReason::PolicyDenied(_) } => {
-                assert!(node_path.contains(":b"), "expected failure at node b, got {node_path}");
+            RunStatus::Failed {
+                node_path,
+                reason: FailureReason::PolicyDenied(_),
+            } => {
+                assert!(
+                    node_path.contains(":b"),
+                    "expected failure at node b, got {node_path}"
+                );
             }
             other => panic!("expected PolicyDenied at node b, got {other:?}"),
         }
@@ -1121,7 +1211,11 @@ mod tests {
             Ok(serde_json::json!({ "text": text, "may_reply": !text.contains("refund") }))
         });
         e.register_checker("reply_nonempty", |v| {
-            v.data.get("reply").and_then(|r| r.as_str()).map(|s| !s.is_empty()).unwrap_or(false)
+            v.data
+                .get("reply")
+                .and_then(|r| r.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
         });
 
         let prog = Program::new(
@@ -1129,11 +1223,43 @@ mod tests {
             Node::new(
                 "root",
                 NodeKind::Seq(vec![
-                    Node::new("classify", NodeKind::Llm(LlmNode { model: "mock".into(), prompt_template: "{input}".into(), temperature: 0.0 })),
-                    Node::new("route", NodeKind::Code(CodeNode { function: "route_ticket".into() })),
-                    Node::new("gate", NodeKind::Gate(GateNode { policy: "allow_draft".into(), condition: Condition::Truthy { field: "may_reply".into() }, requires_approval: false })),
-                    Node::new("draft", NodeKind::Tool(ToolNode { capability: "draft_reply".into(), args: serde_json::Value::Null })),
-                    Node::new("verify", NodeKind::Verify(VerifyNode { checker: "reply_nonempty".into() })),
+                    Node::new(
+                        "classify",
+                        NodeKind::Llm(LlmNode {
+                            model: "mock".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                    Node::new(
+                        "route",
+                        NodeKind::Code(CodeNode {
+                            function: "route_ticket".into(),
+                        }),
+                    ),
+                    Node::new(
+                        "gate",
+                        NodeKind::Gate(GateNode {
+                            policy: "allow_draft".into(),
+                            condition: Condition::Truthy {
+                                field: "may_reply".into(),
+                            },
+                            requires_approval: false,
+                        }),
+                    ),
+                    Node::new(
+                        "draft",
+                        NodeKind::Tool(ToolNode {
+                            capability: "draft_reply".into(),
+                            args: serde_json::Value::Null,
+                        }),
+                    ),
+                    Node::new(
+                        "verify",
+                        NodeKind::Verify(VerifyNode {
+                            checker: "reply_nonempty".into(),
+                        }),
+                    ),
                 ]),
             ),
         );
@@ -1152,7 +1278,11 @@ mod tests {
         assert!(cf.diverged);
         assert_eq!(cf.divergence_point.as_deref(), Some("root/0:classify"));
         // The draft tool re-executes live downstream of the divergence.
-        assert!(cf.rollouts >= 1, "expected >=1 rollout, got {}", cf.rollouts);
+        assert!(
+            cf.rollouts >= 1,
+            "expected >=1 rollout, got {}",
+            cf.rollouts
+        );
         assert!(cf.output.is_some());
     }
 
@@ -1160,8 +1290,10 @@ mod tests {
     fn model_budget_exhaustion_is_typed_terminal() {
         let model = MockModel::new();
         let mut tools = NativeToolGateway::new();
-        let mut e = Engine::new(&model, &mut tools)
-            .with_budget(Budget { max_model_calls: 0, max_tool_calls: 10 });
+        let mut e = Engine::new(&model, &mut tools).with_budget(Budget {
+            max_model_calls: 0,
+            max_tool_calls: 10,
+        });
         let prog = Program::new(
             AuthorityEnvelope::empty(),
             Node::new(
@@ -1174,6 +1306,11 @@ mod tests {
             ),
         );
         let r = e.execute(&prog, Value::trusted(serde_json::json!({})), "run-b");
-        assert_eq!(r.status, RunStatus::BudgetExhausted { budget: "max_model_calls" });
+        assert_eq!(
+            r.status,
+            RunStatus::BudgetExhausted {
+                budget: "max_model_calls"
+            }
+        );
     }
 }

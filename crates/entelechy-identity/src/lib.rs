@@ -44,7 +44,10 @@ impl PrincipalKind {
     /// Whether this principal may hold runtime authority. Meta-layer agents and
     /// external providers never do (PRD 5.8, 11.9).
     pub fn may_hold_runtime_authority(self) -> bool {
-        !matches!(self, PrincipalKind::MetaLayerAgent | PrincipalKind::ExternalProvider)
+        !matches!(
+            self,
+            PrincipalKind::MetaLayerAgent | PrincipalKind::ExternalProvider
+        )
     }
 }
 
@@ -60,7 +63,10 @@ pub struct Principal {
 impl Principal {
     /// Construct a principal.
     pub fn new(id: impl Into<String>, kind: PrincipalKind) -> Self {
-        Self { id: id.into(), kind }
+        Self {
+            id: id.into(),
+            kind,
+        }
     }
 }
 
@@ -289,19 +295,31 @@ mod tests {
         let ctx = AuthContext {
             principal: approver(),
             tenant: "local".into(),
-            credential: Credential { issued_at: 0, expires_at: 100 },
+            credential: Credential {
+                issued_at: 0,
+                expires_at: 100,
+            },
         };
         assert!(ctx.authenticate(&FixedClock(Some(50))).is_ok());
-        assert_eq!(ctx.authenticate(&FixedClock(Some(200))), Err(AuthError::Expired));
+        assert_eq!(
+            ctx.authenticate(&FixedClock(Some(200))),
+            Err(AuthError::Expired)
+        );
         // Uncertain time fails closed (AU-3).
-        assert_eq!(ctx.authenticate(&FixedClock(None)), Err(AuthError::TimeUncertain));
+        assert_eq!(
+            ctx.authenticate(&FixedClock(None)),
+            Err(AuthError::TimeUncertain)
+        );
     }
 
     #[test]
     fn valid_approval_roundtrip() {
         let ring = ring();
         let a = Approval::sign(approver(), binding(), "key-1", &ring, 10, Some(1000)).unwrap();
-        assert_eq!(a.status_for(&binding(), &ring, &FixedClock(Some(20))), ApprovalStatus::Valid);
+        assert_eq!(
+            a.status_for(&binding(), &ring, &FixedClock(Some(20))),
+            ApprovalStatus::Valid
+        );
     }
 
     #[test]
@@ -312,7 +330,9 @@ mod tests {
         changed.insert("design".into(), "sha256:DIFFERENT".into());
         assert_eq!(
             a.status_for(&changed, &ring, &FixedClock(Some(20))),
-            ApprovalStatus::Stale { role: "design".into() }
+            ApprovalStatus::Stale {
+                role: "design".into()
+            }
         );
     }
 
@@ -321,12 +341,21 @@ mod tests {
         let mut ring = ring();
         let a = Approval::sign(approver(), binding(), "key-1", &ring, 10, Some(100)).unwrap();
         // Expired.
-        assert_eq!(a.status_for(&binding(), &ring, &FixedClock(Some(200))), ApprovalStatus::Expired);
+        assert_eq!(
+            a.status_for(&binding(), &ring, &FixedClock(Some(200))),
+            ApprovalStatus::Expired
+        );
         // Uncertain time on an expiring approval fails closed.
-        assert_eq!(a.status_for(&binding(), &ring, &FixedClock(None)), ApprovalStatus::Expired);
+        assert_eq!(
+            a.status_for(&binding(), &ring, &FixedClock(None)),
+            ApprovalStatus::Expired
+        );
         // Revoked key.
         ring.revoke("key-1");
-        assert_eq!(a.status_for(&binding(), &ring, &FixedClock(Some(20))), ApprovalStatus::Revoked);
+        assert_eq!(
+            a.status_for(&binding(), &ring, &FixedClock(Some(20))),
+            ApprovalStatus::Revoked
+        );
     }
 
     #[test]

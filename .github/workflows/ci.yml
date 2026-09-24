@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+# Note: `-D warnings` is applied only to clippy of the workspace crates (via
+# `-- -D warnings`), not globally, so dependency warnings don't fail the build.
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (default features)
+        run: cargo build --workspace --all-targets
+      - name: Test (default features)
+        run: cargo test --workspace
+
+  features:
+    name: feature matrix (${{ matrix.feature }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature:
+          - wasm            # wasmtime sandbox backend (entelechy-gateway)
+          - openai          # OpenAI-compatible model gateway (std::net, no TLS)
+          - openai-tls      # + native-tls transport for hosted https providers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test entelechy-gateway --features ${{ matrix.feature }}
+        run: cargo test -p entelechy-gateway --features ${{ matrix.feature }}
+
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy (default)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: clippy (all features)
+        run: cargo clippy -p entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings
+
+  licenses:
+    name: licence audit (MIT, G11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans
+          # Also check optional heavy backends' dependency trees.
+          arguments: --all-features

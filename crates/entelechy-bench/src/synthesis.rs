@@ -13,8 +13,8 @@
 //!   (EV-17); that is a wiring choice the caller makes by passing an appropriate
 //!   [`entelechy_gateway::ModelGateway`].
 
-use entelechy_gateway::{ModelGateway, ModelRequest};
 use entelechy_eval::{Difficulty, Provenance, Split, Suite, Task};
+use entelechy_gateway::{ModelGateway, ModelRequest};
 
 use crate::contamination::{assess, Contamination};
 
@@ -171,13 +171,21 @@ pub struct ModelTaskGenerator<'a> {
 impl<'a> ModelTaskGenerator<'a> {
     /// Create a generator.
     pub fn new(model: &'a dyn ModelGateway, model_id: impl Into<String>) -> Self {
-        Self { model, model_id: model_id.into() }
+        Self {
+            model,
+            model_id: model_id.into(),
+        }
     }
 
     /// Generate `n` synthetic variations of `seed` for `target_split` (EV-3). The
     /// prompt asks for a JSON array of task inputs; the response is parsed and
     /// tagged with `Synthetic` provenance and lineage. Holdout is refused (Q2).
-    pub fn generate(&self, seed: &Task, n: usize, target_split: Split) -> Result<Vec<Task>, SynthesisError> {
+    pub fn generate(
+        &self,
+        seed: &Task,
+        n: usize,
+        target_split: Split,
+    ) -> Result<Vec<Task>, SynthesisError> {
         if target_split == Split::Holdout {
             return Err(SynthesisError::HoldoutForbidden);
         }
@@ -188,7 +196,11 @@ impl<'a> ModelTaskGenerator<'a> {
         );
         let resp = self
             .model
-            .infer(&ModelRequest { model: self.model_id.clone(), prompt, temperature: 0.7 })
+            .infer(&ModelRequest {
+                model: self.model_id.clone(),
+                prompt,
+                temperature: 0.7,
+            })
             .map_err(|e| SynthesisError::Generation(e.to_string()))?;
         parse_generated_tasks(
             &resp.text,
@@ -225,12 +237,16 @@ mod tests {
         // Too few seeds.
         let few = vec![seed("a", &["resolves"])];
         let errs = check_seed_set(&few, &["resolves"]).unwrap_err();
-        assert!(errs.iter().any(|d| matches!(d, SeedDeficiency::TooFewSeeds { .. })));
+        assert!(errs
+            .iter()
+            .any(|d| matches!(d, SeedDeficiency::TooFewSeeds { .. })));
 
         // 30 seeds, 3 per target, 5 adversarial -> OK.
-        let mut seeds: Vec<Task> = (0..30).map(|i| seed(&format!("s{i}"), &["resolves"])).collect();
-        for i in 0..5 {
-            seeds[i].tags.push("adversarial".into());
+        let mut seeds: Vec<Task> = (0..30)
+            .map(|i| seed(&format!("s{i}"), &["resolves"]))
+            .collect();
+        for t in seeds.iter_mut().take(5) {
+            t.tags.push("adversarial".into());
         }
         assert!(check_seed_set(&seeds, &["resolves"]).is_ok());
     }
@@ -248,7 +264,15 @@ mod tests {
     #[test]
     fn parses_generated_tasks_with_lineage() {
         let json = r#"[{"input":{"q":"reset password"}},{"input":{"q":"refund status"}}]"#;
-        let tasks = parse_generated_tasks(json, "helpdesk", &["state".into()], Split::Tune, "seed-1", "seed-1~syn").unwrap();
+        let tasks = parse_generated_tasks(
+            json,
+            "helpdesk",
+            &["state".into()],
+            Split::Tune,
+            "seed-1",
+            "seed-1~syn",
+        )
+        .unwrap();
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].provenance, Provenance::Synthetic);
         assert_eq!(tasks[0].source_task.as_deref(), Some("seed-1"));
@@ -258,12 +282,19 @@ mod tests {
     #[test]
     fn admit_rejects_near_duplicates_of_existing() {
         let existing = Suite::new(vec![seed("hold", &[])]); // input {"q":"hold"}
-        // A candidate identical to an existing task is blocked (9.5).
-        let dup = Task { id: "c0".into(), ..seed("hold", &[]) };
+                                                            // A candidate identical to an existing task is blocked (9.5).
+        let dup = Task {
+            id: "c0".into(),
+            ..seed("hold", &[])
+        };
         let admitted = admit_candidates(vec![dup], &existing, Split::Tune).unwrap();
         assert!(admitted.is_empty());
         // A distinct candidate is admitted.
-        let distinct = Task { id: "c1".into(), input: serde_json::json!({"q":"totally different request text"}), ..seed("x", &[]) };
+        let distinct = Task {
+            id: "c1".into(),
+            input: serde_json::json!({"q":"totally different request text"}),
+            ..seed("x", &[])
+        };
         let admitted = admit_candidates(vec![distinct], &existing, Split::Tune).unwrap();
         assert_eq!(admitted.len(), 1);
         assert_eq!(admitted[0].split, Split::Tune);
@@ -274,7 +305,11 @@ mod tests {
         // A stub gateway returning a fixed JSON array.
         struct StubModel;
         impl ModelGateway for StubModel {
-            fn infer(&self, _req: &ModelRequest) -> Result<entelechy_gateway::ModelResponse, entelechy_gateway::ModelError> {
+            fn infer(
+                &self,
+                _req: &ModelRequest,
+            ) -> Result<entelechy_gateway::ModelResponse, entelechy_gateway::ModelError>
+            {
                 Ok(entelechy_gateway::ModelResponse {
                     text: r#"[{"input":{"q":"v1"}},{"input":{"q":"v2"}}]"#.into(),
                     identity: entelechy_gateway::ProviderIdentity {
@@ -290,7 +325,9 @@ mod tests {
         }
         let model = StubModel;
         let gen = ModelTaskGenerator::new(&model, "generator-model");
-        let tasks = gen.generate(&seed("seed-1", &[]), 2, Split::Validation).unwrap();
+        let tasks = gen
+            .generate(&seed("seed-1", &[]), 2, Split::Validation)
+            .unwrap();
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].split, Split::Validation);
         assert_eq!(tasks[1].source_task.as_deref(), Some("seed-1"));

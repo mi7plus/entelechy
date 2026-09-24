@@ -278,7 +278,12 @@ impl QuotaLedger {
         let used = *self.used.get(&scope).unwrap_or(&0.0);
         if let Some(&limit) = self.limits.get(&scope) {
             if used + amount > limit {
-                return Err(QuotaExceeded { scope, used, amount, limit });
+                return Err(QuotaExceeded {
+                    scope,
+                    used,
+                    amount,
+                    limit,
+                });
             }
         }
         self.used.insert(scope, used + amount);
@@ -336,15 +341,25 @@ mod tests {
         assert!(!sample_for_eval("run-1", 0.0));
         assert!(sample_for_eval("run-1", 1.0));
         // Over many ids, a ~50% rate samples a middling fraction.
-        let sampled = (0..1000).filter(|i| sample_for_eval(&format!("run-{i}"), 0.5)).count();
+        let sampled = (0..1000)
+            .filter(|i| sample_for_eval(&format!("run-{i}"), 0.5))
+            .count();
         assert!((400..600).contains(&sampled), "sampled={sampled}");
     }
 
     #[test]
     fn feedback_store_aggregates() {
         let mut fb = FeedbackStore::new();
-        fb.ingest(Feedback { run_id: "a".into(), positive: true, note: None });
-        fb.ingest(Feedback { run_id: "b".into(), positive: false, note: Some("wrong answer".into()) });
+        fb.ingest(Feedback {
+            run_id: "a".into(),
+            positive: true,
+            note: None,
+        });
+        fb.ingest(Feedback {
+            run_id: "b".into(),
+            positive: false,
+            note: Some("wrong answer".into()),
+        });
         assert!((fb.satisfaction_rate() - 0.5).abs() < 1e-9);
         assert_eq!(fb.negative_run_ids(), vec!["b".to_string()]);
     }

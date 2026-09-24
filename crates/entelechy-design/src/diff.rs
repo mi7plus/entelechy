@@ -67,7 +67,11 @@ pub fn diff_programs(old: &Program, new: &Program) -> Vec<NodeDiff> {
                 let changed = o.kind != n.kind || o.pinned != n.pinned;
                 NodeDiff {
                     id: id.clone(),
-                    change: if changed { ChangeKind::Changed } else { ChangeKind::Unchanged },
+                    change: if changed {
+                        ChangeKind::Changed
+                    } else {
+                        ChangeKind::Unchanged
+                    },
                     pinned: o.pinned || n.pinned,
                     detail: if changed {
                         format!("{} -> {}", kind_name(&o.kind), kind_name(&n.kind))
@@ -133,9 +137,19 @@ mod tests {
     #[test]
     fn add_verify_shows_as_added_node() {
         let base = synthesize_single_agent(AuthorityEnvelope::empty(), "m", "{input}");
-        let candidate = apply(&base, &EditOp::AddVerify { id: "reply_check".into(), checker: "ok".into() }).unwrap();
+        let candidate = apply(
+            &base,
+            &EditOp::AddVerify {
+                id: "reply_check".into(),
+                checker: "ok".into(),
+            },
+        )
+        .unwrap();
         let diffs = diff_programs(&base, &candidate);
-        let added: Vec<&NodeDiff> = diffs.iter().filter(|d| d.change == ChangeKind::Added).collect();
+        let added: Vec<&NodeDiff> = diffs
+            .iter()
+            .filter(|d| d.change == ChangeKind::Added)
+            .collect();
         assert_eq!(added.len(), 1);
         assert_eq!(added[0].id, "reply_check");
         assert!(!has_pinned_conflict(&diffs));
@@ -149,7 +163,13 @@ mod tests {
         if let NodeKind::Seq(c) = &mut pinned.root.kind {
             c[0].pinned = true;
         }
-        let changed = apply(&pinned, &EditOp::ChangeModel { node: "agent".into(), model: "big".into() });
+        let changed = apply(
+            &pinned,
+            &EditOp::ChangeModel {
+                node: "agent".into(),
+                model: "big".into(),
+            },
+        );
         // apply refuses to mutate a pinned node, so simulate an external edit:
         assert!(changed.is_err());
         let mut manual = pinned.clone();

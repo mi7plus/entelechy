@@ -1,5 +1,7 @@
 # Entelechy
 
+[![CI](https://github.com/mi7plus/entelechy/actions/workflows/ci.yml/badge.svg)](https://github.com/mi7plus/entelechy/actions/workflows/ci.yml)
+
 An objective-driven agentic systems synthesis platform, in Rust.
 
 Entelechy treats **architecture as a search result, not an input**. You specify

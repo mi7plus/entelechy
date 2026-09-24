@@ -96,7 +96,11 @@ impl CheckerRegistry {
     }
 
     /// Register a checker under a name.
-    pub fn register(&mut self, name: impl Into<String>, checker: impl Checker + Send + Sync + 'static) {
+    pub fn register(
+        &mut self,
+        name: impl Into<String>,
+        checker: impl Checker + Send + Sync + 'static,
+    ) {
         self.checkers.insert(name.into(), Box::new(checker));
     }
 

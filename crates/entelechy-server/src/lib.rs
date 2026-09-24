@@ -58,7 +58,8 @@ pub enum ApiError {
 }
 
 /// A handler for an operation: runs with the authenticated principal.
-type Handler = Box<dyn Fn(&Principal, &serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync>;
+type Handler =
+    Box<dyn Fn(&Principal, &serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync>;
 /// An authorizer for an operation: decides whether a principal may invoke it.
 type Authorizer = Box<dyn Fn(&Principal) -> bool + Send + Sync>;
 
@@ -88,7 +89,10 @@ impl ApiServer {
         &mut self,
         operation: impl Into<String>,
         authorizer: impl Fn(&Principal) -> bool + Send + Sync + 'static,
-        handler: impl Fn(&Principal, &serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync + 'static,
+        handler: impl Fn(&Principal, &serde_json::Value) -> Result<serde_json::Value, String>
+            + Send
+            + Sync
+            + 'static,
     ) {
         self.operations.insert(
             operation.into(),
@@ -139,12 +143,18 @@ mod tests {
         AuthContext {
             principal: Principal::new("p", kind),
             tenant: "local".into(),
-            credential: Credential { issued_at: 0, expires_at },
+            credential: Credential {
+                issued_at: 0,
+                expires_at,
+            },
         }
     }
 
     fn server() -> ApiServer {
-        let mut s = ApiServer::new(VersionRange::new(ProtocolVersion::new(1, 0), ProtocolVersion::new(1, 3)));
+        let mut s = ApiServer::new(VersionRange::new(
+            ProtocolVersion::new(1, 0),
+            ProtocolVersion::new(1, 3),
+        ));
         s.register(
             "approve_release",
             |p| p.kind == PrincipalKind::Approver,
@@ -165,31 +175,59 @@ mod tests {
     #[test]
     fn happy_path() {
         let s = server();
-        let r = req("approve_release", ctx(PrincipalKind::Approver, 1000), ProtocolVersion::new(1, 2));
-        assert_eq!(s.handle(&r, &FixedClock(Some(10))).unwrap(), serde_json::json!({"ok": true}));
+        let r = req(
+            "approve_release",
+            ctx(PrincipalKind::Approver, 1000),
+            ProtocolVersion::new(1, 2),
+        );
+        assert_eq!(
+            s.handle(&r, &FixedClock(Some(10))).unwrap(),
+            serde_json::json!({"ok": true})
+        );
     }
 
     #[test]
     fn unsupported_protocol_fails_closed() {
         let s = server();
-        let r = req("approve_release", ctx(PrincipalKind::Approver, 1000), ProtocolVersion::new(2, 0));
-        assert!(matches!(s.handle(&r, &FixedClock(Some(10))), Err(ApiError::UnsupportedProtocol(_))));
+        let r = req(
+            "approve_release",
+            ctx(PrincipalKind::Approver, 1000),
+            ProtocolVersion::new(2, 0),
+        );
+        assert!(matches!(
+            s.handle(&r, &FixedClock(Some(10))),
+            Err(ApiError::UnsupportedProtocol(_))
+        ));
     }
 
     #[test]
     fn expired_credential_fails_closed() {
         let s = server();
-        let r = req("approve_release", ctx(PrincipalKind::Approver, 100), ProtocolVersion::new(1, 2));
-        assert!(matches!(s.handle(&r, &FixedClock(Some(200))), Err(ApiError::Unauthenticated(_))));
+        let r = req(
+            "approve_release",
+            ctx(PrincipalKind::Approver, 100),
+            ProtocolVersion::new(1, 2),
+        );
+        assert!(matches!(
+            s.handle(&r, &FixedClock(Some(200))),
+            Err(ApiError::Unauthenticated(_))
+        ));
         // Uncertain time also fails closed.
-        assert!(matches!(s.handle(&r, &FixedClock(None)), Err(ApiError::Unauthenticated(_))));
+        assert!(matches!(
+            s.handle(&r, &FixedClock(None)),
+            Err(ApiError::Unauthenticated(_))
+        ));
     }
 
     #[test]
     fn authenticated_but_unauthorized_is_rejected() {
         let s = server();
         // An operator is authenticated but not authorized to approve releases.
-        let r = req("approve_release", ctx(PrincipalKind::Operator, 1000), ProtocolVersion::new(1, 2));
+        let r = req(
+            "approve_release",
+            ctx(PrincipalKind::Operator, 1000),
+            ProtocolVersion::new(1, 2),
+        );
         assert_eq!(
             s.handle(&r, &FixedClock(Some(10))),
             Err(ApiError::Unauthorized("approve_release".into()))
@@ -199,7 +237,14 @@ mod tests {
     #[test]
     fn unknown_operation() {
         let s = server();
-        let r = req("nope", ctx(PrincipalKind::Approver, 1000), ProtocolVersion::new(1, 2));
-        assert!(matches!(s.handle(&r, &FixedClock(Some(10))), Err(ApiError::UnknownOperation(_))));
+        let r = req(
+            "nope",
+            ctx(PrincipalKind::Approver, 1000),
+            ProtocolVersion::new(1, 2),
+        );
+        assert!(matches!(
+            s.handle(&r, &FixedClock(Some(10))),
+            Err(ApiError::UnknownOperation(_))
+        ));
     }
 }

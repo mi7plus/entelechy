@@ -110,7 +110,8 @@ impl ApprovalCheck<'_> {
         self.approvals
             .iter()
             .filter(|a| {
-                a.status_for(self.current_binding, self.keyring, self.clock) == ApprovalStatus::Valid
+                a.status_for(self.current_binding, self.keyring, self.clock)
+                    == ApprovalStatus::Valid
             })
             .count()
     }
@@ -276,11 +277,17 @@ impl DeploymentController {
 
     /// The currently active release, if any and not revoked.
     pub fn active(&self) -> Option<&String> {
-        self.active.as_ref().filter(|id| !self.revoked.contains(*id))
+        self.active
+            .as_ref()
+            .filter(|id| !self.revoked.contains(*id))
     }
 
     /// Deploy a release (requires promote authority — PRD 14.6).
-    pub fn deploy(&mut self, release_id: impl Into<String>, actor: DeployAuthority) -> Result<(), DeployError> {
+    pub fn deploy(
+        &mut self,
+        release_id: impl Into<String>,
+        actor: DeployAuthority,
+    ) -> Result<(), DeployError> {
         if !actor.can_promote {
             return Err(DeployError::NotPromoter);
         }
@@ -306,7 +313,11 @@ impl DeploymentController {
 
     /// Emergency revocation: make a release ineligible for new executions while
     /// preserving evidence (PRD 14.6). Requires stop authority.
-    pub fn revoke(&mut self, release_id: impl Into<String>, actor: DeployAuthority) -> Result<(), DeployError> {
+    pub fn revoke(
+        &mut self,
+        release_id: impl Into<String>,
+        actor: DeployAuthority,
+    ) -> Result<(), DeployError> {
         if !actor.can_stop {
             return Err(DeployError::NotStopper);
         }
@@ -325,7 +336,7 @@ impl DeploymentController {
 mod tests {
     use super::*;
     use entelechy_assurance::AssuranceReport;
-    use entelechy_identity::{Approval, Principal, PrincipalKind, FixedClock};
+    use entelechy_identity::{Approval, FixedClock, Principal, PrincipalKind};
     use std::collections::BTreeMap;
 
     fn eligible_report() -> AssuranceReport {
@@ -346,7 +357,11 @@ mod tests {
             policy_snapshot_version: 1,
             model_tool_ids: vec!["mock@r1".into()],
             provenance: "study X".into(),
-            rollback_target: if rollback { Some("rel-prev".into()) } else { None },
+            rollback_target: if rollback {
+                Some("rel-prev".into())
+            } else {
+                None
+            },
             no_rollback_rationale: None,
         }
     }
@@ -354,7 +369,8 @@ mod tests {
     fn approval_setup() -> (KeyRing, ApprovalBinding, Vec<Approval>) {
         let mut ring = KeyRing::new();
         ring.add_key("k", "s");
-        let binding: ApprovalBinding = BTreeMap::from([("design".to_string(), "sha256:d".to_string())]);
+        let binding: ApprovalBinding =
+            BTreeMap::from([("design".to_string(), "sha256:d".to_string())]);
         let appr = Approval::sign(
             Principal::new("alice", PrincipalKind::Approver),
             binding.clone(),
@@ -371,9 +387,26 @@ mod tests {
     fn l1_promotion_needs_no_safety_gate() {
         let b = bundle(false);
         let (ring, binding, appr) = approval_setup();
-        let check = ApprovalCheck { approvals: &appr, current_binding: &binding, keyring: &ring, clock: &FixedClock(Some(20)) };
-        let gate = PromotionGate { assurance: &eligible_report(), holdout_passed: true, negative_goal_clean: true };
-        let p = promote(&b, MaturityLevel::L0, MaturityLevel::L1, &gate, &check, None).unwrap();
+        let check = ApprovalCheck {
+            approvals: &appr,
+            current_binding: &binding,
+            keyring: &ring,
+            clock: &FixedClock(Some(20)),
+        };
+        let gate = PromotionGate {
+            assurance: &eligible_report(),
+            holdout_passed: true,
+            negative_goal_clean: true,
+        };
+        let p = promote(
+            &b,
+            MaturityLevel::L0,
+            MaturityLevel::L1,
+            &gate,
+            &check,
+            None,
+        )
+        .unwrap();
         assert_eq!(p.to, MaturityLevel::L1);
     }
 
@@ -381,9 +414,26 @@ mod tests {
     fn holdout_regression_blocks_l2() {
         let b = bundle(false);
         let (ring, binding, appr) = approval_setup();
-        let check = ApprovalCheck { approvals: &appr, current_binding: &binding, keyring: &ring, clock: &FixedClock(Some(20)) };
-        let gate = PromotionGate { assurance: &eligible_report(), holdout_passed: false, negative_goal_clean: true };
-        let err = promote(&b, MaturityLevel::L1, MaturityLevel::L2, &gate, &check, None).unwrap_err();
+        let check = ApprovalCheck {
+            approvals: &appr,
+            current_binding: &binding,
+            keyring: &ring,
+            clock: &FixedClock(Some(20)),
+        };
+        let gate = PromotionGate {
+            assurance: &eligible_report(),
+            holdout_passed: false,
+            negative_goal_clean: true,
+        };
+        let err = promote(
+            &b,
+            MaturityLevel::L1,
+            MaturityLevel::L2,
+            &gate,
+            &check,
+            None,
+        )
+        .unwrap_err();
         assert_eq!(err, PromotionError::HoldoutRegression);
     }
 
@@ -392,11 +442,34 @@ mod tests {
         let b = bundle(true);
         let (ring, _binding, appr) = approval_setup();
         // Current binding differs -> approval is stale.
-        let changed: ApprovalBinding = BTreeMap::from([("design".to_string(), "sha256:DIFF".to_string())]);
-        let check = ApprovalCheck { approvals: &appr, current_binding: &changed, keyring: &ring, clock: &FixedClock(Some(20)) };
-        let gate = PromotionGate { assurance: &eligible_report(), holdout_passed: true, negative_goal_clean: true };
-        let ov = PromotionOverride { failed_criterion: "x".into(), rationale: "y".into(), approver: "z".into(), expires_at: 9_999 };
-        let err = promote(&b, MaturityLevel::L1, MaturityLevel::L2, &gate, &check, Some(ov)).unwrap_err();
+        let changed: ApprovalBinding =
+            BTreeMap::from([("design".to_string(), "sha256:DIFF".to_string())]);
+        let check = ApprovalCheck {
+            approvals: &appr,
+            current_binding: &changed,
+            keyring: &ring,
+            clock: &FixedClock(Some(20)),
+        };
+        let gate = PromotionGate {
+            assurance: &eligible_report(),
+            holdout_passed: true,
+            negative_goal_clean: true,
+        };
+        let ov = PromotionOverride {
+            failed_criterion: "x".into(),
+            rationale: "y".into(),
+            approver: "z".into(),
+            expires_at: 9_999,
+        };
+        let err = promote(
+            &b,
+            MaturityLevel::L1,
+            MaturityLevel::L2,
+            &gate,
+            &check,
+            Some(ov),
+        )
+        .unwrap_err();
         assert_eq!(err, PromotionError::MissingValidApproval);
     }
 
@@ -404,17 +477,40 @@ mod tests {
     fn l5_requires_rollback_ready() {
         let b = bundle(false); // no rollback target, no rationale
         let (ring, binding, appr) = approval_setup();
-        let check = ApprovalCheck { approvals: &appr, current_binding: &binding, keyring: &ring, clock: &FixedClock(Some(20)) };
-        let gate = PromotionGate { assurance: &eligible_report(), holdout_passed: true, negative_goal_clean: true };
-        let err = promote(&b, MaturityLevel::L4, MaturityLevel::L5, &gate, &check, None).unwrap_err();
+        let check = ApprovalCheck {
+            approvals: &appr,
+            current_binding: &binding,
+            keyring: &ring,
+            clock: &FixedClock(Some(20)),
+        };
+        let gate = PromotionGate {
+            assurance: &eligible_report(),
+            holdout_passed: true,
+            negative_goal_clean: true,
+        };
+        let err = promote(
+            &b,
+            MaturityLevel::L4,
+            MaturityLevel::L5,
+            &gate,
+            &check,
+            None,
+        )
+        .unwrap_err();
         assert_eq!(err, PromotionError::RollbackNotReady);
     }
 
     #[test]
     fn stop_authority_is_separate_from_promote() {
         let mut dc = DeploymentController::new(vec![AutoTrigger::NegativeGoalViolation]);
-        let oncall = DeployAuthority { can_promote: false, can_stop: true };
-        let releaser = DeployAuthority { can_promote: true, can_stop: false };
+        let oncall = DeployAuthority {
+            can_promote: false,
+            can_stop: true,
+        };
+        let releaser = DeployAuthority {
+            can_promote: true,
+            can_stop: false,
+        };
         // On-call cannot promote.
         assert_eq!(dc.deploy("rel-1", oncall), Err(DeployError::NotPromoter));
         // Releaser deploys two releases.
@@ -435,7 +531,10 @@ mod tests {
     #[test]
     fn revoked_release_is_not_active() {
         let mut dc = DeploymentController::new(vec![]);
-        let releaser = DeployAuthority { can_promote: true, can_stop: true };
+        let releaser = DeployAuthority {
+            can_promote: true,
+            can_stop: true,
+        };
         dc.deploy("rel-1", releaser).unwrap();
         dc.revoke("rel-1", releaser).unwrap();
         assert_eq!(dc.active(), None);

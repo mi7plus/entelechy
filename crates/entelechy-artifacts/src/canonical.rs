@@ -23,9 +23,7 @@ pub fn to_canonical_bytes(value: &Value) -> Vec<u8> {
 }
 
 /// Serialize any `Serialize` type to canonical bytes via its JSON projection.
-pub fn serialize_canonical<T: serde::Serialize>(
-    value: &T,
-) -> Result<Vec<u8>, serde_json::Error> {
+pub fn serialize_canonical<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Error> {
     let v = serde_json::to_value(value)?;
     Ok(to_canonical_bytes(&v))
 }
@@ -114,13 +112,19 @@ mod tests {
         let a = json!({"b": 1, "a": 2});
         let b = json!({"a": 2, "b": 1});
         assert_eq!(to_canonical_bytes(&a), to_canonical_bytes(&b));
-        assert_eq!(String::from_utf8(to_canonical_bytes(&a)).unwrap(), r#"{"a":2,"b":1}"#);
+        assert_eq!(
+            String::from_utf8(to_canonical_bytes(&a)).unwrap(),
+            r#"{"a":2,"b":1}"#
+        );
     }
 
     #[test]
     fn whitespace_is_insignificant() {
         let v: Value = serde_json::from_str("{\n  \"x\" : [1,   2]\n}").unwrap();
-        assert_eq!(String::from_utf8(to_canonical_bytes(&v)).unwrap(), r#"{"x":[1,2]}"#);
+        assert_eq!(
+            String::from_utf8(to_canonical_bytes(&v)).unwrap(),
+            r#"{"x":[1,2]}"#
+        );
     }
 
     #[test]

@@ -101,7 +101,10 @@ impl Journal {
         self.entries.iter().any(|e| {
             matches!(
                 &e.event,
-                JournalEvent::ToolEffect { commit: CommitStatus::Unknown, .. }
+                JournalEvent::ToolEffect {
+                    commit: CommitStatus::Unknown,
+                    ..
+                }
             )
         })
     }
@@ -126,7 +129,10 @@ impl<'a> JournalReader<'a> {
     /// Take the next entry if its node path matches, else error. Enforces that
     /// replay follows the recorded order (PRD 8.4).
     pub fn next_for(&mut self, node_path: &str) -> Result<&'a JournalEvent, ReplayMismatch> {
-        let entry = self.entries.get(self.pos).ok_or(ReplayMismatch::Exhausted)?;
+        let entry = self
+            .entries
+            .get(self.pos)
+            .ok_or(ReplayMismatch::Exhausted)?;
         if entry.node_path != node_path {
             return Err(ReplayMismatch::Divergence {
                 expected: entry.node_path.clone(),

@@ -97,7 +97,10 @@ impl HttpServer {
         let method = parts.next().unwrap_or("");
         let target = parts.next().unwrap_or("");
         if method != "POST" {
-            return Err(HttpResponse::json(405, &serde_json::json!({ "error": "method not allowed; use POST" })));
+            return Err(HttpResponse::json(
+                405,
+                &serde_json::json!({ "error": "method not allowed; use POST" }),
+            ));
         }
         let operation = target.strip_prefix("/v1/").unwrap_or("").to_string();
         if operation.is_empty() {
@@ -108,7 +111,9 @@ impl HttpServer {
         let mut headers: BTreeMap<String, String> = BTreeMap::new();
         loop {
             let mut line = String::new();
-            reader.read_line(&mut line).map_err(|_| bad_request("io error"))?;
+            reader
+                .read_line(&mut line)
+                .map_err(|_| bad_request("io error"))?;
             let trimmed = line.trim_end();
             if trimmed.is_empty() {
                 break;
@@ -125,7 +130,9 @@ impl HttpServer {
             .unwrap_or(0);
         let mut body = vec![0u8; len];
         if len > 0 {
-            reader.read_exact(&mut body).map_err(|_| bad_request("truncated body"))?;
+            reader
+                .read_exact(&mut body)
+                .map_err(|_| bad_request("truncated body"))?;
         }
         let payload: serde_json::Value = if body.is_empty() {
             serde_json::Value::Null
@@ -136,9 +143,17 @@ impl HttpServer {
         // Auth: loopback dev bearer token → principal (Q30).
         let principal = headers
             .get("authorization")
-            .and_then(|h| h.strip_prefix("Bearer ").or_else(|| h.strip_prefix("bearer ")))
+            .and_then(|h| {
+                h.strip_prefix("Bearer ")
+                    .or_else(|| h.strip_prefix("bearer "))
+            })
             .and_then(|tok| self.tokens.get(tok.trim()).cloned())
-            .ok_or_else(|| HttpResponse::json(401, &serde_json::json!({ "error": "missing or unknown bearer token" })))?;
+            .ok_or_else(|| {
+                HttpResponse::json(
+                    401,
+                    &serde_json::json!({ "error": "missing or unknown bearer token" }),
+                )
+            })?;
 
         // Protocol version header (default 1.0).
         let protocol = headers
@@ -260,7 +275,10 @@ mod tests {
             |p, _payload| Ok(serde_json::json!({ "ok": true, "principal": p.id })),
         );
         let mut server = HttpServer::new(api);
-        server.add_dev_token("dev-token-1", Principal::new("dev", PrincipalKind::Operator));
+        server.add_dev_token(
+            "dev-token-1",
+            Principal::new("dev", PrincipalKind::Operator),
+        );
         server
     }
 

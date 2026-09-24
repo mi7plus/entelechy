@@ -39,8 +39,7 @@ impl AuthorityEnvelope {
     /// Whether `capability` is grantable under this envelope: listed as allowed
     /// and not forbidden. Forbidden always wins (PRD 5.4).
     pub fn allows_capability(&self, capability: &str) -> bool {
-        !self.forbidden_capabilities.contains(capability)
-            && self.capabilities.contains(capability)
+        !self.forbidden_capabilities.contains(capability) && self.capabilities.contains(capability)
     }
 
     /// Whether `self` is a subset of `parent`: every grant in `self` is present

@@ -83,8 +83,16 @@ impl OpenAiGateway {
 impl ModelGateway for OpenAiGateway {
     fn infer(&self, req: &ModelRequest) -> Result<ModelResponse, ModelError> {
         let body = chat_request_body(&req.model, &req.prompt, req.temperature);
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
-        let response = http_post_json(&url, self.config.api_key.as_deref(), &body, self.config.timeout)?;
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
+        let response = http_post_json(
+            &url,
+            self.config.api_key.as_deref(),
+            &body,
+            self.config.timeout,
+        )?;
         let parsed = parse_chat_response(&response)?;
         Ok(ModelResponse {
             text: parsed.content,
@@ -124,8 +132,8 @@ pub struct ChatParsed {
 
 /// Parse an OpenAI-compatible chat-completions response body (PV-1).
 pub fn parse_chat_response(body: &str) -> Result<ChatParsed, ModelError> {
-    let v: serde_json::Value =
-        serde_json::from_str(body).map_err(|e| ModelError::Provider(format!("invalid JSON: {e}")))?;
+    let v: serde_json::Value = serde_json::from_str(body)
+        .map_err(|e| ModelError::Provider(format!("invalid JSON: {e}")))?;
     // Surface an API error object if present.
     if let Some(err) = v.get("error") {
         return Err(ModelError::Provider(err.to_string()));
@@ -168,7 +176,9 @@ pub fn parse_url(url: &str) -> Result<Url, ModelError> {
     } else if let Some(r) = url.strip_prefix("http://") {
         ("http", r, 80u16)
     } else {
-        return Err(ModelError::Provider(format!("URL must be http:// or https:// (got '{url}')")));
+        return Err(ModelError::Provider(format!(
+            "URL must be http:// or https:// (got '{url}')"
+        )));
     };
     let (authority, path) = match rest.find('/') {
         Some(i) => (&rest[..i], &rest[i..]),
@@ -177,14 +187,20 @@ pub fn parse_url(url: &str) -> Result<Url, ModelError> {
     let (host, port) = match authority.rsplit_once(':') {
         Some((h, p)) => (
             h.to_string(),
-            p.parse::<u16>().map_err(|_| ModelError::Provider(format!("bad port in '{authority}'")))?,
+            p.parse::<u16>()
+                .map_err(|_| ModelError::Provider(format!("bad port in '{authority}'")))?,
         ),
         None => (authority.to_string(), default_port),
     };
     if host.is_empty() {
         return Err(ModelError::Provider("empty host in URL".into()));
     }
-    Ok(Url { scheme: scheme.into(), host, port, path: path.to_string() })
+    Ok(Url {
+        scheme: scheme.into(),
+        host,
+        port,
+        path: path.to_string(),
+    })
 }
 
 /// Read+Write transport (a plain TCP stream, or a TLS stream over one).
@@ -193,8 +209,9 @@ impl<T: Read + Write> ReadWrite for T {}
 
 /// Open a transport for the URL. `https` requires the `openai-tls` feature.
 fn connect(url: &Url, timeout: Duration) -> Result<Box<dyn ReadWrite>, ModelError> {
-    let tcp = TcpStream::connect((url.host.as_str(), url.port))
-        .map_err(|e| ModelError::Provider(format!("connect {}:{} failed: {e}", url.host, url.port)))?;
+    let tcp = TcpStream::connect((url.host.as_str(), url.port)).map_err(|e| {
+        ModelError::Provider(format!("connect {}:{} failed: {e}", url.host, url.port))
+    })?;
     tcp.set_read_timeout(Some(timeout)).ok();
     tcp.set_write_timeout(Some(timeout)).ok();
 
@@ -203,9 +220,9 @@ fn connect(url: &Url, timeout: Duration) -> Result<Box<dyn ReadWrite>, ModelErro
         {
             let connector = native_tls::TlsConnector::new()
                 .map_err(|e| ModelError::Provider(format!("TLS init failed: {e}")))?;
-            let stream = connector
-                .connect(&url.host, tcp)
-                .map_err(|e| ModelError::Provider(format!("TLS handshake with {} failed: {e}", url.host)))?;
+            let stream = connector.connect(&url.host, tcp).map_err(|e| {
+                ModelError::Provider(format!("TLS handshake with {} failed: {e}", url.host))
+            })?;
             return Ok(Box::new(stream));
         }
         #[cfg(not(feature = "openai-tls"))]
@@ -259,7 +276,9 @@ fn http_post_json(
         .next()
         .map(|l| l.contains(" 200"))
         .unwrap_or(false);
-    let is_chunked = head.to_ascii_lowercase().contains("transfer-encoding: chunked");
+    let is_chunked = head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked");
     let decoded = if is_chunked {
         dechunk(body_part)
     } else {
@@ -279,9 +298,12 @@ fn dechunk(body: &str) -> String {
     let mut out = String::new();
     let mut rest = body;
     loop {
-        let Some((size_line, after)) = rest.split_once("\r\n") else { break };
-        let size = usize::from_str_radix(size_line.trim().split(';').next().unwrap_or("0").trim(), 16)
-            .unwrap_or(0);
+        let Some((size_line, after)) = rest.split_once("\r\n") else {
+            break;
+        };
+        let size =
+            usize::from_str_radix(size_line.trim().split(';').next().unwrap_or("0").trim(), 16)
+                .unwrap_or(0);
         if size == 0 {
             break;
         }
@@ -333,7 +355,10 @@ mod tests {
     #[test]
     fn parses_endpoint_urls() {
         let u = parse_url("http://localhost:11434/v1/chat/completions").unwrap();
-        assert_eq!((u.scheme.as_str(), u.host.as_str(), u.port, u.path.as_str()), ("http", "localhost", 11434, "/v1/chat/completions"));
+        assert_eq!(
+            (u.scheme.as_str(), u.host.as_str(), u.port, u.path.as_str()),
+            ("http", "localhost", 11434, "/v1/chat/completions")
+        );
         // Default ports by scheme.
         assert_eq!(parse_url("http://model.local/v1").unwrap().port, 80);
         let https = parse_url("https://api.openai.com/v1").unwrap();
@@ -349,7 +374,11 @@ mod tests {
         // with a clear message; self-hosted http:// works without it.
         let gw = OpenAiGateway::new("https://api.openai.com/v1", Some("sk-x".into()));
         let err = gw
-            .infer(&ModelRequest { model: "gpt".into(), prompt: "hi".into(), temperature: 0.0 })
+            .infer(&ModelRequest {
+                model: "gpt".into(),
+                prompt: "hi".into(),
+                temperature: 0.0,
+            })
             .unwrap_err();
         assert!(format!("{err}").contains("openai-tls"), "{err}");
     }
@@ -363,8 +392,17 @@ mod tests {
 
     #[test]
     fn preset_endpoints() {
-        assert_eq!(OpenAiGateway::ollama().config.base_url, "http://localhost:11434/v1");
-        assert_eq!(OpenAiGateway::vllm(None).config.base_url, "http://localhost:8000/v1");
-        assert_eq!(OpenAiGateway::llama_cpp().config.base_url, "http://localhost:8080/v1");
+        assert_eq!(
+            OpenAiGateway::ollama().config.base_url,
+            "http://localhost:11434/v1"
+        );
+        assert_eq!(
+            OpenAiGateway::vllm(None).config.base_url,
+            "http://localhost:8000/v1"
+        );
+        assert_eq!(
+            OpenAiGateway::llama_cpp().config.base_url,
+            "http://localhost:8080/v1"
+        );
     }
 }

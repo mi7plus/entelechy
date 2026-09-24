@@ -70,6 +70,10 @@ pub trait WorkQueue: Send + Sync {
     fn reclaim_expired(&self, now: u64);
     /// Number of items not yet acked (available + leased).
     fn len(&self) -> usize;
+    /// Whether the queue holds no unacked items.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[derive(Default)]

@@ -93,7 +93,9 @@ impl RuleAdapter {
             .iter()
             .any(|r| r.effect == Effect::Forbid && r.applies(principal, action, resource));
         if forbidden {
-            return Err(format!("action '{action}' is forbidden by policy (forbid overrides permit)"));
+            return Err(format!(
+                "action '{action}' is forbidden by policy (forbid overrides permit)"
+            ));
         }
         let permitted = self
             .rules
@@ -102,7 +104,9 @@ impl RuleAdapter {
         if permitted {
             Ok(())
         } else {
-            Err(format!("no permit rule matches action '{action}' (default deny)"))
+            Err(format!(
+                "no permit rule matches action '{action}' (default deny)"
+            ))
         }
     }
 }
@@ -140,14 +144,28 @@ mod tests {
 
     fn adapter() -> RuleAdapter {
         RuleAdapter::new(vec![
-            Rule { effect: Effect::Permit, principal: Match::Any, action: Match::Is("draft_reply".into()), resource: Match::Any },
-            Rule { effect: Effect::Forbid, principal: Match::Any, action: Match::Is("refund".into()), resource: Match::Any },
+            Rule {
+                effect: Effect::Permit,
+                principal: Match::Any,
+                action: Match::Is("draft_reply".into()),
+                resource: Match::Any,
+            },
+            Rule {
+                effect: Effect::Forbid,
+                principal: Match::Any,
+                action: Match::Is("refund".into()),
+                resource: Match::Any,
+            },
         ])
     }
 
     #[test]
     fn permit_rule_authorizes() {
-        let d = adapter().evaluate(&AuthorityEnvelope::empty(), &PolicySnapshot::default(), &req("draft_reply", EffectClass::Write));
+        let d = adapter().evaluate(
+            &AuthorityEnvelope::empty(),
+            &PolicySnapshot::default(),
+            &req("draft_reply", EffectClass::Write),
+        );
         assert!(d.allowed, "{d:?}");
     }
 
@@ -155,14 +173,27 @@ mod tests {
     fn forbid_overrides_permit() {
         // Even with a broad permit, an explicit forbid wins (Cedar semantics).
         let mut a = adapter();
-        a.rules.push(Rule { effect: Effect::Permit, principal: Match::Any, action: Match::Any, resource: Match::Any });
-        let d = a.evaluate(&AuthorityEnvelope::empty(), &PolicySnapshot::default(), &req("refund", EffectClass::Irreversible));
+        a.rules.push(Rule {
+            effect: Effect::Permit,
+            principal: Match::Any,
+            action: Match::Any,
+            resource: Match::Any,
+        });
+        let d = a.evaluate(
+            &AuthorityEnvelope::empty(),
+            &PolicySnapshot::default(),
+            &req("refund", EffectClass::Irreversible),
+        );
         assert!(!d.allowed);
     }
 
     #[test]
     fn default_deny() {
-        let d = adapter().evaluate(&AuthorityEnvelope::empty(), &PolicySnapshot::default(), &req("delete_account", EffectClass::Write));
+        let d = adapter().evaluate(
+            &AuthorityEnvelope::empty(),
+            &PolicySnapshot::default(),
+            &req("delete_account", EffectClass::Write),
+        );
         assert!(!d.allowed);
     }
 

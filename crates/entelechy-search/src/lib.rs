@@ -140,9 +140,11 @@ impl Study {
     /// The best accepted candidate by validation success (PRD 5.7 selection is
     /// richer; this is the Phase 0 single-metric proxy).
     pub fn best(&self) -> Option<&Candidate> {
-        self.accepted
-            .iter()
-            .max_by(|a, b| a.validation_success.partial_cmp(&b.validation_success).unwrap())
+        self.accepted.iter().max_by(|a, b| {
+            a.validation_success
+                .partial_cmp(&b.validation_success)
+                .unwrap()
+        })
     }
 
     /// The single non-binding futility check at half budget (PRD 21.1). Returns
@@ -180,8 +182,12 @@ impl Study {
     /// The stopping rule variant this study was configured with (informational).
     pub fn describe_rule(plan: &StudyPlan) -> &'static str {
         match plan.stopping {
-            StoppingRule::Phase0Default { .. } => "phase0: budget cap + non-binding futility at half",
-            StoppingRule::GroupSequential { .. } => "group-sequential: O'Brien-Fleming alpha-spending",
+            StoppingRule::Phase0Default { .. } => {
+                "phase0: budget cap + non-binding futility at half"
+            }
+            StoppingRule::GroupSequential { .. } => {
+                "group-sequential: O'Brien-Fleming alpha-spending"
+            }
         }
     }
 }
@@ -201,7 +207,9 @@ mod tests {
             splits: SplitPolicy::default(),
             mde_validation_pp: 17.0,
             mde_holdout_pp: 12.0,
-            stopping: StoppingRule::Phase0Default { candidate_budget: budget },
+            stopping: StoppingRule::Phase0Default {
+                candidate_budget: budget,
+            },
             analysis: "paired bootstrap".into(),
             frozen_models: vec!["mock".into()],
             signed_by: "owner".into(),
@@ -225,7 +233,9 @@ mod tests {
         let tune_b = vec![false; 40];
         let tune_c = vec![true; 40];
         // No improvement on validation: identical outcomes.
-        let val = vec![true, false, true, true, false, true, false, true, true, false];
+        let val = vec![
+            true, false, true, true, false, true, false, true, true, false,
+        ];
         assert_eq!(
             rolling_validation_decision(&tune_b, &tune_c, &val, &val, 1),
             Decision::Inconclusive
@@ -235,7 +245,10 @@ mod tests {
     #[test]
     fn no_tune_win_is_rejected() {
         let x = vec![true, false, true, false, true, false];
-        assert_eq!(rolling_validation_decision(&x, &x, &x, &x, 1), Decision::Rejected);
+        assert_eq!(
+            rolling_validation_decision(&x, &x, &x, &x, 1),
+            Decision::Rejected
+        );
     }
 
     #[test]
@@ -264,8 +277,14 @@ mod tests {
     #[test]
     fn best_tracks_highest_validation_success() {
         let mut study = Study::from_plan(&plan(10));
-        study.accept(Candidate { design_hash: "a".into(), validation_success: 0.6 });
-        study.accept(Candidate { design_hash: "b".into(), validation_success: 0.8 });
+        study.accept(Candidate {
+            design_hash: "a".into(),
+            validation_success: 0.6,
+        });
+        study.accept(Candidate {
+            design_hash: "b".into(),
+            validation_success: 0.8,
+        });
         assert_eq!(study.best().unwrap().design_hash, "b");
     }
 }

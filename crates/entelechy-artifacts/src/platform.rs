@@ -39,15 +39,20 @@ impl DeploymentProfile {
     pub fn recovery_objectives(self) -> RecoveryObjectives {
         match self {
             // Local: RPO is the last export (auto after each study); no RTO claim.
-            DeploymentProfile::Local => RecoveryObjectives { rpo_secs: None, rto_secs: None },
+            DeploymentProfile::Local => RecoveryObjectives {
+                rpo_secs: None,
+                rto_secs: None,
+            },
             // Single-node server: RPO 15 min, RTO 4 h.
-            DeploymentProfile::SingleNodeServer => {
-                RecoveryObjectives { rpo_secs: Some(15 * 60), rto_secs: Some(4 * 60 * 60) }
-            }
+            DeploymentProfile::SingleNodeServer => RecoveryObjectives {
+                rpo_secs: Some(15 * 60),
+                rto_secs: Some(4 * 60 * 60),
+            },
             // Cluster: RPO 5 min, RTO 1 h.
-            DeploymentProfile::Cluster => {
-                RecoveryObjectives { rpo_secs: Some(5 * 60), rto_secs: Some(60 * 60) }
-            }
+            DeploymentProfile::Cluster => RecoveryObjectives {
+                rpo_secs: Some(5 * 60),
+                rto_secs: Some(60 * 60),
+            },
         }
     }
 
@@ -55,18 +60,24 @@ impl DeploymentProfile {
     /// in seconds.
     pub fn rollback_objective_secs(self) -> u64 {
         match self {
-            DeploymentProfile::Local => 5 * 60,          // 5 minutes
+            DeploymentProfile::Local => 5 * 60,            // 5 minutes
             DeploymentProfile::SingleNodeServer => 2 * 60, // 2 minutes
-            DeploymentProfile::Cluster => 60,            // 60 seconds
+            DeploymentProfile::Cluster => 60,              // 60 seconds
         }
     }
 
     /// A one-line guarantee boundary (PRD 17.1).
     pub fn guarantee_boundary(self) -> &'static str {
         match self {
-            DeploymentProfile::Local => "no HA claim; export/import and integrity verification required",
-            DeploymentProfile::SingleNodeServer => "backups, restore verification, quotas and declared RPO/RTO before L5",
-            DeploymentProfile::Cluster => "topology-specific RPO/RTO, failover, tenant isolation and restore drill before L5",
+            DeploymentProfile::Local => {
+                "no HA claim; export/import and integrity verification required"
+            }
+            DeploymentProfile::SingleNodeServer => {
+                "backups, restore verification, quotas and declared RPO/RTO before L5"
+            }
+            DeploymentProfile::Cluster => {
+                "topology-specific RPO/RTO, failover, tenant isolation and restore drill before L5"
+            }
         }
     }
 
@@ -101,13 +112,21 @@ mod tests {
     fn profiles_declare_recovery_objectives() {
         assert_eq!(
             DeploymentProfile::Local.recovery_objectives(),
-            RecoveryObjectives { rpo_secs: None, rto_secs: None }
+            RecoveryObjectives {
+                rpo_secs: None,
+                rto_secs: None
+            }
         );
         assert_eq!(
-            DeploymentProfile::SingleNodeServer.recovery_objectives().rto_secs,
+            DeploymentProfile::SingleNodeServer
+                .recovery_objectives()
+                .rto_secs,
             Some(4 * 60 * 60)
         );
-        assert_eq!(DeploymentProfile::Cluster.recovery_objectives().rpo_secs, Some(300));
+        assert_eq!(
+            DeploymentProfile::Cluster.recovery_objectives().rpo_secs,
+            Some(300)
+        );
         assert!(DeploymentProfile::Cluster.is_high_availability());
         assert!(!DeploymentProfile::Local.is_high_availability());
     }

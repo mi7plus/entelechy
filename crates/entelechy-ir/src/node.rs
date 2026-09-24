@@ -161,7 +161,9 @@ pub enum MemOp {
 }
 
 /// Memory tiers (PRD 12, MK-2).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum MemoryTier {
     /// Short-lived scratch memory for the current run (the default).
@@ -264,7 +266,12 @@ mod tests {
                             temperature: 0.0,
                         }),
                     ),
-                    Node::new("check", NodeKind::Verify(VerifyNode { checker: "ok".into() })),
+                    Node::new(
+                        "check",
+                        NodeKind::Verify(VerifyNode {
+                            checker: "ok".into(),
+                        }),
+                    ),
                 ]),
             ),
         );

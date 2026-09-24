@@ -38,7 +38,9 @@ impl StoppingRule {
     pub fn candidate_budget(&self) -> u32 {
         match self {
             StoppingRule::Phase0Default { candidate_budget }
-            | StoppingRule::GroupSequential { candidate_budget, .. } => *candidate_budget,
+            | StoppingRule::GroupSequential {
+                candidate_budget, ..
+            } => *candidate_budget,
         }
     }
 }
@@ -106,7 +108,9 @@ mod tests {
             splits: SplitPolicy::default(),
             mde_validation_pp: 17.0,
             mde_holdout_pp: 12.0,
-            stopping: StoppingRule::Phase0Default { candidate_budget: 40 },
+            stopping: StoppingRule::Phase0Default {
+                candidate_budget: 40,
+            },
             analysis: "paired bootstrap, 95% interval".into(),
             frozen_models: vec!["mock-small@r1".into()],
             signed_by: "owner@example".into(),
@@ -123,7 +127,9 @@ mod tests {
     fn budget_change_is_material() {
         let a = plan();
         let mut b = plan();
-        b.stopping = StoppingRule::Phase0Default { candidate_budget: 80 };
+        b.stopping = StoppingRule::Phase0Default {
+            candidate_budget: 80,
+        };
         assert!(a.is_material_change(&b));
     }
 }

@@ -41,7 +41,10 @@ impl OperationKey {
     /// The canonical string form embedded in provider requests where the API
     /// allows it (PRD 7.6 providers without idempotency support).
     pub fn as_string(&self) -> String {
-        format!("{}/{}/attempt{}", self.run_id, self.node_path, self.logical_attempt)
+        format!(
+            "{}/{}/attempt{}",
+            self.run_id, self.node_path, self.logical_attempt
+        )
     }
 }
 

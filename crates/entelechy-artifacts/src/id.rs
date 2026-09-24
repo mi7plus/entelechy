@@ -128,11 +128,17 @@ mod tests {
 
     #[test]
     fn parse_rejects_garbage() {
-        assert_eq!(ArtifactId::parse("nope"), Err(IdParseError::MissingSeparator));
+        assert_eq!(
+            ArtifactId::parse("nope"),
+            Err(IdParseError::MissingSeparator)
+        );
         assert!(matches!(
             ArtifactId::parse("md5:abc"),
             Err(IdParseError::UnknownAlgorithm(_))
         ));
-        assert_eq!(ArtifactId::parse("sha256:xyz"), Err(IdParseError::MalformedDigest));
+        assert_eq!(
+            ArtifactId::parse("sha256:xyz"),
+            Err(IdParseError::MalformedDigest)
+        );
     }
 }

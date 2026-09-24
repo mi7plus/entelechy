@@ -182,7 +182,11 @@ impl HoldoutVault {
         let ci_low_pp = cmp.ci_low * 100.0 - noise_pp;
         let ci_high_pp = cmp.ci_high * 100.0 + noise_pp;
 
-        self.record(caller, candidate_hash, InformationClass::AggregateGateResult);
+        self.record(
+            caller,
+            candidate_hash,
+            InformationClass::AggregateGateResult,
+        );
 
         let target = contract.release.target_improvement_pp;
         // Pass when the (noised) lower bound clears zero and the point estimate
@@ -221,7 +225,12 @@ impl HoldoutVault {
         }
     }
 
-    fn record(&mut self, caller: &CallerIdentity, candidate_hash: &str, returned: InformationClass) {
+    fn record(
+        &mut self,
+        caller: &CallerIdentity,
+        candidate_hash: &str,
+        returned: InformationClass,
+    ) {
         self.audit.push(AuditEntry {
             caller: caller.clone(),
             candidate_hash: candidate_hash.to_string(),

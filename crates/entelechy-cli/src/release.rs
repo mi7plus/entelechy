@@ -7,12 +7,14 @@
 
 use std::collections::BTreeMap;
 
-use entelechy_assurance::{AssuranceCompiler, AssuranceReport, Claim, ClaimStatus, Evidence, SafetyCase};
-use entelechy_eval::ConstraintClass;
-use entelechy_identity::{Approval, ApprovalBinding, KeyRing, Principal, PrincipalKind, FixedClock};
-use entelechy_release::{
-    promote, ApprovalCheck, MaturityLevel, PromotionGate, ReleaseBundle,
+use entelechy_assurance::{
+    AssuranceCompiler, AssuranceReport, Claim, ClaimStatus, Evidence, SafetyCase,
 };
+use entelechy_eval::ConstraintClass;
+use entelechy_identity::{
+    Approval, ApprovalBinding, FixedClock, KeyRing, Principal, PrincipalKind,
+};
+use entelechy_release::{promote, ApprovalCheck, MaturityLevel, PromotionGate, ReleaseBundle};
 
 /// Build the SafetyCase for the demo design: the refund negative goal is
 /// structural (enforced by absent authority, proven by IR-I2), and a behavioral
@@ -24,13 +26,19 @@ fn demo_safety_case() -> SafetyCase {
                 id: "C-no-refund".into(),
                 statement: "the system never issues a refund".into(),
                 class: ConstraintClass::Structural,
-                evidence: vec![Evidence::StaticProof { invariant: "IR-I2".into() }],
+                evidence: vec![Evidence::StaticProof {
+                    invariant: "IR-I2".into(),
+                }],
             },
             Claim {
                 id: "C-no-disclosure".into(),
                 statement: "no cross-customer disclosure".into(),
                 class: ConstraintClass::Behavioral,
-                evidence: vec![Evidence::UpperBoundTest { upper_bound: 0.006, epsilon: 0.01, n: 300 }],
+                evidence: vec![Evidence::UpperBoundTest {
+                    upper_bound: 0.006,
+                    epsilon: 0.01,
+                    n: 300,
+                }],
             },
         ],
         known_limitations: vec!["mock model provides no semantic quality signal".into()],
@@ -145,11 +153,20 @@ pub fn cmd_release() -> anyhow::Result<()> {
         holdout_passed: false,
         negative_goal_clean: true,
     };
-    match promote(&bundle, MaturityLevel::L2, MaturityLevel::L3, &regressed, &check, None) {
+    match promote(
+        &bundle,
+        MaturityLevel::L2,
+        MaturityLevel::L3,
+        &regressed,
+        &check,
+        None,
+    ) {
         Ok(_) => println!("(unexpected) L3 promotion allowed despite holdout regression"),
         Err(e) => println!("Holdout regression correctly blocks L3: {e}"),
     }
 
-    println!("\nApprovals are revalidated at promotion and go stale on any material change (PRD 14.5).");
+    println!(
+        "\nApprovals are revalidated at promotion and go stale on any material change (PRD 14.5)."
+    );
     Ok(())
 }

@@ -14,10 +14,12 @@
 //! verification step (a real typed patch, PRD 11.5) fixes that class.
 
 use entelechy_bench::{BenchmarkManifest, StoppingRule, StudyPlan};
-use entelechy_design::{apply, synthesize_single_agent, DesignHypothesis, EditOp, HypothesisResult};
+use entelechy_design::{
+    apply, synthesize_single_agent, DesignHypothesis, EditOp, HypothesisResult,
+};
 use entelechy_eval::{
-    CallerIdentity, ConstraintClass, EvalContract, GateResponse, HoldoutVault, NegativeGoal, Plane,
-    ReleaseRule, RiskClass, Split, SplitPolicy, Suite, Task, Difficulty, Provenance,
+    CallerIdentity, ConstraintClass, Difficulty, EvalContract, GateResponse, HoldoutVault,
+    NegativeGoal, Plane, Provenance, ReleaseRule, RiskClass, Split, SplitPolicy, Suite, Task,
 };
 use entelechy_failure::{FailureObservation, Symptom};
 use entelechy_ir::{AuthorityEnvelope, Node, NodeKind, Program};
@@ -53,9 +55,13 @@ pub fn run() -> anyhow::Result<()> {
         baseline_id: baseline_id.to_string(),
         primary_metric: contract.release.primary_metric.clone(),
         splits: contract.splits.clone(),
-        mde_validation_pp: entelechy_eval::min_detectable_effect_pp(suite.split_len(Split::Validation)),
+        mde_validation_pp: entelechy_eval::min_detectable_effect_pp(
+            suite.split_len(Split::Validation),
+        ),
         mde_holdout_pp: entelechy_eval::min_detectable_effect_pp(suite.split_len(Split::Holdout)),
-        stopping: StoppingRule::Phase0Default { candidate_budget: 8 },
+        stopping: StoppingRule::Phase0Default {
+            candidate_budget: 8,
+        },
         analysis: "paired bootstrap, 95% interval".into(),
         frozen_models: vec!["mock-small@mock-r1".into()],
         signed_by: "owner@example".into(),
@@ -114,12 +120,7 @@ pub fn run() -> anyhow::Result<()> {
         }
         None => {
             println!("   Diagnosis: no actionable failure cluster.");
-            (
-                "no failures".into(),
-                "none".into(),
-                1.0,
-                vec![],
-            )
+            ("no failures".into(), "none".into(), 1.0, vec![])
         }
     };
 
@@ -153,13 +154,17 @@ pub fn run() -> anyhow::Result<()> {
     );
 
     // Rolling-validation decision (EV-13): confirm on fresh validation tasks.
-    let decision = rolling_validation_decision(&base_tune, &cand_tune, &base_val, &cand_val, 20250920);
+    let decision =
+        rolling_validation_decision(&base_tune, &cand_tune, &base_val, &cand_val, 20250920);
     h1.resolve(match decision {
         Decision::Accepted => HypothesisResult::Accepted,
         Decision::Rejected => HypothesisResult::Rejected,
         Decision::Inconclusive => HypothesisResult::Inconclusive,
     });
-    println!("   Rolling validation → {decision:?}; hypothesis {} result {:?}.", h1.id, h1.result);
+    println!(
+        "   Rolling validation → {decision:?}; hypothesis {} result {:?}.",
+        h1.id, h1.result
+    );
 
     let best = if decision == Decision::Accepted {
         study.accept(Candidate {
@@ -180,7 +185,10 @@ pub fn run() -> anyhow::Result<()> {
     // --- 5. Holdout gate on the accepted candidate (EV-14, 9.6) ---
     let holdout: Vec<Task> = suite.split(Split::Holdout).cloned().collect();
     let mut vault = HoldoutVault::seal(&contract, holdout)?;
-    let assurance = CallerIdentity { id: "assure".into(), plane: Plane::Assurance };
+    let assurance = CallerIdentity {
+        id: "assure".into(),
+        plane: Plane::Assurance,
+    };
     let base_ref = baseline.clone();
     let best_ref = best.clone();
     let resp = vault.gate_query(
@@ -200,7 +208,9 @@ pub fn run() -> anyhow::Result<()> {
         GateResponse::Refused { reason } => println!("5. Holdout gate: REFUSED — {reason}"),
     }
 
-    println!("\nEvery accepted mutation has a DesignHypothesis with an experiment result (PRD 25).");
+    println!(
+        "\nEvery accepted mutation has a DesignHypothesis with an experiment result (PRD 25)."
+    );
     Ok(())
 }
 

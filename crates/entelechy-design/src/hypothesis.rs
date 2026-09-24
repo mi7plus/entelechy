@@ -82,7 +82,10 @@ mod tests {
             failure_class: "reasoning.verification".into(),
             suspected_cause: "no post-synthesis verification".into(),
             cause_confidence: conf,
-            patch: vec![EditOp::AddVerify { id: "v".into(), checker: "supported".into() }],
+            patch: vec![EditOp::AddVerify {
+                id: "v".into(),
+                checker: "supported".into(),
+            }],
             expected_effect: "reduce unsupported-claim failures".into(),
             expected_tradeoff: "small cost/latency increase".into(),
             experiment: "paired eval vs parent on tune, confirm on validation".into(),

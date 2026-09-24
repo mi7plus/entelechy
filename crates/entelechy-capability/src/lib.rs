@@ -135,7 +135,8 @@ impl CapabilityGraph {
 
     /// Add or replace a capability.
     pub fn add(&mut self, capability: Capability) {
-        self.capabilities.insert(capability.name.clone(), capability);
+        self.capabilities
+            .insert(capability.name.clone(), capability);
     }
 
     /// Look up a capability.
@@ -281,7 +282,11 @@ mod tests {
             latency_ms: None,
             cost_minor: None,
             reliability: None,
-            attested_at: if attested { Some(now_attested_at) } else { None },
+            attested_at: if attested {
+                Some(now_attested_at)
+            } else {
+                None
+            },
             attested_version: if attested { Some("v1".into()) } else { None },
             version: "v1".into(),
         }
@@ -323,13 +328,23 @@ mod tests {
         let mut g = CapabilityGraph::new();
         g.add(mcp_write("create_ticket", false, 0)); // unattested → no write
         let req = vec![
-            RequiredCapability { name: "create_ticket".into(), needs_write: true },
-            RequiredCapability { name: "issue_refund".into(), needs_write: true },
+            RequiredCapability {
+                name: "create_ticket".into(),
+                needs_write: true,
+            },
+            RequiredCapability {
+                name: "issue_refund".into(),
+                needs_write: true,
+            },
         ];
         let gaps = g.gaps(&req, now);
         assert_eq!(gaps.len(), 2);
-        assert!(gaps.iter().any(|x| x.name == "create_ticket" && x.reason == GapReason::NoWriteAuthority));
-        assert!(gaps.iter().any(|x| x.name == "issue_refund" && x.reason == GapReason::Missing));
+        assert!(gaps
+            .iter()
+            .any(|x| x.name == "create_ticket" && x.reason == GapReason::NoWriteAuthority));
+        assert!(gaps
+            .iter()
+            .any(|x| x.name == "issue_refund" && x.reason == GapReason::Missing));
     }
 
     #[test]
@@ -343,8 +358,14 @@ mod tests {
         new.add(a2);
         new.add(mcp_write("c", true, 0));
         let events = old.drift_since(&new);
-        assert!(events.iter().any(|e| e.name == "a" && e.kind == DriftKind::VersionChanged));
-        assert!(events.iter().any(|e| e.name == "b" && e.kind == DriftKind::Removed));
-        assert!(events.iter().any(|e| e.name == "c" && e.kind == DriftKind::Added));
+        assert!(events
+            .iter()
+            .any(|e| e.name == "a" && e.kind == DriftKind::VersionChanged));
+        assert!(events
+            .iter()
+            .any(|e| e.name == "b" && e.kind == DriftKind::Removed));
+        assert!(events
+            .iter()
+            .any(|e| e.name == "c" && e.kind == DriftKind::Added));
     }
 }

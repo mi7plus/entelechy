@@ -101,7 +101,12 @@ fn main() -> anyhow::Result<()> {
         Command::Init => cmd_init(),
         Command::Requirements => cmd_requirements(),
         #[cfg(feature = "openai")]
-        Command::Infer { base_url, model, prompt, api_key } => cmd_infer(base_url, model, prompt, api_key),
+        Command::Infer {
+            base_url,
+            model,
+            prompt,
+            api_key,
+        } => cmd_infer(base_url, model, prompt, api_key),
         Command::Design { validate } => cmd_design(validate),
         Command::Demo { out } => cmd_demo(&out),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
@@ -139,9 +144,14 @@ fn cmd_diff(old: Option<String>, new: Option<String>) -> anyhow::Result<()> {
             let base = demo::demo_program();
             let candidate = apply(
                 &base,
-                &EditOp::AddVerify { id: "reply_check".into(), checker: "reply_supported".into() },
+                &EditOp::AddVerify {
+                    id: "reply_check".into(),
+                    checker: "reply_supported".into(),
+                },
             )?;
-            println!("(no paths given; diffing the demo baseline against its repaired candidate)\n");
+            println!(
+                "(no paths given; diffing the demo baseline against its repaired candidate)\n"
+            );
             (base, candidate)
         }
     };
@@ -160,7 +170,10 @@ fn cmd_diff(old: Option<String>, new: Option<String>) -> anyhow::Result<()> {
         let pin = if d.pinned { " [pinned]" } else { "" };
         println!("  {mark} {}{pin}: {}", d.id, d.detail);
     }
-    let changes = diffs.iter().filter(|d| d.change != ChangeKind::Unchanged).count();
+    let changes = diffs
+        .iter()
+        .filter(|d| d.change != ChangeKind::Unchanged)
+        .count();
     println!("\n{changes} changed node(s).");
     if has_pinned_conflict(&diffs) {
         println!("WARNING: a pinned node changed — a merge must not overwrite it (IR-I7).");
@@ -169,11 +182,20 @@ fn cmd_diff(old: Option<String>, new: Option<String>) -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "openai")]
-fn cmd_infer(base_url: String, model: String, prompt: String, api_key: Option<String>) -> anyhow::Result<()> {
+fn cmd_infer(
+    base_url: String,
+    model: String,
+    prompt: String,
+    api_key: Option<String>,
+) -> anyhow::Result<()> {
     use entelechy_gateway::{ModelGateway, ModelRequest, OpenAiGateway};
 
     let gateway = OpenAiGateway::new(&base_url, api_key);
-    let req = ModelRequest { model, prompt, temperature: 0.0 };
+    let req = ModelRequest {
+        model,
+        prompt,
+        temperature: 0.0,
+    };
     println!("Calling {base_url} (self-hosted OpenAI-compatible)...");
     match gateway.infer(&req) {
         Ok(resp) => {
@@ -189,8 +211,10 @@ fn cmd_infer(base_url: String, model: String, prompt: String, api_key: Option<St
         }
         Err(e) => {
             println!("inference failed: {e}");
-            println!("Is a model server running? e.g. `ollama serve` then `ollama pull {}`.",
-                req_model_hint());
+            println!(
+                "Is a model server running? e.g. `ollama serve` then `ollama pull {}`.",
+                req_model_hint()
+            );
         }
     }
     Ok(())
@@ -308,9 +332,18 @@ fn cmd_capability() -> anyhow::Result<()> {
 
     // Compare to the objective's required capabilities (CD-4).
     let required = vec![
-        RequiredCapability { name: "draft_reply".into(), needs_write: true },
-        RequiredCapability { name: "create_ticket".into(), needs_write: true },
-        RequiredCapability { name: "issue_refund".into(), needs_write: true },
+        RequiredCapability {
+            name: "draft_reply".into(),
+            needs_write: true,
+        },
+        RequiredCapability {
+            name: "create_ticket".into(),
+            needs_write: true,
+        },
+        RequiredCapability {
+            name: "issue_refund".into(),
+            needs_write: true,
+        },
     ];
     let gaps = graph.gaps(&required, now);
     println!("\nCapability gaps (CD-4): {}", gaps.len());
@@ -324,13 +357,19 @@ fn cmd_capability() -> anyhow::Result<()> {
 fn cmd_trace() -> anyhow::Result<()> {
     // Execute the demo and render its journal as a trace (OP-1 / PRD 16.2).
     let (result, _decisions) = demo::run_demo("trace-run-1");
-    println!("Trace for run '{}' — {}", result.journal.run_id, demo::status_line(&result));
+    println!(
+        "Trace for run '{}' — {}",
+        result.journal.run_id,
+        demo::status_line(&result)
+    );
     for entry in &result.journal.entries {
         let kind = match &entry.event {
             entelechy_runtime::JournalEvent::ModelCall { request, .. } => {
                 format!("model-call model={}", request.model)
             }
-            entelechy_runtime::JournalEvent::ToolEffect { capability, commit, .. } => {
+            entelechy_runtime::JournalEvent::ToolEffect {
+                capability, commit, ..
+            } => {
                 format!("tool-effect capability={capability} commit={commit:?}")
             }
             entelechy_runtime::JournalEvent::PolicyDecision { policy, allowed } => {
@@ -352,13 +391,25 @@ fn cmd_objective() -> anyhow::Result<()> {
     // A bounded clarification interview (OC-3): rank by expected impact, stop at
     // the question budget, defer the rest as assumptions.
     let questions = vec![
-        ClarificationQuestion { text: "Which ticket categories are in scope?".into(), expected_impact: 0.9 },
-        ClarificationQuestion { text: "Is a formal tone required?".into(), expected_impact: 0.3 },
-        ClarificationQuestion { text: "What is the escalation path for billing?".into(), expected_impact: 0.7 },
+        ClarificationQuestion {
+            text: "Which ticket categories are in scope?".into(),
+            expected_impact: 0.9,
+        },
+        ClarificationQuestion {
+            text: "Is a formal tone required?".into(),
+            expected_impact: 0.3,
+        },
+        ClarificationQuestion {
+            text: "What is the escalation path for billing?".into(),
+            expected_impact: 0.7,
+        },
     ];
     let interview = run_interview(questions, 2);
-    println!("Clarification interview (OC-3): asking {} of {} questions.",
-        interview.to_ask.len(), interview.to_ask.len() + interview.deferred_assumptions.len());
+    println!(
+        "Clarification interview (OC-3): asking {} of {} questions.",
+        interview.to_ask.len(),
+        interview.to_ask.len() + interview.deferred_assumptions.len()
+    );
     for q in &interview.to_ask {
         println!("  ask: {} (impact {:.1})", q.text, q.expected_impact);
     }
@@ -386,11 +437,28 @@ fn cmd_objective() -> anyhow::Result<()> {
     let goalspec = GoalSpec {
         success_criteria: vec![Provenanced::stated("resolve tier-1 support tickets".into())],
         negative_goals: vec![
-            NegativeGoal { name: "no_refund".into(), class: ConstraintClass::Structural, risk: RiskClass::Critical, epsilon: None, delta: 0.05 },
-            NegativeGoal { name: "no_cross_customer_disclosure".into(), class: ConstraintClass::Behavioral, risk: RiskClass::High, epsilon: None, delta: 0.05 },
+            NegativeGoal {
+                name: "no_refund".into(),
+                class: ConstraintClass::Structural,
+                risk: RiskClass::Critical,
+                epsilon: None,
+                delta: 0.05,
+            },
+            NegativeGoal {
+                name: "no_cross_customer_disclosure".into(),
+                class: ConstraintClass::Behavioral,
+                risk: RiskClass::High,
+                epsilon: None,
+                delta: 0.05,
+            },
         ],
         authority,
-        budget: Provenanced::defaulted(BudgetEnvelope { money_minor: 60_000, tokens: 1_000_000, wall_secs: 3_600, steps: 100 }),
+        budget: Provenanced::defaulted(BudgetEnvelope {
+            money_minor: 60_000,
+            tokens: 1_000_000,
+            wall_secs: 3_600,
+            steps: 100,
+        }),
         selection_policy: SelectionPolicy::ConstrainedOptimization {
             objective: "minimize:cost".into(),
             constraints: vec![],
@@ -401,14 +469,22 @@ fn cmd_objective() -> anyhow::Result<()> {
         value_estimate_minor: Provenanced::inferred(500_000),
     };
 
-    println!("\nGoalSpec: {} criteria, {} negative goals, ledger valid: {}.",
-        goalspec.success_criteria.len(), goalspec.negative_goal_count(), goalspec.assumption_ledger_valid());
+    println!(
+        "\nGoalSpec: {} criteria, {} negative goals, ledger valid: {}.",
+        goalspec.success_criteria.len(),
+        goalspec.negative_goal_count(),
+        goalspec.assumption_ledger_valid()
+    );
 
     // Compile the EvalContract from the GoalSpec (EV-2) and check power (EV-15).
     let contract = compile_eval_contract(&goalspec);
     let warnings = contract.power_warnings();
-    println!("EvalContract compiled (EV-2): {} criteria, {} negative goals; {} power warning(s).",
-        contract.criteria.len(), contract.negative_goals.len(), warnings.len());
+    println!(
+        "EvalContract compiled (EV-2): {} criteria, {} negative goals; {} power warning(s).",
+        contract.criteria.len(),
+        contract.negative_goals.len(),
+        warnings.len()
+    );
 
     // Sign off, producing an immutable content-addressed GoalSpec (OC-8).
     match goalspec.sign_off() {
@@ -420,8 +496,8 @@ fn cmd_objective() -> anyhow::Result<()> {
 
 fn cmd_eval() -> anyhow::Result<()> {
     use entelechy_eval::{
-        CallerIdentity, ConstraintClass, EvalContract, GateResponse, HoldoutVault, NegativeGoal,
-        Plane, ReleaseRule, RiskClass, SplitPolicy, Split, Task, Difficulty, Provenance,
+        CallerIdentity, ConstraintClass, Difficulty, EvalContract, GateResponse, HoldoutVault,
+        NegativeGoal, Plane, Provenance, ReleaseRule, RiskClass, Split, SplitPolicy, Task,
     };
 
     // The Phase 0 support-triage EvalContract (PRD 21, Q1), hand-authored.
@@ -452,19 +528,30 @@ fn cmd_eval() -> anyhow::Result<()> {
         },
     };
 
-    println!("EvalContract v{} — primary metric '{}', target +{}pp (Q1 split {}/{}/{}).",
-        contract.version, contract.release.primary_metric, contract.release.target_improvement_pp,
-        contract.splits.tune, contract.splits.validation, contract.splits.holdout);
+    println!(
+        "EvalContract v{} — primary metric '{}', target +{}pp (Q1 split {}/{}/{}).",
+        contract.version,
+        contract.release.primary_metric,
+        contract.release.target_improvement_pp,
+        contract.splits.tune,
+        contract.splits.validation,
+        contract.splits.holdout
+    );
 
     println!("\nNegative goals:");
     for g in &contract.negative_goals {
         match g.class {
             ConstraintClass::Structural => {
-                println!("  {} [structural] — proven by IR analysis; no epsilon.", g.name);
+                println!(
+                    "  {} [structural] — proven by IR analysis; no epsilon.",
+                    g.name
+                );
             }
             _ => println!(
                 "  {} [{:?}] — upper-bound test, epsilon {:.1}%.",
-                g.name, g.class, g.effective_epsilon() * 100.0
+                g.name,
+                g.class,
+                g.effective_epsilon() * 100.0
             ),
         }
     }
@@ -498,40 +585,59 @@ fn cmd_eval() -> anyhow::Result<()> {
         })
         .collect();
     let mut vault = HoldoutVault::seal(&contract, holdout)?;
-    println!("\nHoldout sealed: {} tasks (content is not readable — EV-14).", vault.len());
+    println!(
+        "\nHoldout sealed: {} tasks (content is not readable — EV-14).",
+        vault.len()
+    );
 
     // Firewall: a design/search identity is refused (9.6).
-    let design = CallerIdentity { id: "search".into(), plane: Plane::DesignSearch };
+    let design = CallerIdentity {
+        id: "search".into(),
+        plane: Plane::DesignSearch,
+    };
     let refused = vault.gate_query(&design, "cand#tuned", &contract, &|_| false, &|_| true);
     if let GateResponse::Refused { reason } = &refused {
         println!("Firewall: design/search gate query refused — {reason}");
     }
 
     // Assurance queries the gate: naive baseline (fails all) vs tuned candidate.
-    let assurance = CallerIdentity { id: "assure".into(), plane: Plane::Assurance };
+    let assurance = CallerIdentity {
+        id: "assure".into(),
+        plane: Plane::Assurance,
+    };
     let resp = vault.gate_query(
         &assurance,
         "cand#tuned",
         &contract,
         &|t| t.input.get("ticket").and_then(|x| x.as_u64()).unwrap_or(0) % 3 == 0, // baseline ~33%
-        &|_| true,                                                                  // candidate 100%
+        &|_| true,                                                                 // candidate 100%
     );
     match resp {
-        GateResponse::Pass { ci_low_pp, ci_high_pp } => println!(
+        GateResponse::Pass {
+            ci_low_pp,
+            ci_high_pp,
+        } => println!(
             "Gate: PASS — improvement 95% interval [{ci_low_pp:.1}, {ci_high_pp:.1}]pp (coarse)."
         ),
-        GateResponse::Fail { ci_low_pp, ci_high_pp } => println!(
-            "Gate: FAIL — improvement 95% interval [{ci_low_pp:.1}, {ci_high_pp:.1}]pp."
-        ),
+        GateResponse::Fail {
+            ci_low_pp,
+            ci_high_pp,
+        } => println!("Gate: FAIL — improvement 95% interval [{ci_low_pp:.1}, {ci_high_pp:.1}]pp."),
         GateResponse::Refused { reason } => println!("Gate: REFUSED — {reason}"),
     }
-    println!("Remaining holdout query budget: {}.", vault.remaining_budget());
+    println!(
+        "Remaining holdout query budget: {}.",
+        vault.remaining_budget()
+    );
     Ok(())
 }
 
 fn cmd_requirements() -> anyhow::Result<()> {
     use entelechy_contracts::REGISTRY;
-    println!("Cross-cutting requirement registry (PRD 17.6) — {} entries:\n", REGISTRY.len());
+    println!(
+        "Cross-cutting requirement registry (PRD 17.6) — {} entries:\n",
+        REGISTRY.len()
+    );
     for r in REGISTRY {
         println!(
             "  {:<5} [{:?}, first enforced {:?}]  {} (§{})",
@@ -569,7 +675,10 @@ fn cmd_demo(out_dir: &str) -> anyhow::Result<()> {
     let program = demo::demo_program();
     let catalog = demo::demo_catalog();
     let violations = entelechy_ir::validate(&program, &catalog);
-    println!("1. Static invariant check: {} violation(s).", violations.len());
+    println!(
+        "1. Static invariant check: {} violation(s).",
+        violations.len()
+    );
     for v in &violations {
         println!("   {} at {}: {}", v.code, v.node_id, v.message);
     }
@@ -586,7 +695,10 @@ fn cmd_demo(out_dir: &str) -> anyhow::Result<()> {
     let design_path = format!("{out_dir}/design.json");
     let journal_path = format!("{out_dir}/journal.json");
     std::fs::write(&design_path, serde_json::to_string_pretty(&program)?)?;
-    std::fs::write(&journal_path, serde_json::to_string_pretty(&result.journal)?)?;
+    std::fs::write(
+        &journal_path,
+        serde_json::to_string_pretty(&result.journal)?,
+    )?;
     let design_id = entelechy_artifacts::ArtifactId::of(&program)?;
     println!("3. Wrote {design_path} (id {design_id}) and {journal_path}.");
 
@@ -603,7 +715,9 @@ fn cmd_demo(out_dir: &str) -> anyhow::Result<()> {
         rows.len()
     );
 
-    println!("\nDone. Phase 0 slice: execute -> journal -> replay + effect-safety conformance (PRD 21).");
+    println!(
+        "\nDone. Phase 0 slice: execute -> journal -> replay + effect-safety conformance (PRD 21)."
+    );
     Ok(())
 }
 
@@ -617,14 +731,21 @@ fn cmd_replay(design_path: &str, journal_path: &str) -> anyhow::Result<()> {
 }
 
 /// Replay a program against a journal using the demo registries.
-fn replay(program: &entelechy_ir::Program, journal: &entelechy_runtime::Journal) -> anyhow::Result<String> {
+fn replay(
+    program: &entelechy_ir::Program,
+    journal: &entelechy_runtime::Journal,
+) -> anyhow::Result<String> {
     use entelechy_gateway::{MockModel, NativeToolGateway};
     let model = MockModel::new();
     let mut tools = NativeToolGateway::new();
     let mut engine = entelechy_runtime::Engine::new(&model, &mut tools);
     engine.register_code("route_ticket", |v| Ok(v.data.clone()));
     engine.register_checker("reply_nonempty", |_| true);
-    match engine.replay(program, entelechy_ir::Value::trusted(serde_json::json!({})), journal) {
+    match engine.replay(
+        program,
+        entelechy_ir::Value::trusted(serde_json::json!({})),
+        journal,
+    ) {
         Ok(_) => Ok(format!(
             "reproduced observable state deterministically ({} entries, no divergence)",
             journal.entries.len()

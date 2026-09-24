@@ -88,7 +88,12 @@ impl TraceabilityIndex {
     }
 
     /// Add a verification record.
-    pub fn verify(&mut self, requirement_id: impl Into<String>, artifact: impl Into<String>, version: impl Into<String>) {
+    pub fn verify(
+        &mut self,
+        requirement_id: impl Into<String>,
+        artifact: impl Into<String>,
+        version: impl Into<String>,
+    ) {
         self.records.push(VerificationRecord {
             requirement_id: requirement_id.into(),
             artifact: artifact.into(),
@@ -126,13 +131,20 @@ impl TraceabilityIndex {
                 match self.active_waiver(r.id, now) {
                     // An active, permissible waiver covers a non-proof requirement.
                     Some(_) if is_waivable(r) => None,
-                    Some(_) => Some(Gap { requirement_id: r.id.into(), reason: GapReason::Unverified }),
+                    Some(_) => Some(Gap {
+                        requirement_id: r.id.into(),
+                        reason: GapReason::Unverified,
+                    }),
                     None => {
                         // Distinguish an expired waiver from never-waived.
                         let expired = self.waivers.iter().any(|w| w.requirement_id == r.id);
                         Some(Gap {
                             requirement_id: r.id.into(),
-                            reason: if expired { GapReason::WaiverExpired } else { GapReason::Unverified },
+                            reason: if expired {
+                                GapReason::WaiverExpired
+                            } else {
+                                GapReason::Unverified
+                            },
                         })
                     }
                 }
@@ -177,7 +189,10 @@ mod tests {
             .unwrap();
         // Verify everything else so only `target` could be a gap.
         let mut index = TraceabilityIndex::new();
-        for r in REGISTRY.iter().filter(|r| r.first_enforced <= Phase::P0 && r.id != target.id) {
+        for r in REGISTRY
+            .iter()
+            .filter(|r| r.first_enforced <= Phase::P0 && r.id != target.id)
+        {
             index.verify(r.id, "t", "0.0.0");
         }
         index.waive(Waiver {

@@ -107,7 +107,10 @@ mod tests {
         let mut store = InMemoryStore::new();
         let id = store.put("tenant-a", b"secret".to_vec());
         // Another tenant holds the exact address but is refused (PRD 17.2).
-        assert_eq!(store.get("tenant-b", &id), Err(StoreError::Unauthorized(id.clone())));
+        assert_eq!(
+            store.get("tenant-b", &id),
+            Err(StoreError::Unauthorized(id.clone()))
+        );
         assert!(!store.contains("tenant-b", &id));
     }
 

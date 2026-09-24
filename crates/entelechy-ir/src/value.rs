@@ -161,10 +161,14 @@ mod tests {
     #[test]
     fn confidence_join_takes_min() {
         let a = Value::trusted(json!(1));
-        let mut m = ValueMeta::default();
-        m.confidence = Some(0.9);
-        let mut n = ValueMeta::default();
-        n.confidence = Some(0.4);
+        let m = ValueMeta {
+            confidence: Some(0.9),
+            ..Default::default()
+        };
+        let n = ValueMeta {
+            confidence: Some(0.4),
+            ..Default::default()
+        };
         assert_eq!(m.join(&n).confidence, Some(0.4));
         let _ = a;
     }

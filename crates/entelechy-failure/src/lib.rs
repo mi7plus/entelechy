@@ -18,4 +18,4 @@ pub use analyzer::{
     allocate_budget, analyze, ClassProbability, FailureCluster, FailureObservation, Symptom,
     DIAGNOSTIC_CONFIDENCE, HIGH_ENTROPY_RESERVE,
 };
-pub use ontology::{class, Family, FailureClass, ONTOLOGY, ONTOLOGY_VERSION};
+pub use ontology::{class, FailureClass, Family, ONTOLOGY, ONTOLOGY_VERSION};

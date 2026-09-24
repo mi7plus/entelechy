@@ -74,24 +74,26 @@ pub fn apply(program: &Program, op: &EditOp) -> Result<Program, PatchError> {
             with_llm(&mut next.root, node, |llm| llm.model = model.clone())?;
         }
         EditOp::MutatePrompt { node, template } => {
-            with_llm(&mut next.root, node, |llm| llm.prompt_template = template.clone())?;
+            with_llm(&mut next.root, node, |llm| {
+                llm.prompt_template = template.clone()
+            })?;
         }
         EditOp::SetTemperature { node, temperature } => {
             with_llm(&mut next.root, node, |llm| llm.temperature = *temperature)?;
         }
-        EditOp::AddVerify { id, checker } => {
-            match &mut next.root.kind {
-                NodeKind::Seq(children) => children.push(Node::new(
-                    id.clone(),
-                    NodeKind::Verify(VerifyNode { checker: checker.clone() }),
-                )),
-                _ => {
-                    return Err(PatchError::Structural(
-                        "AddVerify requires a Seq root".into(),
-                    ))
-                }
+        EditOp::AddVerify { id, checker } => match &mut next.root.kind {
+            NodeKind::Seq(children) => children.push(Node::new(
+                id.clone(),
+                NodeKind::Verify(VerifyNode {
+                    checker: checker.clone(),
+                }),
+            )),
+            _ => {
+                return Err(PatchError::Structural(
+                    "AddVerify requires a Seq root".into(),
+                ))
             }
-        }
+        },
         EditOp::DeleteNode { node } => {
             if next.root.id == *node {
                 return Err(PatchError::Structural("cannot delete the root node".into()));
@@ -198,7 +200,12 @@ mod tests {
                             temperature: 0.0,
                         }),
                     ),
-                    Node::new("code", NodeKind::Code(CodeNode { function: "id".into() })),
+                    Node::new(
+                        "code",
+                        NodeKind::Code(CodeNode {
+                            function: "id".into(),
+                        }),
+                    ),
                 ]),
             ),
         )
@@ -207,7 +214,14 @@ mod tests {
     #[test]
     fn change_model_produces_new_program() {
         let p = base();
-        let q = apply(&p, &EditOp::ChangeModel { node: "llm".into(), model: "large".into() }).unwrap();
+        let q = apply(
+            &p,
+            &EditOp::ChangeModel {
+                node: "llm".into(),
+                model: "large".into(),
+            },
+        )
+        .unwrap();
         // Original unchanged (immutability).
         if let NodeKind::Seq(c) = &p.root.kind {
             if let NodeKind::Llm(l) = &c[0].kind {
@@ -227,25 +241,50 @@ mod tests {
         if let NodeKind::Seq(c) = &mut p.root.kind {
             c[0].pinned = true;
         }
-        let err = apply(&p, &EditOp::MutatePrompt { node: "llm".into(), template: "x".into() });
+        let err = apply(
+            &p,
+            &EditOp::MutatePrompt {
+                node: "llm".into(),
+                template: "x".into(),
+            },
+        );
         assert_eq!(err, Err(PatchError::Pinned("llm".into())));
     }
 
     #[test]
     fn wrong_kind_is_rejected() {
         let p = base();
-        let err = apply(&p, &EditOp::ChangeModel { node: "code".into(), model: "m".into() });
+        let err = apply(
+            &p,
+            &EditOp::ChangeModel {
+                node: "code".into(),
+                model: "m".into(),
+            },
+        );
         assert_eq!(err, Err(PatchError::WrongKind("code".into())));
     }
 
     #[test]
     fn add_verify_and_delete_node() {
         let p = base();
-        let q = apply(&p, &EditOp::AddVerify { id: "v".into(), checker: "ok".into() }).unwrap();
+        let q = apply(
+            &p,
+            &EditOp::AddVerify {
+                id: "v".into(),
+                checker: "ok".into(),
+            },
+        )
+        .unwrap();
         if let NodeKind::Seq(c) = &q.root.kind {
             assert_eq!(c.len(), 3);
         }
-        let r = apply(&q, &EditOp::DeleteNode { node: "code".into() }).unwrap();
+        let r = apply(
+            &q,
+            &EditOp::DeleteNode {
+                node: "code".into(),
+            },
+        )
+        .unwrap();
         if let NodeKind::Seq(c) = &r.root.kind {
             assert_eq!(c.len(), 2);
             assert!(!c.iter().any(|n| n.id == "code"));
@@ -256,7 +295,12 @@ mod tests {
     fn missing_node_not_found() {
         let p = base();
         assert_eq!(
-            apply(&p, &EditOp::DeleteNode { node: "ghost".into() }),
+            apply(
+                &p,
+                &EditOp::DeleteNode {
+                    node: "ghost".into()
+                }
+            ),
             Err(PatchError::NotFound("ghost".into()))
         );
     }

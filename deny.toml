@@ -1,0 +1,33 @@
+# cargo-deny configuration — licence audit for the MIT open-source project (G11).
+# The workspace is MIT; dependencies must carry compatible permissive licences
+# (PRD 16.5: "dependencies are audited for compatible licences in CI").
+
+[graph]
+all-features = true
+
+[licenses]
+# Permissive licences compatible with an MIT-licensed open-source project.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "BSL-1.0",
+    "MPL-2.0",
+    "OpenSSL",
+]
+confidence-threshold = 0.8
+
+[bans]
+# Duplicate versions are common in large trees (e.g. wasmtime); warn, don't fail.
+multiple-versions = "warn"
+wildcards = "allow"
+
+[advisories]
+version = 2

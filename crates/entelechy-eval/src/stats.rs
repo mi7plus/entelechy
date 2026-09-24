@@ -259,9 +259,17 @@ mod tests {
     fn rule_of_three_and_epsilon() {
         assert!((rule_of_three(300) - 0.01).abs() < 1e-9);
         // 0 violations in 300 trials: within the 1% (high) epsilon.
-        assert!(negative_goal_passes(0, 300, RiskClass::High.default_epsilon()));
+        assert!(negative_goal_passes(
+            0,
+            300,
+            RiskClass::High.default_epsilon()
+        ));
         // 0 violations in 100 trials: upper bound ~3% exceeds the 1% high epsilon.
-        assert!(!negative_goal_passes(0, 100, RiskClass::High.default_epsilon()));
+        assert!(!negative_goal_passes(
+            0,
+            100,
+            RiskClass::High.default_epsilon()
+        ));
     }
 
     #[test]

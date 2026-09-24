@@ -145,9 +145,7 @@ fn walk<C: CapabilityCatalog>(
             t || e
         }
         NodeKind::Loop {
-            body,
-            max_iters,
-            ..
+            body, max_iters, ..
         } => {
             // IR-I4: loops must be bounded.
             if *max_iters == 0 {
@@ -161,7 +159,10 @@ fn walk<C: CapabilityCatalog>(
             let once = walk(ctx, body, authority, tainted_in);
             walk(ctx, body, authority, once)
         }
-        NodeKind::Delegate { authority: child, body } => {
+        NodeKind::Delegate {
+            authority: child,
+            body,
+        } => {
             // IR-I6 / A2: delegated authority must narrow.
             if !child.is_subset_of(authority) {
                 ctx.violations.push(Violation {
@@ -179,7 +180,7 @@ fn walk<C: CapabilityCatalog>(
 mod tests {
     use super::*;
     use crate::effect::{AttestationLevel, EffectClass, EffectMetadata};
-    use crate::node::{GateNode, LlmNode, ToolNode, Condition};
+    use crate::node::{Condition, GateNode, LlmNode, ToolNode};
     use crate::Program;
     use std::collections::HashMap;
 
@@ -300,9 +301,12 @@ mod tests {
                 "d",
                 NodeKind::Delegate {
                     authority: wider,
-                    body: Box::new(Node::new("noop", NodeKind::Code(crate::node::CodeNode {
-                        function: "id".into(),
-                    }))),
+                    body: Box::new(Node::new(
+                        "noop",
+                        NodeKind::Code(crate::node::CodeNode {
+                            function: "id".into(),
+                        }),
+                    )),
                 },
             ),
         );

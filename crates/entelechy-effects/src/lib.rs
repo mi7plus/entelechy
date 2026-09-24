@@ -74,7 +74,12 @@ pub struct EffectRecord {
 }
 
 impl EffectRecord {
-    fn from_meta(op_key: &OperationKey, capability: &str, request_hash: &str, meta: &EffectMetadata) -> Self {
+    fn from_meta(
+        op_key: &OperationKey,
+        capability: &str,
+        request_hash: &str,
+        meta: &EffectMetadata,
+    ) -> Self {
         Self {
             op_key: op_key.as_string(),
             capability: capability.to_string(),
@@ -386,8 +391,11 @@ mod tests {
     fn no_silent_duplicate_at_any_crash_point() {
         // The core RS-1 property (PRD 8.5, NFR effect correctness).
         let rows = crash_injection_conformance();
-        assert!(rows.iter().all(|r| r.ok), "silent duplicate detected: {:?}",
-            rows.iter().filter(|r| !r.ok).collect::<Vec<_>>());
+        assert!(
+            rows.iter().all(|r| r.ok),
+            "silent duplicate detected: {:?}",
+            rows.iter().filter(|r| !r.ok).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -403,7 +411,10 @@ mod tests {
         assert_eq!(needs_human, 1);
         // Still exactly one commit — no duplicate.
         assert_eq!(mgr.external().commit_count(&op.as_string()), 1);
-        assert_eq!(mgr.wal().get(&op.as_string()).unwrap().commit, CommitStatus::Unknown);
+        assert_eq!(
+            mgr.wal().get(&op.as_string()).unwrap().commit,
+            CommitStatus::Unknown
+        );
     }
 
     #[test]

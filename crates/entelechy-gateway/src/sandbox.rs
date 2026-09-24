@@ -134,7 +134,8 @@ pub trait SandboxEngine {
     /// returning a single integer result. This intentionally minimal contract is
     /// enough to prove isolated, no-ambient-authority execution; richer byte/JSON
     /// ABIs layer on top.
-    fn execute(&mut self, code: &[u8], scope: &SandboxScope, arg: i64) -> Result<i64, SandboxError>;
+    fn execute(&mut self, code: &[u8], scope: &SandboxScope, arg: i64)
+        -> Result<i64, SandboxError>;
 }
 
 /// The plugin host: loads plugins under the no-ambient-authority contract (PRD
@@ -178,8 +179,14 @@ mod tests {
     fn manifest(caps: &[&str]) -> PluginManifest {
         PluginManifest {
             name: "retriever".into(),
-            host_api_range: VersionRange::new(ProtocolVersion::new(1, 0), ProtocolVersion::new(1, 9)),
-            artifact_schema_range: VersionRange::new(ProtocolVersion::new(1, 0), ProtocolVersion::new(1, 0)),
+            host_api_range: VersionRange::new(
+                ProtocolVersion::new(1, 0),
+                ProtocolVersion::new(1, 9),
+            ),
+            artifact_schema_range: VersionRange::new(
+                ProtocolVersion::new(1, 0),
+                ProtocolVersion::new(1, 0),
+            ),
             required_capabilities: caps.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -190,14 +197,23 @@ mod tests {
 
     #[test]
     fn ungranted_capability_fails_closed() {
-        let err = PluginHost::load(&manifest(&["read_kb", "write_kb"]), &granted(&["read_kb"]), RiskLevel::Low)
-            .unwrap_err();
+        let err = PluginHost::load(
+            &manifest(&["read_kb", "write_kb"]),
+            &granted(&["read_kb"]),
+            RiskLevel::Low,
+        )
+        .unwrap_err();
         assert!(matches!(err, HostError::CapabilityNotGranted { .. }));
     }
 
     #[test]
     fn loads_with_declared_scope_and_isolation() {
-        let p = PluginHost::load(&manifest(&["read_kb"]), &granted(&["read_kb", "extra"]), RiskLevel::High).unwrap();
+        let p = PluginHost::load(
+            &manifest(&["read_kb"]),
+            &granted(&["read_kb", "extra"]),
+            RiskLevel::High,
+        )
+        .unwrap();
         assert!(p.may_invoke("read_kb"));
         // No ambient authority: a capability the operator granted but the plugin
         // did not declare is still not reachable.
@@ -209,17 +225,38 @@ mod tests {
     fn invoke_denies_out_of_scope_even_if_gateway_has_it() {
         let mut gw = NativeToolGateway::new();
         gw.register("read_kb", |_| Ok(serde_json::json!({ "ok": true })));
-        gw.register("secret_exfil", |_| Ok(serde_json::json!({ "leaked": true })));
+        gw.register("secret_exfil", |_| {
+            Ok(serde_json::json!({ "leaked": true }))
+        });
 
-        let plugin = PluginHost::load(&manifest(&["read_kb"]), &granted(&["read_kb"]), RiskLevel::Low).unwrap();
+        let plugin = PluginHost::load(
+            &manifest(&["read_kb"]),
+            &granted(&["read_kb"]),
+            RiskLevel::Low,
+        )
+        .unwrap();
 
         // In-scope call works.
-        let ok = plugin.invoke(&mut gw, &ToolCall { capability: "read_kb".into(), args: serde_json::Value::Null, operation_key: "k".into() });
+        let ok = plugin.invoke(
+            &mut gw,
+            &ToolCall {
+                capability: "read_kb".into(),
+                args: serde_json::Value::Null,
+                operation_key: "k".into(),
+            },
+        );
         assert!(ok.is_ok());
 
         // Out-of-scope call is denied even though the gateway has it (no ambient
         // authority — PRD 16.3).
-        let denied = plugin.invoke(&mut gw, &ToolCall { capability: "secret_exfil".into(), args: serde_json::Value::Null, operation_key: "k".into() });
+        let denied = plugin.invoke(
+            &mut gw,
+            &ToolCall {
+                capability: "secret_exfil".into(),
+                args: serde_json::Value::Null,
+                operation_key: "k".into(),
+            },
+        );
         assert!(matches!(denied, Err(SandboxError::CapabilityDenied(_))));
     }
 

@@ -101,7 +101,10 @@ pub struct Negotiated {
 /// Negotiate the highest common protocol version, failing closed on no overlap
 /// (PC-1). Security guarantees are not considered here — see
 /// [`negotiate_secure`] for the PC-2 path.
-pub fn negotiate(server: VersionRange, client: VersionRange) -> Result<ProtocolVersion, NegotiationError> {
+pub fn negotiate(
+    server: VersionRange,
+    client: VersionRange,
+) -> Result<ProtocolVersion, NegotiationError> {
     let max = server.max.min(client.max);
     let min = server.min.max(client.min);
     if min > max {
@@ -273,7 +276,9 @@ mod tests {
         // Refused without opt-in (PC-2).
         assert_eq!(
             negotiate_secure(server, client, &required, guarantees, false),
-            Err(NegotiationError::SecurityDowngrade(SecurityGuarantee::Authentication))
+            Err(NegotiationError::SecurityDowngrade(
+                SecurityGuarantee::Authentication
+            ))
         );
         // Allowed with recorded downgrade.
         let n = negotiate_secure(server, client, &required, guarantees, true).unwrap();
@@ -296,11 +301,17 @@ mod tests {
         assert!(manifest.check_load(&host).is_ok());
         // Host API too new.
         host.host_api = v(2, 0);
-        assert!(matches!(manifest.check_load(&host), Err(LoadError::HostApiIncompatible(_))));
+        assert!(matches!(
+            manifest.check_load(&host),
+            Err(LoadError::HostApiIncompatible(_))
+        ));
         // Missing capability.
         host.host_api = v(1, 2);
         host.available_capabilities.clear();
-        assert!(matches!(manifest.check_load(&host), Err(LoadError::MissingCapability(_))));
+        assert!(matches!(
+            manifest.check_load(&host),
+            Err(LoadError::MissingCapability(_))
+        ));
     }
 
     #[test]
