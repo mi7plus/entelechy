@@ -59,7 +59,12 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
 - **Content addressing (§5.9, Q22):** RFC 8785 canonical JSON + SHA-256 with a
   digest-algorithm identifier for agility. Object key order and whitespace do not
   affect identity. Blobs hash as raw bytes. `AC-1` schema headers on artifacts;
-  authorization-before-blob-resolution in the store (§17.2).
+  authorization-before-blob-resolution in the store (§17.2). Deployment profiles
+  (§17.1/Q28): Local/SingleNode/Cluster with declared RPO/RTO, rollback objectives
+  (Q24), HA claim and restore-drill requirement; an `EvidenceState` that blocks
+  promotion after partial loss (DR-3); and an `ErasureLedger` (crypto-shredding
+  tombstones) whose erasures survive restore and mark affected replays incomplete
+  (§17/Q14/DR-2).
 - **IR (§7):** node model (Llm/Tool/Code/Seq/Par/Map/Branch/Loop/Delegate/Verify/
   Mem/Gate/Human), value envelope with taint (§7.5) and confidentiality labels,
   effect taxonomy (§7.6) with conservative defaults for unknown effects (CD-7),
