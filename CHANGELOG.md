@@ -28,6 +28,15 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   unlock (within ceiling/budget, without adding authority — Q4). Level-5 delegation
   proposals build a validly-narrowed reasoning-only sub-agent authority (A2/IR-I6).
   The `study` CLI command now reports the proposed level and operators.
+- **Iterative, escalating study loop.** The `study` command now runs a real
+  multi-candidate search: each round it re-diagnoses the best design's remaining
+  failures, proposes the next mutation, evaluates it under rolling validation, and
+  adopts or escalates to the next complexity level — converging when no failure
+  remains, the budget is spent, or an unlock needs approval. The demo suite now
+  carries two failure classes (reply → verification/level 3, multi-part →
+  decomposition/level 4), so a run visibly escalates single-agent → verification →
+  parallel multi-agent committee before the holdout gate. Adds a
+  `Symptom::IncompleteDecomposition` mapping to `reasoning.decomposition`.
 
 - Workspace implementing the PRD v11 architecture (§24), plus a dedicated
   `entelechy-integration` crate for cross-crate pipeline tests.

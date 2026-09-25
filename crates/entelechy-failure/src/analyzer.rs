@@ -27,6 +27,9 @@ pub enum Symptom {
     EmptyOutput,
     /// A claim was unsupported by evidence (grounding).
     UnsupportedClaim,
+    /// The task needed decomposition into sub-tasks a single agent did not handle
+    /// (indicates the reasoning.decomposition class — PRD 10.1, eligible levels 4/5).
+    IncompleteDecomposition,
     /// The wrong tool was selected.
     WrongTool,
     /// A tool call errored.
@@ -52,6 +55,7 @@ impl Symptom {
         Some(match self {
             Symptom::EmptyOutput => class(Family::Reasoning, "synthesis"),
             Symptom::UnsupportedClaim => class(Family::Reasoning, "verification"),
+            Symptom::IncompleteDecomposition => class(Family::Reasoning, "decomposition"),
             Symptom::WrongTool => class(Family::Tool, "selection"),
             Symptom::ToolError => class(Family::Tool, "execution"),
             Symptom::Timeout => class(Family::Model, "instability"),
@@ -251,6 +255,13 @@ mod tests {
             symptom: s,
             is_evaluation_failure: eval,
         }
+    }
+
+    #[test]
+    fn decomposition_symptom_maps_to_the_multi_agent_class() {
+        let c = Symptom::IncompleteDecomposition.indicated_class().unwrap();
+        assert_eq!(c.id(), "reasoning.decomposition");
+        assert_eq!(c.eligible_levels(), &[4, 5]);
     }
 
     #[test]

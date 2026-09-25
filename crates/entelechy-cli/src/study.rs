@@ -95,134 +95,165 @@ pub fn run() -> anyhow::Result<()> {
         base_violations.len()
     );
 
-    // --- 4. Repair loop: one hypothesis, accounted and confirmed (EV-13) ---
+    // --- 4. Iterative repair loop: propose, evaluate, escalate (PRD 11.3, 21.1) ---
     let mut study = Study::from_plan(&plan);
     let tune: Vec<&Task> = suite.split(Split::Tune).collect();
     let val: Vec<&Task> = suite.split(Split::Validation).collect();
 
-    let base_tune = score_all(&baseline, &tune);
-    let base_val = score_all(&baseline, &val);
     println!(
         "4. Baseline success — tune {:.0}%, validation {:.0}%.",
-        pct(&base_tune),
-        pct(&base_val)
+        pct(&score_all(&baseline, &tune)),
+        pct(&score_all(&baseline, &val))
     );
 
-    // 4a. Diagnose: cluster the baseline's tune failures (PRD 10.2, Appendix B).
-    let observations = observe_failures(&baseline, &tune);
-    let clusters = entelechy_failure::analyze(&observations);
-    let top = clusters
-        .iter()
-        .find(|c| !c.is_evaluation_failure)
-        .and_then(|c| c.top().map(|t| (c, t)));
-    let (evidence, failure_class, confidence, patch) = match top {
-        Some((cluster, cls)) => {
-            println!(
-                "   Diagnosis: cluster '{}' — {} ({} tasks, confidence {:.0}%, eligible levels {:?}).",
-                cluster.id,
-                cls.class_id,
-                cluster.members.len(),
-                cls.probability * 100.0,
-                cls.eligible_levels
-            );
-            // Propose the next mutation, escalating complexity on evidence via the
-            // Architecture Explorer (PRD 11.3/11.4). The baseline is level 0; the
-            // failure class's eligible levels drive the unlock (single agent →
-            // verification → parallel committee → multi-agent delegation).
-            let patch = match propose(
-                0,
-                &cls.class_id,
-                &cls.eligible_levels,
-                AGENT_NODE,
-                &baseline.authority,
-                COMPLEXITY_CEILING,
-                study.remaining() > 0,
-            ) {
-                Some(p) if p.needs_approval => {
-                    println!(
-                        "   Proposal: level {} needs human approval (Q4) — not auto-applied: {}",
-                        p.level, p.rationale
-                    );
-                    Vec::new()
-                }
-                Some(p) => {
-                    println!("   Proposal: {} [level {}].", p.rationale, p.level);
-                    p.ops
-                }
-                None => {
-                    println!("   Proposal: no complexity unlock justified at this level.");
-                    Vec::new()
-                }
-            };
-            (
-                format!("cluster '{}': {} tasks", cluster.id, cluster.members.len()),
-                cls.class_id.clone(),
-                cls.probability,
-                patch,
-            )
+    // Keep the best confirmed design; each round, re-diagnose its remaining
+    // failures and escalate the complexity level only when evidence and the
+    // Architecture Explorer justify it (single agent → verification → parallel
+    // committee → multi-agent delegation). Every evaluated candidate consumes
+    // budget, whether or not it is retained (EV-13, 21.1).
+    let mut best = baseline.clone();
+    let mut level: u8 = 0;
+    let mut round: u64 = 0;
+    let mut hyps: Vec<DesignHypothesis> = Vec::new();
+    loop {
+        if study.remaining() == 0 {
+            println!("   Budget exhausted; stopping.");
+            break;
         }
-        None => {
-            println!("   Diagnosis: no actionable failure cluster.");
-            ("no failures".into(), "none".into(), 1.0, vec![])
+        // Diagnose the current best design's tune failures (PRD 10.2).
+        let clusters = entelechy_failure::analyze(&observe_failures(&best, &tune));
+        let Some((cluster, cls)) = clusters
+            .iter()
+            .find(|c| !c.is_evaluation_failure)
+            .and_then(|c| c.top().map(|t| (c, t)))
+        else {
+            println!("   Converged: no actionable failures remain in the best design.");
+            break;
+        };
+        println!(
+            "   Diagnosis: cluster '{}' — {} ({} tasks, eligible levels {:?}).",
+            cluster.id,
+            cls.class_id,
+            cluster.members.len(),
+            cls.eligible_levels
+        );
+
+        // Propose the next mutation, escalating from the current level (PRD 11.4).
+        let proposal = match propose(
+            level,
+            &cls.class_id,
+            &cls.eligible_levels,
+            AGENT_NODE,
+            &best.authority,
+            COMPLEXITY_CEILING,
+            true,
+        ) {
+            Some(p) if p.needs_approval => {
+                println!(
+                    "   → level {} needs human approval (Q4); stopping.",
+                    p.level
+                );
+                break;
+            }
+            Some(p) => p,
+            None => {
+                println!("   → no further complexity unlock is justified; stopping.");
+                break;
+            }
+        };
+
+        // Account every evaluated candidate against the budget (PRD 21.1).
+        if study.account_candidate().is_err() {
+            println!("   Budget exhausted; stopping.");
+            break;
         }
-    };
+        round += 1;
 
-    // Form a DesignHypothesis from the diagnosis (PRD 11.2, principle 5).
-    let mut h1 = DesignHypothesis {
-        id: "H-1".into(),
-        evidence,
-        failure_class,
-        suspected_cause: "no post-synthesis verification of the reply".into(),
-        cause_confidence: confidence,
-        patch,
-        expected_effect: "raise task success on reply tasks".into(),
-        expected_tradeoff: "small latency/cost increase".into(),
-        experiment: "paired eval vs baseline on tune, confirm on validation".into(),
-        result: HypothesisResult::Pending,
-    };
+        // Apply the proposed operators to the current best.
+        let mut candidate = best.clone();
+        for op in &proposal.ops {
+            candidate = apply(&candidate, op)?;
+        }
+        let base_tune = score_all(&best, &tune);
+        let cand_tune = score_all(&candidate, &tune);
+        let base_val = score_all(&best, &val);
+        let cand_val = score_all(&candidate, &val);
+        let decision = rolling_validation_decision(
+            &base_tune,
+            &cand_tune,
+            &base_val,
+            &cand_val,
+            20_250_920 + round,
+        );
 
-    // Apply the smallest compiler-valid patch (PRD 11.3).
-    let mut candidate = baseline.clone();
-    for op in &h1.patch {
-        candidate = apply(&candidate, op)?;
+        let mut hyp = DesignHypothesis {
+            id: format!("H-{round}"),
+            evidence: format!("cluster '{}': {} tasks", cluster.id, cluster.members.len()),
+            failure_class: cls.class_id.clone(),
+            suspected_cause: format!(
+                "class '{}' unresolved at complexity level {level}",
+                cls.class_id
+            ),
+            cause_confidence: cls.probability,
+            patch: proposal.ops.clone(),
+            expected_effect: "raise task success on the diagnosed failure class".into(),
+            expected_tradeoff: "higher cost/latency and structural complexity".into(),
+            experiment: "paired eval vs the current best on tune, confirm on validation".into(),
+            result: HypothesisResult::Pending,
+        };
+        println!(
+            "   H-{round}: {} — tune {:.0}%→{:.0}%, val {:.0}%→{:.0}% → {decision:?}.",
+            proposal.rationale,
+            pct(&base_tune),
+            pct(&cand_tune),
+            pct(&base_val),
+            pct(&cand_val)
+        );
+
+        match decision {
+            Decision::Accepted => {
+                study.accept(Candidate {
+                    design_hash: entelechy_artifacts::ArtifactId::of(&candidate)?.to_string(),
+                    validation_success: frac(&cand_val),
+                });
+                best = candidate;
+                level = proposal.level;
+                hyp.resolve(HypothesisResult::Accepted);
+                println!(
+                    "      Rolling validation → Accepted; best is now at complexity level {level}."
+                );
+            }
+            Decision::Rejected => {
+                level = proposal.level; // escalate past this level next round
+                hyp.resolve(HypothesisResult::Rejected);
+                println!(
+                    "      Rolling validation → Rejected; escalating past level {}.",
+                    proposal.level
+                );
+            }
+            Decision::Inconclusive => {
+                level = proposal.level;
+                hyp.resolve(HypothesisResult::Inconclusive);
+                println!(
+                    "      Rolling validation → Inconclusive; escalating past level {}.",
+                    proposal.level
+                );
+            }
+        }
+        hyps.push(hyp);
+
+        // Non-binding futility check at half budget (PRD 21.1).
+        if study.futility_check(matches!(decision, Decision::Accepted)) {
+            println!("   Futility check fired; stopping.");
+            break;
+        }
     }
-    // Account every evaluated candidate against the budget (PRD 21.1).
-    study.account_candidate()?;
-    let cand_tune = score_all(&candidate, &tune);
-    let cand_val = score_all(&candidate, &val);
-    println!(
-        "   Candidate (H-1 applied) success — tune {:.0}%, validation {:.0}%.",
-        pct(&cand_tune),
-        pct(&cand_val)
-    );
 
-    // Rolling-validation decision (EV-13): confirm on fresh validation tasks.
-    let decision =
-        rolling_validation_decision(&base_tune, &cand_tune, &base_val, &cand_val, 20250920);
-    h1.resolve(match decision {
-        Decision::Accepted => HypothesisResult::Accepted,
-        Decision::Rejected => HypothesisResult::Rejected,
-        Decision::Inconclusive => HypothesisResult::Inconclusive,
-    });
     println!(
-        "   Rolling validation → {decision:?}; hypothesis {} result {:?}.",
-        h1.id, h1.result
-    );
-
-    let best = if decision == Decision::Accepted {
-        study.accept(Candidate {
-            design_hash: entelechy_artifacts::ArtifactId::of(&candidate)?.to_string(),
-            validation_success: frac(&cand_val),
-        });
-        &candidate
-    } else {
-        &baseline
-    };
-    println!(
-        "   Candidates evaluated: {} / budget {} (remaining {}).",
+        "   {} hypothesis/es evaluated; {} / {} budget used; best at complexity level {level}.",
+        hyps.len(),
         study.consumed(),
-        plan.candidate_budget(),
-        study.remaining()
+        plan.candidate_budget()
     );
 
     // --- 5. Holdout gate on the accepted candidate (EV-14, 9.6) ---
@@ -236,7 +267,7 @@ pub fn run() -> anyhow::Result<()> {
     let best_ref = best.clone();
     let resp = vault.gate_query(
         &assurance,
-        &entelechy_artifacts::ArtifactId::of(best)?.to_string(),
+        &entelechy_artifacts::ArtifactId::of(&best)?.to_string(),
         &contract,
         &move |t| score_one(&base_ref, t),
         &move |t| score_one(&best_ref, t),
@@ -263,59 +294,68 @@ fn score_all(program: &Program, tasks: &[&Task]) -> Vec<bool> {
 }
 
 /// Turn a design's tune failures into failure observations for the analyzer
-/// (PRD 10.2). A ticket that needs a grounded reply but is unresolved presents as
-/// an unsupported-claim symptom (→ reasoning.verification).
+/// (PRD 10.2). The two demo failure classes cluster under distinct signatures so
+/// the analyzer separates them: an unresolved reply presents as an unsupported
+/// claim (→ reasoning.verification, level 3); an unresolved multi-part ticket
+/// presents as incomplete decomposition (→ reasoning.decomposition, levels 4/5).
 fn observe_failures(program: &Program, tasks: &[&Task]) -> Vec<FailureObservation> {
     tasks
         .iter()
         .filter(|t| !score_one(program, t))
-        .map(|t| FailureObservation {
-            task_id: t.id.clone(),
-            signature: "reply:unverified".into(),
-            symptom: if t.has_tag("needs_reply") {
-                Symptom::UnsupportedClaim
+        .map(|t| {
+            let (signature, symptom) = if t.has_tag("needs_reply") {
+                ("reply:unverified", Symptom::UnsupportedClaim)
+            } else if t.has_tag("needs_decomposition") {
+                ("task:fragmented", Symptom::IncompleteDecomposition)
             } else {
-                Symptom::Unknown
-            },
-            is_evaluation_failure: false,
+                ("unknown", Symptom::Unknown)
+            };
+            FailureObservation {
+                task_id: t.id.clone(),
+                signature: signature.into(),
+                symptom,
+                is_evaluation_failure: false,
+            }
         })
         .collect()
 }
 
 /// Simulated helpdesk outcome for a design on one task (declared simulator; see
-/// module docs). A ticket that needs a grounded reply is resolved only when the
-/// design contains a verification step (any `Verify` node — the operator that
-/// realizes the verification complexity level); the refund negative goal is
-/// enforced structurally by the authority envelope.
+/// module docs). Two failure classes model the complexity ladder:
+/// - a ticket needing a grounded reply is resolved only once the design has a
+///   verification step (any `Verify` node — the level-3 operator);
+/// - a multi-part ticket needing decomposition is resolved only once the design
+///   has a parallel committee (any `Par` node — the level-4 operator).
+///
+/// The refund negative goal is enforced structurally by the authority envelope.
 fn score_one(program: &Program, task: &Task) -> bool {
-    let needs_reply = task.has_tag("needs_reply");
-    let has_verify = has_verify_node(&program.root);
     // Structural negative goal: refund is forbidden in the envelope, so it can
     // never be violated regardless of the ticket.
-    let refund_safe = program.authority.forbidden_capabilities.contains("refund");
-    if !refund_safe {
+    if !program.authority.forbidden_capabilities.contains("refund") {
         return false;
     }
-    if needs_reply {
-        has_verify
+    if task.has_tag("needs_reply") {
+        has_kind(&program.root, |k| matches!(k, NodeKind::Verify(_)))
+    } else if task.has_tag("needs_decomposition") {
+        has_kind(&program.root, |k| matches!(k, NodeKind::Par(_)))
     } else {
         true
     }
 }
 
-/// Whether the design contains any `Verify` node. The specific node id is
-/// irrelevant — the presence of a verification step is what fixes the reply
-/// failure class, so a proposer-generated verify (any id) counts.
-fn has_verify_node(node: &Node) -> bool {
-    if matches!(node.kind, NodeKind::Verify(_)) {
+/// Whether any node in the design satisfies `pred`. The specific node id is
+/// irrelevant — the presence of the structure (a Verify or a Par) is what fixes
+/// a failure class, so a proposer-generated node (any id) counts.
+fn has_kind(node: &Node, pred: impl Fn(&NodeKind) -> bool + Copy) -> bool {
+    if pred(&node.kind) {
         return true;
     }
     match &node.kind {
-        NodeKind::Seq(c) | NodeKind::Par(c) => c.iter().any(has_verify_node),
+        NodeKind::Seq(c) | NodeKind::Par(c) => c.iter().any(|n| has_kind(n, pred)),
         NodeKind::Map { body, .. }
         | NodeKind::Loop { body, .. }
-        | NodeKind::Delegate { body, .. } => has_verify_node(body),
-        NodeKind::Branch { then, els, .. } => has_verify_node(then) || has_verify_node(els),
+        | NodeKind::Delegate { body, .. } => has_kind(body, pred),
+        NodeKind::Branch { then, els, .. } => has_kind(then, pred) || has_kind(els, pred),
         _ => false,
     }
 }
@@ -356,24 +396,21 @@ fn contract() -> EvalContract {
     }
 }
 
-/// Build the simulated helpdesk suite: a mix of reply-needing and simple tickets,
-/// hand-authored seeds (PRD Q2), split 12/6/12.
+/// Build the simulated helpdesk suite (hand-authored seeds, PRD Q2), split
+/// 12/6/12. Tickets come in two classes: those needing a grounded reply (fixed by
+/// a verification step, level 3) and multi-part tickets needing decomposition
+/// (fixed by a parallel committee, level 4). Reply tickets outnumber decomposition
+/// tickets, so the study fixes verification first and then escalates.
 fn helpdesk_suite() -> Suite {
     let mut tasks = Vec::new();
-    let mut push = |split: Split, n: usize, base: &str| {
+    let mut push = |split: Split, n: usize, tag: &str, base: &str| {
         for i in 0..n {
-            // Alternate: even tickets need a grounded reply, odd are simple acks.
-            let needs_reply = i % 2 == 0;
-            let mut tags = vec![];
-            if needs_reply {
-                tags.push("needs_reply".to_string());
-            }
             tasks.push(Task {
                 id: format!("{base}{i}"),
-                input: serde_json::json!({ "ticket": format!("{base}{i}"), "needs_reply": needs_reply }),
+                input: serde_json::json!({ "ticket": format!("{base}{i}"), "class": tag }),
                 environment: "helpdesk".into(),
                 checkers: vec!["resolved".into()],
-                tags,
+                tags: vec![tag.to_string()],
                 difficulty: Difficulty::Medium,
                 provenance: Provenance::HumanSeed,
                 split,
@@ -381,9 +418,12 @@ fn helpdesk_suite() -> Suite {
             });
         }
     };
-    push(Split::Tune, 12, "tune");
-    push(Split::Validation, 6, "val");
-    push(Split::Holdout, 12, "hold");
+    push(Split::Tune, 7, "needs_reply", "tune-reply");
+    push(Split::Tune, 5, "needs_decomposition", "tune-dec");
+    push(Split::Validation, 3, "needs_reply", "val-reply");
+    push(Split::Validation, 3, "needs_decomposition", "val-dec");
+    push(Split::Holdout, 7, "needs_reply", "hold-reply");
+    push(Split::Holdout, 5, "needs_decomposition", "hold-dec");
     Suite::new(tasks)
 }
 
