@@ -12,6 +12,12 @@
 //! simulator models the failure class from PRD Appendix C: without a verification
 //! step, tickets that need a grounded reply fail; adding the `reply_check`
 //! verification step (a real typed patch, PRD 11.5) fixes that class.
+//!
+//! Real-model path: built with `--features openai` and with `ENTELECHY_BASE_URL`
+//! / `ENTELECHY_MODEL` (optional `ENTELECHY_API_KEY`) set, the study also drives a
+//! live self-hosted, OpenAI-compatible model for governed task synthesis (EV-3,
+//! Q2, 9.5) via [`maybe_synthesize_tasks`]. Without those, that step is a no-op and
+//! the default/CI run is unchanged.
 
 use entelechy_bench::{BenchmarkManifest, StoppingRule, StudyPlan};
 use entelechy_design::{
@@ -48,6 +54,10 @@ pub fn run() -> anyhow::Result<()> {
         manifest.holdout_hashes().len(),
         findings.len()
     );
+
+    // --- 2a. Optional: real task synthesis via a live model (EV-3) ---
+    // No-op unless built with `--features openai` and ENTELECHY_BASE_URL/MODEL set.
+    maybe_synthesize_tasks(&suite);
 
     let plan = StudyPlan {
         revision: 1,
@@ -359,3 +369,64 @@ fn helpdesk_suite() -> Suite {
     push(Split::Holdout, 12, "hold");
     Suite::new(tasks)
 }
+
+/// Optional real task synthesis via a live, self-hosted model (EV-3, Q2, 9.5).
+///
+/// Compiled only under `--features openai`, and active only when both
+/// `ENTELECHY_BASE_URL` and `ENTELECHY_MODEL` are set (with an optional
+/// `ENTELECHY_API_KEY`). It points [`ModelTaskGenerator`] at an
+/// OpenAI-compatible endpoint, checks the Q2 seed-set gate, generates synthetic
+/// *tune* variations of a seed, and admits them through the 9.5 contamination
+/// firewall — never into the holdout. This is the one real-model path in the
+/// otherwise fully simulated demo; a real study must satisfy Q2 before expanding.
+#[cfg(feature = "openai")]
+fn maybe_synthesize_tasks(suite: &Suite) {
+    use entelechy_bench::{admit_candidates, check_seed_set, ModelTaskGenerator};
+    use entelechy_gateway::OpenAiGateway;
+
+    let (base, model) = match (
+        std::env::var("ENTELECHY_BASE_URL"),
+        std::env::var("ENTELECHY_MODEL"),
+    ) {
+        (Ok(b), Ok(m)) => (b, m),
+        _ => return, // not configured: stay on the simulated path
+    };
+
+    // Q2 seed-set gate: report sufficiency against the contract's criteria.
+    let contract = contract();
+    let targets: Vec<&str> = contract.criteria.iter().map(String::as_str).collect();
+    let seeds: Vec<Task> = suite.tasks.clone();
+    match check_seed_set(&seeds, &targets) {
+        Ok(()) => println!("   Task synthesis: Q2 seed set sufficient."),
+        Err(defs) => println!(
+            "   Task synthesis: Q2 seed set INSUFFICIENT ({} deficiency/ies) — a real study \
+             must remedy these before expansion; proceeding to demonstrate wiring: {:?}",
+            defs.len(),
+            defs
+        ),
+    }
+
+    let Some(seed) = seeds.iter().find(|t| t.split == Split::Tune) else {
+        return;
+    };
+    let gw = OpenAiGateway::new(base, std::env::var("ENTELECHY_API_KEY").ok());
+    let generator = ModelTaskGenerator::new(&gw, model);
+    match generator.generate(seed, 5, Split::Tune) {
+        Ok(candidates) => {
+            let generated = candidates.len();
+            match admit_candidates(candidates, suite, Split::Tune) {
+                Ok(admitted) => println!(
+                    "   Task synthesis (EV-3): generated {generated}, admitted {} synthetic tune \
+                     task(s) after 9.5 contamination firewall.",
+                    admitted.len()
+                ),
+                Err(e) => println!("   Task synthesis: admission refused — {e}"),
+            }
+        }
+        Err(e) => println!("   Task synthesis: generation failed — {e}"),
+    }
+}
+
+/// No-op unless built with `--features openai` (keeps the default study identical).
+#[cfg(not(feature = "openai"))]
+fn maybe_synthesize_tasks(_suite: &Suite) {}
