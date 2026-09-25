@@ -117,6 +117,10 @@ pub fn run(out: Option<&str>) -> anyhow::Result<()> {
     let mut level: u8 = 0;
     let mut round: u64 = 0;
     let mut hyps: Vec<DesignHypothesis> = Vec::new();
+    // Lineage chain: one DerivedFrom edge per accepted step (PRD 5.2), so the
+    // report records baseline → v1 → … → best, not just the endpoints.
+    let mut prev_id = baseline_id.clone();
+    let mut lineage: Vec<entelechy_artifacts::LineageEdge> = Vec::new();
     loop {
         if study.remaining() == 0 {
             println!("   Budget exhausted; stopping.");
@@ -214,10 +218,18 @@ pub fn run(out: Option<&str>) -> anyhow::Result<()> {
 
         match decision {
             Decision::Accepted => {
+                let cand_id = entelechy_artifacts::ArtifactId::of(&candidate)?;
                 study.accept(Candidate {
-                    design_hash: entelechy_artifacts::ArtifactId::of(&candidate)?.to_string(),
+                    design_hash: cand_id.to_string(),
                     validation_success: frac(&cand_val),
                 });
+                // Record the derivation step (prev best → this candidate).
+                lineage.push(entelechy_artifacts::LineageEdge {
+                    from: prev_id.clone(),
+                    to: cand_id.clone(),
+                    kind: entelechy_artifacts::LineageKind::DerivedFrom,
+                });
+                prev_id = cand_id;
                 best = candidate;
                 level = proposal.level;
                 hyp.resolve(HypothesisResult::Accepted);
@@ -308,6 +320,7 @@ pub fn run(out: Option<&str>) -> anyhow::Result<()> {
             study.consumed(),
             plan.candidate_budget(),
             &hyps,
+            &lineage,
             &holdout_summary,
         )?;
     }
@@ -333,23 +346,11 @@ fn write_study_outputs(
     budget_used: u32,
     budget_total: u32,
     hyps: &[DesignHypothesis],
+    lineage: &[entelechy_artifacts::LineageEdge],
     holdout: &serde_json::Value,
 ) -> anyhow::Result<()> {
-    use entelechy_artifacts::{LineageEdge, LineageKind};
-
     std::fs::create_dir_all(dir)?;
     let best_id = entelechy_artifacts::ArtifactId::of(best)?;
-    // Lineage: the best design is derived from the baseline (PRD 5.2). Only emit the
-    // edge when the study actually changed the design (best != baseline).
-    let lineage: Vec<LineageEdge> = if best_id != *baseline_id {
-        vec![LineageEdge {
-            from: baseline_id.clone(),
-            to: best_id.clone(),
-            kind: LineageKind::DerivedFrom,
-        }]
-    } else {
-        Vec::new()
-    };
     let report = serde_json::json!({
         "plan_id": plan.id().to_string(),
         "baseline_id": baseline_id.to_string(),
@@ -357,7 +358,7 @@ fn write_study_outputs(
         "final_complexity_level": level,
         "budget": { "used": budget_used, "total": budget_total },
         "hypotheses": serde_json::to_value(hyps)?,
-        "lineage": serde_json::to_value(&lineage)?,
+        "lineage": serde_json::to_value(lineage)?,
         "holdout": holdout.clone(),
     });
     let design_path = std::path::Path::new(dir).join("design.json");

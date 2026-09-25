@@ -45,8 +45,9 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   design IR (`design.json`, re-validatable and diffable) and a `study-report.json`
   recording the StudyPlan commitment, baseline/best content addresses, final
   complexity level, budget usage, every hypothesis with its result, a typed
-  baseline→best `derived-from` lineage edge (PRD 5.2), and the holdout gate
-  outcome — a reproducible, auditable record (PRD principle 6, 21.1).
+  `derived-from` lineage chain with one edge per accepted step (baseline → v1 →
+  … → best, PRD 5.2), and the holdout gate outcome — a reproducible, auditable
+  record (PRD principle 6, 21.1).
 - **`entelechy committee` CLI command.** Builds a multi-agent committee, runs it
   against a model, and prints each sub-agent's output plus the coordinator's
   synthesized answer. Uses a live OpenAI-compatible model when built with

@@ -96,22 +96,29 @@ fn study_out_writes_design_and_report() {
     assert!(parsed["best_id"].as_str().unwrap().starts_with("sha256:"));
     assert!(parsed["holdout"]["result"].is_string());
     assert!(!parsed["hypotheses"].as_array().unwrap().is_empty());
-    // Lineage: the best design derives from the baseline (from/to are ArtifactId
-    // structs so the edge round-trips back into a typed LineageEdge).
-    let edge = &parsed["lineage"][0];
-    assert_eq!(edge["kind"], "derived-from");
-    let base_digest = parsed["baseline_id"]
-        .as_str()
-        .unwrap()
-        .strip_prefix("sha256:")
-        .unwrap();
-    let best_digest = parsed["best_id"]
-        .as_str()
-        .unwrap()
-        .strip_prefix("sha256:")
-        .unwrap();
-    assert_eq!(edge["from"]["digest"], base_digest);
-    assert_eq!(edge["to"]["digest"], best_digest);
+    // Lineage: a DerivedFrom chain from baseline to best (one edge per accepted
+    // step). from/to are ArtifactId structs so each edge round-trips back into a
+    // typed LineageEdge.
+    let edges = parsed["lineage"].as_array().unwrap();
+    assert!(!edges.is_empty(), "expected a lineage chain");
+    assert!(edges.iter().all(|e| e["kind"] == "derived-from"));
+    let digest = |id: &serde_json::Value| {
+        id.as_str()
+            .unwrap()
+            .strip_prefix("sha256:")
+            .unwrap()
+            .to_string()
+    };
+    // The chain starts at the baseline and ends at the best design.
+    assert_eq!(edges[0]["from"]["digest"], digest(&parsed["baseline_id"]));
+    assert_eq!(
+        edges.last().unwrap()["to"]["digest"],
+        digest(&parsed["best_id"])
+    );
+    // It is a connected chain: each edge's `to` is the next edge's `from`.
+    for pair in edges.windows(2) {
+        assert_eq!(pair[0]["to"], pair[1]["from"]);
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
