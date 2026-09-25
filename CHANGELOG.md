@@ -21,6 +21,13 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   constructor ties these operators to the `reasoning.decomposition` failure class
   the Architecture Explorer unlocks them on. Cross-crate tests execute and replay
   the synthesized multi-agent programs end to end.
+- **Study-loop operator proposal** (`entelechy_search::propose`): the search driver
+  now turns a diagnosed failure class into the next design mutation, escalating
+  single-agent → verification → parallel committee → multi-agent delegation only
+  when the class makes the level eligible and the Architecture Explorer allows the
+  unlock (within ceiling/budget, without adding authority — Q4). Level-5 delegation
+  proposals build a validly-narrowed reasoning-only sub-agent authority (A2/IR-I6).
+  The `study` CLI command now reports the proposed level and operators.
 
 - Workspace implementing the PRD v11 architecture (§24), plus a dedicated
   `entelechy-integration` crate for cross-crate pipeline tests.

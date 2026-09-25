@@ -20,16 +20,20 @@
 //! the default/CI run is unchanged.
 
 use entelechy_bench::{BenchmarkManifest, StoppingRule, StudyPlan};
-use entelechy_design::{
-    apply, synthesize_single_agent, DesignHypothesis, EditOp, HypothesisResult,
-};
+use entelechy_design::{apply, synthesize_single_agent, DesignHypothesis, HypothesisResult};
 use entelechy_eval::{
     CallerIdentity, ConstraintClass, Difficulty, EvalContract, GateResponse, HoldoutVault,
     NegativeGoal, Plane, Provenance, ReleaseRule, RiskClass, Split, SplitPolicy, Suite, Task,
 };
 use entelechy_failure::{FailureObservation, Symptom};
 use entelechy_ir::{AuthorityEnvelope, Node, NodeKind, Program};
-use entelechy_search::{rolling_validation_decision, Candidate, Decision, Study};
+use entelechy_search::{propose, rolling_validation_decision, Candidate, Decision, Study};
+
+/// The baseline single-agent node id (`synthesize_single_agent` names it `agent`).
+const AGENT_NODE: &str = "agent";
+/// The GoalSpec complexity ceiling for this demo: allow escalation up to delegation
+/// (level 5) automatically; anything above needs approval (PRD 11.4, Q4).
+const COMPLEXITY_CEILING: u8 = 5;
 
 /// Run the Phase 0 study demo, printing a narrative of each governed step.
 pub fn run() -> anyhow::Result<()> {
@@ -121,11 +125,40 @@ pub fn run() -> anyhow::Result<()> {
                 cls.probability * 100.0,
                 cls.eligible_levels
             );
+            // Propose the next mutation, escalating complexity on evidence via the
+            // Architecture Explorer (PRD 11.3/11.4). The baseline is level 0; the
+            // failure class's eligible levels drive the unlock (single agent →
+            // verification → parallel committee → multi-agent delegation).
+            let patch = match propose(
+                0,
+                &cls.class_id,
+                &cls.eligible_levels,
+                AGENT_NODE,
+                &baseline.authority,
+                COMPLEXITY_CEILING,
+                study.remaining() > 0,
+            ) {
+                Some(p) if p.needs_approval => {
+                    println!(
+                        "   Proposal: level {} needs human approval (Q4) — not auto-applied: {}",
+                        p.level, p.rationale
+                    );
+                    Vec::new()
+                }
+                Some(p) => {
+                    println!("   Proposal: {} [level {}].", p.rationale, p.level);
+                    p.ops
+                }
+                None => {
+                    println!("   Proposal: no complexity unlock justified at this level.");
+                    Vec::new()
+                }
+            };
             (
                 format!("cluster '{}': {} tasks", cluster.id, cluster.members.len()),
                 cls.class_id.clone(),
                 cls.probability,
-                patch_for_class(&cls.class_id),
+                patch,
             )
         }
         None => {
@@ -249,33 +282,14 @@ fn observe_failures(program: &Program, tasks: &[&Task]) -> Vec<FailureObservatio
         .collect()
 }
 
-/// Choose the smallest typed patch for a diagnosed failure class (PRD 11.3/11.5).
-/// The class's eligible complexity level (PRD 11.4) picks the operator family; in
-/// this Phase 0 slice the verification level maps to adding a Verify step.
-fn patch_for_class(class_id: &str) -> Vec<EditOp> {
-    match class_id {
-        "reasoning.verification" | "reasoning.synthesis" | "knowledge.grounding_failure" => {
-            vec![EditOp::AddVerify {
-                id: "reply_check".into(),
-                checker: "reply_supported".into(),
-            }]
-        }
-        // Other classes would map to their own operators (change model, add
-        // retrieval, etc.) as those unlock; default to a verification step.
-        _ => vec![EditOp::AddVerify {
-            id: "reply_check".into(),
-            checker: "reply_supported".into(),
-        }],
-    }
-}
-
 /// Simulated helpdesk outcome for a design on one task (declared simulator; see
 /// module docs). A ticket that needs a grounded reply is resolved only when the
-/// design contains the `reply_check` verification step; the refund negative goal
-/// is enforced structurally by the authority envelope.
+/// design contains a verification step (any `Verify` node — the operator that
+/// realizes the verification complexity level); the refund negative goal is
+/// enforced structurally by the authority envelope.
 fn score_one(program: &Program, task: &Task) -> bool {
     let needs_reply = task.has_tag("needs_reply");
-    let has_verify = contains_node(&program.root, "reply_check");
+    let has_verify = has_verify_node(&program.root);
     // Structural negative goal: refund is forbidden in the envelope, so it can
     // never be violated regardless of the ticket.
     let refund_safe = program.authority.forbidden_capabilities.contains("refund");
@@ -289,16 +303,19 @@ fn score_one(program: &Program, task: &Task) -> bool {
     }
 }
 
-fn contains_node(node: &Node, id: &str) -> bool {
-    if node.id == id {
+/// Whether the design contains any `Verify` node. The specific node id is
+/// irrelevant — the presence of a verification step is what fixes the reply
+/// failure class, so a proposer-generated verify (any id) counts.
+fn has_verify_node(node: &Node) -> bool {
+    if matches!(node.kind, NodeKind::Verify(_)) {
         return true;
     }
     match &node.kind {
-        NodeKind::Seq(c) | NodeKind::Par(c) => c.iter().any(|n| contains_node(n, id)),
+        NodeKind::Seq(c) | NodeKind::Par(c) => c.iter().any(has_verify_node),
         NodeKind::Map { body, .. }
         | NodeKind::Loop { body, .. }
-        | NodeKind::Delegate { body, .. } => contains_node(body, id),
-        NodeKind::Branch { then, els, .. } => contains_node(then, id) || contains_node(els, id),
+        | NodeKind::Delegate { body, .. } => has_verify_node(body),
+        NodeKind::Branch { then, els, .. } => has_verify_node(then) || has_verify_node(els),
         _ => false,
     }
 }

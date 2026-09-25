@@ -14,6 +14,8 @@ homepage.workspace = true
 [dependencies]
 entelechy-eval = { workspace = true }
 entelechy-bench = { workspace = true }
+entelechy-design = { workspace = true }
+entelechy-ir = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
