@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "API/server mode, introduced after local core stabilizes"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
 
 [dependencies]
 entelechy-identity = { workspace = true }
@@ -14,3 +17,6 @@ entelechy-protocol = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[lints]
+workspace = true

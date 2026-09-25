@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Objective interview and GoalSpec compiler"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
 
 [dependencies]
 entelechy-artifacts = { workspace = true }
@@ -14,3 +17,6 @@ entelechy-ir = { workspace = true }
 entelechy-eval = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

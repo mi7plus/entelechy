@@ -7,9 +7,15 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Static assurance, holdout orchestration and SafetyCase"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
 
 [dependencies]
 entelechy-ir = { workspace = true }
 entelechy-eval = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

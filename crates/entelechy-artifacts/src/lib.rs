@@ -27,7 +27,7 @@ pub use store::{BlobStore, InMemoryStore, StoreError};
 use serde::{Deserialize, Serialize};
 
 /// Canonical serialization contract version. Bumped only by a change to the
-/// byte-level encoding in [`canonical`] (PRD 5.9). Part of every header so a
+/// byte-level encoding in the `canonical` module (PRD 5.9). Part of every header so a
 /// reader can refuse an encoding it does not understand.
 pub const CANONICAL_SERIALIZATION_VERSION: u32 = 1;
 

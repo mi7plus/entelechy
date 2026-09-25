@@ -5,7 +5,7 @@
 //! classes), 7.5 (information-flow labels), 7.6 (effect taxonomy).
 //!
 //! The same typed IR is used during search, replay and production (PRD 3.1). One
-//! [`Program`] is a `Design` artifact payload (PRD 5.2): compiler-valid, effects
+//! [`crate::Program`] is a `Design` artifact payload (PRD 5.2): compiler-valid, effects
 //! within authority, budgets bounded.
 #![forbid(unsafe_code)]
 

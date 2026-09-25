@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "CLI and local workflow"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
 
 [[bin]]
 name = "entelechy"
@@ -42,3 +45,6 @@ anyhow = { workspace = true }
 openai = ["entelechy-gateway/openai"]
 # Also reach hosted https:// providers (adds a TLS transport).
 openai-tls = ["openai", "entelechy-gateway/openai-tls"]
+
+[lints]
+workspace = true

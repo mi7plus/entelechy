@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Release bundles, maturity state and promotion records"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
 
 [dependencies]
 entelechy-artifacts = { workspace = true }
@@ -15,3 +18,6 @@ entelechy-identity = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[lints]
+workspace = true

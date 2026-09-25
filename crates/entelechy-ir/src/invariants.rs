@@ -1,6 +1,6 @@
 //! Static compiler invariants (PRD 7.4).
 //!
-//! [`validate`] walks a [`Program`] and reports violations of the machine-checkable
+//! [`validate`] walks a [`crate::Program`] and reports violations of the machine-checkable
 //! invariants. These are *structural* constraints (PRD 5.6): a failed proof makes
 //! the design infeasible, it is never a scalar penalty (PRD 9.2).
 //!

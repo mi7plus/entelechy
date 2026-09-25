@@ -7,9 +7,15 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "IR, schemas, value envelope, effects, authority and migrations"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
 
 [dependencies]
 entelechy-artifacts = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[lints]
+workspace = true

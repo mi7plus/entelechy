@@ -30,8 +30,16 @@ edition = "2021"
 rust-version = "1.85"
 license = "MIT"
 authors = ["George Olteanu"]
-repository = "https://github.com/georgeolteanu/entelechy"
+repository = "https://github.com/mi7plus/entelechy"
+homepage = "https://github.com/mi7plus/entelechy"
 description = "Objective-driven agentic systems synthesis platform (PRD v11)"
+keywords = ["agents", "llm", "compiler", "evaluation", "synthesis"]
+categories = ["development-tools", "science"]
+
+# Central lint policy inherited by every crate (`[lints] workspace = true`).
+# Broader clippy enforcement is applied in CI via `cargo clippy -- -D warnings`.
+[workspace.lints.rust]
+unsafe_code = "forbid"
 
 [workspace.dependencies]
 # Internal crates

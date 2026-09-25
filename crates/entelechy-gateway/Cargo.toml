@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Model/tool/secret gateway traits and adapters, including provider identity capture and fingerprint probes"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
 
 [dependencies]
 entelechy-ir = { workspace = true }
@@ -31,3 +34,6 @@ openai = []
 # providers as well as self-hosted http:// ones. Uses the platform TLS stack
 # (schannel/Secure Transport/openssl) via native-tls.
 openai-tls = ["openai", "dep:native-tls"]
+
+[lints]
+workspace = true

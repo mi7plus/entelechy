@@ -68,7 +68,7 @@ impl Rule {
 }
 
 /// A permit/forbid policy adapter (PRD Q6). Evaluates rules with Cedar semantics
-/// and defers all other semantics to the shared core via [`finish_decision`].
+/// and defers all other semantics to the shared core `finish_decision`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RuleAdapter {
     /// The policy rules, evaluated together (order-independent; forbid wins).
