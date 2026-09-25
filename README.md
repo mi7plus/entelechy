@@ -67,7 +67,25 @@ cargo run -p entelechy-cli -- requirements
 - [`docs/concepts.md`](docs/concepts.md) — the model: lifecycle, artifacts, principles.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — crate map and what is implemented vs. scaffolded.
 - [`docs/phase0.md`](docs/phase0.md) — the Phase 0 milestone and how this code maps to it.
-- `crates/` — the 24-crate workspace from PRD §24.
+- `crates/` — the workspace crates named in PRD §24.
+
+## Testing & benchmarks
+
+```bash
+# Whole workspace: unit + integration + doctests
+cargo test --workspace
+
+# Cross-crate pipeline tests (design -> IR -> execute -> replay, content addressing)
+cargo test -p entelechy-integration
+
+# Regression benchmarks for the content-addressing and interpreter hot paths
+cargo bench -p entelechy-artifacts
+cargo bench -p entelechy-runtime
+
+# Fuzz the canonical-JSON trust root and IR deserialization (nightly)
+cargo +nightly fuzz run canonical_roundtrip   # from ./fuzz
+cargo +nightly fuzz run ir_deserialize
+```
 
 ## Contributing & security
 

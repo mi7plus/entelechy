@@ -10,6 +10,16 @@ use entelechy_ir::{AuthorityEnvelope, LlmNode, Node, NodeKind, Program};
 /// Synthesize the simplest viable single-agent baseline: one model call under
 /// the given authority (PRD 11.1). Complexity is added later only when measured
 /// failure justifies it.
+///
+/// # Example
+/// ```
+/// use entelechy_design::synthesize_single_agent;
+/// use entelechy_ir::AuthorityEnvelope;
+///
+/// let program =
+///     synthesize_single_agent(AuthorityEnvelope::empty(), "mock-small", "resolve: {input}");
+/// assert_eq!(program.root.id, "root");
+/// ```
 pub fn synthesize_single_agent(
     authority: AuthorityEnvelope,
     model: impl Into<String>,

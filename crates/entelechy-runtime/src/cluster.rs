@@ -93,15 +93,26 @@ impl InMemoryQueue {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Lock the queue state, recovering the guard if a previous holder panicked
+    /// (lock poisoning). Every operation re-establishes the queue invariants from
+    /// the two collections, and at-least-once delivery already tolerates a partial
+    /// operation, so a single worker panic must not cascade into panics across the
+    /// whole pool (RK-1 structured concurrency).
+    fn state(&self) -> std::sync::MutexGuard<'_, QueueState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 impl WorkQueue for InMemoryQueue {
     fn enqueue(&self, item: WorkItem) {
-        self.state.lock().unwrap().available.push(item);
+        self.state().available.push(item);
     }
 
     fn lease(&self, lease_secs: u64, now: u64) -> Option<LeasedItem> {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.state();
         reclaim(&mut s, now);
         // Highest priority first (SafetyCritical < Control < Normal by Ord), then
         // FIFO within a priority.
@@ -121,22 +132,22 @@ impl WorkQueue for InMemoryQueue {
     }
 
     fn ack(&self, id: &str) {
-        self.state.lock().unwrap().leased.remove(id);
+        self.state().leased.remove(id);
     }
 
     fn nack(&self, id: &str) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.state();
         if let Some(leased) = s.leased.remove(id) {
             s.available.push(leased.item);
         }
     }
 
     fn reclaim_expired(&self, now: u64) {
-        reclaim(&mut self.state.lock().unwrap(), now);
+        reclaim(&mut self.state(), now);
     }
 
     fn len(&self) -> usize {
-        let s = self.state.lock().unwrap();
+        let s = self.state();
         s.available.len() + s.leased.len()
     }
 }
@@ -260,6 +271,25 @@ mod tests {
         let l = q.lease(30, 0).unwrap();
         q.nack(&l.item.id);
         assert_eq!(q.lease(30, 0).unwrap().item.id, "b");
+    }
+
+    #[test]
+    fn poisoned_lock_is_recovered_not_cascaded() {
+        // A panic while holding the state lock poisons the mutex. The queue must
+        // recover the guard on the next operation rather than panicking forever
+        // (RK-1: one worker's panic does not take down the pool).
+        let q = Arc::new(InMemoryQueue::new());
+        q.enqueue(item("survivor", Priority::Normal));
+        let q2 = Arc::clone(&q);
+        let poisoned = std::thread::spawn(move || {
+            let _guard = q2.state();
+            panic!("worker crashed while holding the lock");
+        })
+        .join();
+        assert!(poisoned.is_err(), "the helper thread should have panicked");
+        // The queue is still usable and the item is intact.
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.lease(30, 0).unwrap().item.id, "survivor");
     }
 
     #[test]

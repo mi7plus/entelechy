@@ -1,0 +1,32 @@
+[package]
+name = "entelechy-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+entelechy-artifacts = { path = "../crates/entelechy-artifacts" }
+entelechy-ir = { path = "../crates/entelechy-ir" }
+
+[[bin]]
+name = "canonical_roundtrip"
+path = "fuzz_targets/canonical_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ir_deserialize"
+path = "fuzz_targets/ir_deserialize.rs"
+test = false
+doc = false
+bench = false
+
+# Detach from the main workspace: `cargo fuzz` builds this crate on its own with a
+# nightly toolchain and libfuzzer, which the forbid-unsafe workspace can't host.
+[workspace]

@@ -32,6 +32,18 @@ jobs:
       - name: Test (default features)
         run: cargo test --workspace
 
+  msrv:
+    name: MSRV (1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # pinned to the workspace rust-version
+        with:
+          toolchain: "1.85.0"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Build on the declared MSRV
+        run: cargo +1.85.0 build --workspace --all-targets
+
   features:
     name: feature matrix (${{ matrix.feature }})
     runs-on: ubuntu-latest
@@ -89,12 +101,30 @@ jobs:
           # Also check optional heavy backends' dependency trees.
           arguments: --all-features
 
+  coverage:
+    name: coverage (informational)
+    runs-on: ubuntu-latest
+    # Non-blocking: surfaces test coverage without gating merges.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, pinned 2026-09-24
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+      - name: Coverage summary
+        run: cargo llvm-cov --workspace --summary-only
+
   advisories:
     name: security advisories (RUSTSEC)
     runs-on: ubuntu-latest
-    # Advisory findings are surfaced but do not block merges (a newly published
-    # advisory should not turn an unrelated PR red); the weekly schedule re-scans.
-    continue-on-error: true
+    # Advisories are a property of the dependency set, not of a diff, so they run on
+    # pushes to main and on the weekly schedule (a real, meaningful signal) — but
+    # not on pull requests, where a newly published advisory would otherwise show a
+    # perpetually-passing check that means nothing.
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, pinned 2026-09-24

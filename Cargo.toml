@@ -22,7 +22,12 @@ members = [
     "crates/entelechy-bench",
     "crates/entelechy-protocol",
     "crates/entelechy-contracts",
+    "crates/entelechy-integration",
 ]
+
+# The fuzz crate needs nightly + libfuzzer and is driven by `cargo fuzz`, so it is
+# kept out of the default workspace build/test.
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.0.0"
@@ -72,6 +77,10 @@ hex = "0.4"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+
+# Dev-only (tests/benches): never enter the release dependency graph.
+proptest = "1"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [profile.release]
 lto = "thin"

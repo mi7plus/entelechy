@@ -11,7 +11,13 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
-- 24-crate workspace implementing the PRD v11 architecture (§24).
+- Workspace implementing the PRD v11 architecture (§24), plus a dedicated
+  `entelechy-integration` crate for cross-crate pipeline tests.
+- Property tests (`proptest`) for the content-addressing trust root, criterion
+  benchmarks for the canonicalization and interpreter hot paths, runnable
+  doctests, and `cargo fuzz` targets for canonical JSON and IR deserialization.
+- CI: an MSRV (1.85) build job and a non-blocking coverage job; the RUSTSEC
+  advisory scan now runs on push/schedule only (not on PRs).
 - IR with node model, value envelope (taint + confidentiality), effect taxonomy,
   AuthorityEnvelope and static compiler invariants (§7, §5.4, §5.6).
 - Content-addressed artifacts (RFC 8785 + SHA-256, digest agility), schema

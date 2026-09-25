@@ -1,32 +1,27 @@
 [package]
-name = "entelechy-runtime"
+name = "entelechy-integration"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Interpreter, scheduler, journal, replay and checkpoints"
+description = "Cross-crate integration tests for the Entelechy pipeline"
 keywords.workspace = true
 categories.workspace = true
 homepage.workspace = true
+publish = false
 
 [dependencies]
-entelechy-ir = { workspace = true }
-entelechy-gateway = { workspace = true }
-entelechy-artifacts = { workspace = true }
-entelechy-policy = { workspace = true }
-entelechy-effects = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
-
-[[bench]]
-name = "exec"
-harness = false
+entelechy-ir = { workspace = true }
+entelechy-artifacts = { workspace = true }
+entelechy-runtime = { workspace = true }
+entelechy-gateway = { workspace = true }
+entelechy-design = { workspace = true }
+entelechy-eval = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

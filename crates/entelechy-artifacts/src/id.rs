@@ -55,6 +55,19 @@ impl ArtifactId {
     }
 
     /// Compute an ID by canonicalizing (RFC 8785) then hashing a value.
+    ///
+    /// The address ignores map ordering and whitespace, so equal values share an
+    /// id while any material change produces a new one:
+    /// ```
+    /// use entelechy_artifacts::ArtifactId;
+    /// use serde_json::json;
+    ///
+    /// let a = ArtifactId::of(&json!({ "x": 1, "y": 2 }))?;
+    /// let b = ArtifactId::of(&json!({ "y": 2, "x": 1 }))?;
+    /// assert_eq!(a, b);
+    /// assert!(a.to_string().starts_with("sha256:"));
+    /// # Ok::<(), serde_json::Error>(())
+    /// ```
     pub fn of<T: Serialize>(value: &T) -> Result<Self, serde_json::Error> {
         let bytes = canonical::serialize_canonical(value)?;
         Ok(Self::from_canonical_bytes(&bytes))

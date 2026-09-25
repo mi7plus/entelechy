@@ -66,7 +66,16 @@ pub trait ModelGateway {
 /// (PRD Q7 local runtime, RK deterministic mock harness).
 ///
 /// The response is a pure function of the request, so recorded-effect replay is
-/// exact (PRD 18 replay determinism).
+/// exact (PRD 18 replay determinism):
+/// ```
+/// use entelechy_gateway::{MockModel, ModelGateway, ModelRequest};
+///
+/// let g = MockModel::new();
+/// let req = ModelRequest { model: "m".into(), prompt: "hi".into(), temperature: 0.0 };
+/// let a = g.infer(&req).unwrap();
+/// let b = g.infer(&req).unwrap();
+/// assert_eq!(a.text, b.text);
+/// ```
 #[derive(Clone, Debug, Default)]
 pub struct MockModel;
 
