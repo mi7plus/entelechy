@@ -22,6 +22,11 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
 - `missing_docs = "warn"` as a workspace lint, so the (already universal) public-API
   documentation discipline is enforced and the rustdoc `-D warnings` gate fails on a
   regression.
+- Golden format-stability tests that pin the canonical-JSON bytes, the SHA-256
+  `ArtifactId` digest, and the journal wire format for fixed fixtures — turning the
+  §5.9 / §16.5–16.6 compatibility promises into enforced tests (an accidental
+  format change fails CI; a deliberate one requires bumping the serialization
+  version and updating the golden value).
 
 ### Fixed
 - HTTP server hardening (loopback DoS): the request body is now capped
