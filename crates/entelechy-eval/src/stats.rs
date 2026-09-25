@@ -86,7 +86,7 @@ pub fn paired_comparison(baseline: &[bool], candidate: &[bool], seed: u64) -> Co
         }
         means.push(acc / n as f64);
     }
-    means.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    means.sort_by(f64::total_cmp);
     let ci_low = percentile(&means, 2.5);
     let ci_high = percentile(&means, 97.5);
     Comparison {

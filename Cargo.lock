@@ -665,6 +665,7 @@ name = "entelechy-runtime"
 version = "0.0.0"
 dependencies = [
  "entelechy-artifacts",
+ "entelechy-effects",
  "entelechy-gateway",
  "entelechy-ir",
  "entelechy-policy",

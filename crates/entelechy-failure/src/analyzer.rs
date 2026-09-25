@@ -165,7 +165,7 @@ pub fn analyze(observations: &[FailureObservation]) -> Vec<FailureCluster> {
                     eligible_levels: vec![],
                 });
             }
-            dist.sort_by(|a, b| b.probability.partial_cmp(&a.probability).unwrap());
+            dist.sort_by(|a, b| b.probability.total_cmp(&a.probability));
             let entropy = shannon_entropy(dist.iter().map(|c| c.probability));
             let eval_failures = members.iter().filter(|m| m.is_evaluation_failure).count();
             let is_eval = eval_failures * 2 > members.len();

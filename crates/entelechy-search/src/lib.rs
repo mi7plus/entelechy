@@ -140,11 +140,9 @@ impl Study {
     /// The best accepted candidate by validation success (PRD 5.7 selection is
     /// richer; this is the Phase 0 single-metric proxy).
     pub fn best(&self) -> Option<&Candidate> {
-        self.accepted.iter().max_by(|a, b| {
-            a.validation_success
-                .partial_cmp(&b.validation_success)
-                .unwrap()
-        })
+        self.accepted
+            .iter()
+            .max_by(|a, b| a.validation_success.total_cmp(&b.validation_success))
     }
 
     /// The single non-binding futility check at half budget (PRD 21.1). Returns

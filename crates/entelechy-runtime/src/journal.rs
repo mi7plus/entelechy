@@ -10,17 +10,9 @@ use entelechy_gateway::{ModelRequest, ModelResponse};
 use serde::{Deserialize, Serialize};
 
 /// Commit status of a consequential effect (PRD 7.6). Only `Unknown` enters
-/// reconciliation (PRD 8.5).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CommitStatus {
-    /// The effect is known to have committed.
-    Committed,
-    /// The effect is known not to have committed.
-    NotCommitted,
-    /// Commit state is unknown; must be reconciled before the run completes.
-    Unknown,
-}
+/// reconciliation (PRD 8.5). Re-exported from `entelechy-effects`, the canonical
+/// owner of the effect state machine, so there is a single source of truth.
+pub use entelechy_effects::CommitStatus;
 
 /// One journaled event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

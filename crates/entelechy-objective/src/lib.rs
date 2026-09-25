@@ -140,7 +140,7 @@ pub struct InterviewResult {
 /// impact, stop at the question budget, and record unanswered ambiguities as
 /// explicit (unfalsified) assumptions to be linked later.
 pub fn run_interview(mut questions: Vec<ClarificationQuestion>, budget: usize) -> InterviewResult {
-    questions.sort_by(|a, b| b.expected_impact.partial_cmp(&a.expected_impact).unwrap());
+    questions.sort_by(|a, b| b.expected_impact.total_cmp(&a.expected_impact));
     let deferred = questions.split_off(budget.min(questions.len()));
     InterviewResult {
         to_ask: questions,

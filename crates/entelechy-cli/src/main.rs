@@ -1,9 +1,9 @@
 //! Entelechy CLI (PRD 16.1). Local-first workflow.
 //!
-//! Initial command surface from PRD 16.1: init, objective, capability, eval,
-//! design, study, trace, replay, diff, assure, release, serve. Commands that a
-//! later phase delivers (PRD 21.2) report the phase that will implement them
-//! rather than failing silently.
+//! Command surface from PRD 16.1: init, objective, capability, eval, design,
+//! study, trace, replay, diff, assure, release, serve (plus demo, requirements,
+//! and, under the `openai` feature, infer).
+#![forbid(unsafe_code)]
 
 mod demo;
 mod release;
@@ -211,18 +211,10 @@ fn cmd_infer(
         }
         Err(e) => {
             println!("inference failed: {e}");
-            println!(
-                "Is a model server running? e.g. `ollama serve` then `ollama pull {}`.",
-                req_model_hint()
-            );
+            println!("Is a model server running? e.g. `ollama serve` then `ollama pull llama3.1`.");
         }
     }
     Ok(())
-}
-
-#[cfg(feature = "openai")]
-fn req_model_hint() -> &'static str {
-    "llama3.1"
 }
 
 fn cmd_serve(port: u16) -> anyhow::Result<()> {
