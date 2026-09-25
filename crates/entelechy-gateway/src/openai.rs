@@ -13,7 +13,7 @@
 //! self-hosted `http://` case the PRD requires first.
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use crate::model::{ModelError, ModelGateway, ModelRequest, ModelResponse, ProviderIdentity};
@@ -209,8 +209,32 @@ impl<T: Read + Write> ReadWrite for T {}
 
 /// Open a transport for the URL. `https` requires the `openai-tls` feature.
 fn connect(url: &Url, timeout: Duration) -> Result<Box<dyn ReadWrite>, ModelError> {
-    let tcp = TcpStream::connect((url.host.as_str(), url.port)).map_err(|e| {
-        ModelError::Provider(format!("connect {}:{} failed: {e}", url.host, url.port))
+    // Bound the dial itself, not just reads/writes: a wrong host/port must fail
+    // within `timeout` rather than blocking on the OS default (PRD Q7).
+    let addrs = (url.host.as_str(), url.port)
+        .to_socket_addrs()
+        .map_err(|e| {
+            ModelError::Provider(format!("resolve {}:{} failed: {e}", url.host, url.port))
+        })?;
+    let mut last_err: Option<std::io::Error> = None;
+    let mut tcp = None;
+    for addr in addrs {
+        match TcpStream::connect_timeout(&addr, timeout) {
+            Ok(s) => {
+                tcp = Some(s);
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let tcp = tcp.ok_or_else(|| {
+        let detail = last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "no addresses resolved".to_string());
+        ModelError::Provider(format!(
+            "connect {}:{} failed: {detail}",
+            url.host, url.port
+        ))
     })?;
     tcp.set_read_timeout(Some(timeout)).ok();
     tcp.set_write_timeout(Some(timeout)).ok();

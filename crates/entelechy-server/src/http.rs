@@ -14,12 +14,26 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use entelechy_identity::{AuthContext, Credential, Principal, TimeSource};
 use entelechy_protocol::ProtocolVersion;
 
 use crate::{ApiError, ApiRequest, ApiServer};
+
+/// Maximum accepted request-body size. A `Content-Length` above this is rejected
+/// with `413` rather than triggering an unbounded allocation — a loopback client
+/// must not be able to exhaust server memory (PRD 17 robustness).
+const MAX_BODY_BYTES: usize = 1024 * 1024; // 1 MiB
+
+/// Maximum number of header lines accepted, bounding the header-read loop so a
+/// client cannot stream headers indefinitely.
+const MAX_HEADER_LINES: usize = 100;
+
+/// Per-connection read/write timeout. `serve` handles connections serially, so a
+/// single stalled client (partial request, or `Content-Length` with no body) must
+/// not wedge the whole server — the connection is dropped once it goes idle.
+const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A wall-clock time source backed by the system clock (PRD 17.2). Returns
 /// `None` only if the clock is before the Unix epoch, which fails closed.
@@ -78,6 +92,9 @@ impl HttpServer {
 
     /// Handle exactly one connection (used by `serve` and by tests).
     pub fn handle_stream(&self, mut stream: TcpStream) -> std::io::Result<()> {
+        // Bound how long a single connection can hold the (serial) server.
+        let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
         let response = match self.read_request(&mut stream) {
             Ok(req) => self.dispatch(req),
             Err(bad) => bad,
@@ -107,8 +124,9 @@ impl HttpServer {
             return Err(bad_request("path must be /v1/<operation>"));
         }
 
-        // Headers.
+        // Headers (count-bounded so a client cannot stream them indefinitely).
         let mut headers: BTreeMap<String, String> = BTreeMap::new();
+        let mut header_lines = 0usize;
         loop {
             let mut line = String::new();
             reader
@@ -118,16 +136,33 @@ impl HttpServer {
             if trimmed.is_empty() {
                 break;
             }
+            header_lines += 1;
+            if header_lines > MAX_HEADER_LINES {
+                return Err(HttpResponse::json(
+                    431,
+                    &serde_json::json!({ "error": "too many header fields" }),
+                ));
+            }
             if let Some((k, v)) = trimmed.split_once(':') {
                 headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
             }
         }
 
-        // Body per Content-Length.
+        // Body per Content-Length, capped to bound allocation (413 above the cap).
         let len: usize = headers
             .get("content-length")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
+        if len > MAX_BODY_BYTES {
+            return Err(HttpResponse::json(
+                413,
+                &serde_json::json!({
+                    "error": format!(
+                        "payload too large: {len} bytes exceeds {MAX_BODY_BYTES}-byte limit"
+                    )
+                }),
+            ));
+        }
         let mut body = vec![0u8; len];
         if len > 0 {
             reader
@@ -226,6 +261,8 @@ fn reason(status: u16) -> &'static str {
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        413 => "Payload Too Large",
+        431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         _ => "Status",
     }
@@ -346,5 +383,61 @@ mod tests {
             "{}",
         ));
         assert!(status.contains("404"), "status={status}");
+    }
+
+    #[test]
+    fn oversized_content_length_is_413_without_allocating() {
+        // Declares a body far larger than the cap. The server must reject on the
+        // header (before allocating or reading the body), so this returns fast.
+        let huge = MAX_BODY_BYTES + 1;
+        let req = format!(
+            "POST /v1/status HTTP/1.1\r\nHost: localhost\r\n\
+             Authorization: Bearer dev-token-1\r\nContent-Length: {huge}\r\n\r\n{{}}"
+        );
+        let (status, body) = roundtrip(&req);
+        assert!(status.contains("413"), "status={status}");
+        assert!(body.contains("payload too large"), "body={body}");
+    }
+
+    #[test]
+    fn too_many_header_fields_is_431() {
+        let mut filler = String::new();
+        for i in 0..(MAX_HEADER_LINES + 5) {
+            filler.push_str(&format!("X-Filler-{i}: v\r\n"));
+        }
+        let req = format!(
+            "POST /v1/status HTTP/1.1\r\nHost: localhost\r\n\
+             Authorization: Bearer dev-token-1\r\n{filler}Content-Length: 0\r\n\r\n"
+        );
+        let (status, _) = roundtrip(&req);
+        assert!(status.contains("431"), "status={status}");
+    }
+
+    #[test]
+    fn truncated_body_is_400() {
+        use std::net::Shutdown;
+        let listener = HttpServer::bind_local(0).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let server = test_server();
+            let (stream, _) = listener.accept().unwrap();
+            let _ = server.handle_stream(stream);
+        });
+
+        let mut client = TcpStream::connect(addr).unwrap();
+        // Declares 100 bytes but sends 2, then closes the write half so the
+        // server's read_exact hits EOF immediately (no timeout wait).
+        let req = "POST /v1/status HTTP/1.1\r\nHost: localhost\r\n\
+                   Authorization: Bearer dev-token-1\r\nContent-Length: 100\r\n\r\n{}";
+        client.write_all(req.as_bytes()).unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        let mut resp = String::new();
+        client.read_to_string(&mut resp).unwrap();
+        handle.join().unwrap();
+
+        assert!(
+            resp.lines().next().unwrap_or("").contains("400"),
+            "resp={resp}"
+        );
     }
 }

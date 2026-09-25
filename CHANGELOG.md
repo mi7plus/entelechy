@@ -18,6 +18,15 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   doctests, and `cargo fuzz` targets for canonical JSON and IR deserialization.
 - CI: an MSRV (1.85) build job and a non-blocking coverage job; the RUSTSEC
   advisory scan now runs on push/schedule only (not on PRs).
+- A pull-request template surfacing the CI gates and DCO sign-off.
+
+### Fixed
+- HTTP server hardening (loopback DoS): the request body is now capped
+  (`413` above 1 MiB) instead of allocating `Content-Length` verbatim, header
+  count is bounded (`431`), and per-connection read/write timeouts prevent a
+  single stalled client from wedging the serial accept loop.
+- OpenAI gateway: the client now bounds the TCP dial with `connect_timeout`, so a
+  wrong `--base-url` fails within the timeout instead of blocking on the OS default.
 - IR with node model, value envelope (taint + confidentiality), effect taxonomy,
   AuthorityEnvelope and static compiler invariants (§7, §5.4, §5.6).
 - Content-addressed artifacts (RFC 8785 + SHA-256, digest agility), schema
