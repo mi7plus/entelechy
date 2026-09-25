@@ -50,6 +50,9 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   record (PRD principle 6, 21.1). It also writes a tamper-evident, hash-chained
   `audit-log.json` (PRD 17.2) recording the plan commitment, each hypothesis
   result, and the holdout outcome; the report commits to the audit chain head.
+- **`entelechy audit <dir>`** re-verifies a persisted audit log's hash chain and
+  that a study report's `audit_head` still matches the chain head, exiting
+  non-zero on any tampering or mismatch (PRD 17.2).
 - **`entelechy committee` CLI command.** Builds a multi-agent committee, runs it
   against a model, and prints each sub-agent's output plus the coordinator's
   synthesized answer. Uses a live OpenAI-compatible model when built with

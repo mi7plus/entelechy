@@ -141,6 +141,31 @@ fn study_out_writes_design_and_report() {
 }
 
 #[test]
+fn audit_verify_passes_clean_and_detects_tampering() {
+    let dir = std::env::temp_dir().join(format!("entelechy-audit-{}", std::process::id()));
+    let dir_s = dir.to_string_lossy().into_owned();
+    let (ok, out) = run(&["study", "--out", &dir_s]);
+    assert!(ok, "study --out failed: {out}");
+
+    // A clean bundle verifies.
+    let (ok, out) = run(&["audit", &dir_s]);
+    assert!(ok, "audit should pass on an untampered log: {out}");
+    assert!(out.contains("VALID"), "expected VALID: {out}");
+
+    // Tampering with a recorded decision breaks the chain and fails verification.
+    let log = dir.join("audit-log.json");
+    let text = std::fs::read_to_string(&log).unwrap();
+    let tampered = text.replace("result Accepted", "result Rejected");
+    assert_ne!(text, tampered, "expected to alter a recorded decision");
+    std::fs::write(&log, tampered).unwrap();
+    let (ok, out) = run(&["audit", &dir_s]);
+    assert!(!ok, "audit should fail on a tampered log: {out}");
+    assert!(out.contains("BROKEN"), "expected BROKEN: {out}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn committee_runs_and_synthesizes() {
     let (ok, out) = run(&["committee", "how do I reset my password?"]);
     assert!(ok, "committee failed: {out}");

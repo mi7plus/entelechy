@@ -2,7 +2,7 @@
 //!
 //! Command surface from PRD 16.1: init, objective, capability, eval, design,
 //! study, trace, replay, diff, assure, release, serve (plus demo, requirements,
-//! committee, and, under the `openai` feature, infer).
+//! committee, audit, and, under the `openai` feature, infer).
 #![forbid(unsafe_code)]
 
 mod demo;
@@ -96,6 +96,13 @@ enum Command {
         #[arg(long)]
         coordinator: Option<String>,
     },
+    /// Verify a persisted tamper-evident audit log and, if present, a study
+    /// report's commitment to its chain head (PRD 17.2). Exits non-zero on any
+    /// broken chain or mismatched commitment.
+    Audit {
+        /// Directory holding `audit-log.json` (e.g. a `study --out` directory).
+        path: String,
+    },
     /// Run one inference against a self-hosted OpenAI-compatible model (Q7).
     /// Requires the `openai` feature: `cargo run -p entelechy-cli --features openai`.
     #[cfg(feature = "openai")]
@@ -154,6 +161,7 @@ fn main() -> anyhow::Result<()> {
             responder,
             coordinator,
         } => cmd_committee(prompt, agents, analyst, responder, coordinator),
+        Command::Audit { path } => cmd_audit(&path),
     }
 }
 
@@ -319,6 +327,48 @@ fn prompt_or(override_template: Option<String>, default: &str) -> String {
         Some(t) => format!("{t}\n\n{{input}}"),
         None => default.to_string(),
     }
+}
+
+/// Verify a persisted audit log's hash chain and, if a study report is present,
+/// that its `audit_head` still matches the chain head (PRD 17.2). Fails closed:
+/// any broken chain or mismatched commitment returns an error (non-zero exit).
+fn cmd_audit(path: &str) -> anyhow::Result<()> {
+    let dir = std::path::Path::new(path);
+    let audit_path = dir.join("audit-log.json");
+    let text = std::fs::read_to_string(&audit_path)
+        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", audit_path.display()))?;
+    let audit: entelechy_identity::AuditLog = serde_json::from_str(&text)?;
+
+    let ok = audit.verify_chain();
+    let n = audit.len();
+    println!(
+        "Audit log: {n} entr{} — chain {}.",
+        if n == 1 { "y" } else { "ies" },
+        if ok { "VALID" } else { "BROKEN" }
+    );
+
+    // Cross-check the study report's commitment to the chain head, if present.
+    let report_path = dir.join("study-report.json");
+    if report_path.exists() {
+        let report: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&report_path)?)?;
+        if let Some(head) = report.get("audit_head").and_then(|h| h.as_str()) {
+            let matches = head == audit.head();
+            println!(
+                "Report audit_head {} the chain head.",
+                if matches { "matches" } else { "does NOT match" }
+            );
+            if !matches {
+                anyhow::bail!("study-report.json audit_head does not match the audit chain head");
+            }
+        }
+    }
+
+    if !ok {
+        anyhow::bail!("audit chain verification failed — tampering detected (PRD 17.2)");
+    }
+    println!("Audit verification passed.");
+    Ok(())
 }
 
 /// Collapse newlines and cap a string for one-line display.

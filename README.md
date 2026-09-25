@@ -29,7 +29,8 @@ cargo run -p entelechy-cli -- demo --out ./entelechy-demo
 
 # Run a full Phase 0 study loop on the simulated helpdesk
 cargo run -p entelechy-cli -- study
-#   persist the result: --out <dir> writes design.json + study-report.json
+#   persist the result: --out <dir> writes design.json + study-report.json + audit-log.json
+cargo run -p entelechy-cli -- audit ./study-out   # re-verify the audit chain (exit!=0 if tampered)
 
 # Run a multi-agent committee (map/reduce) — mock model, or a live one with
 # --features openai and ENTELECHY_BASE_URL/ENTELECHY_MODEL set
