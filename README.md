@@ -30,6 +30,10 @@ cargo run -p entelechy-cli -- demo --out ./entelechy-demo
 # Run a full Phase 0 study loop on the simulated helpdesk
 cargo run -p entelechy-cli -- study
 
+# Run a multi-agent committee (map/reduce) — mock model, or a live one with
+# --features openai and ENTELECHY_BASE_URL/ENTELECHY_MODEL set
+cargo run -p entelechy-cli -- committee "How do I reset my password?"
+
 # Compile the EvalContract, check power, exercise the holdout gate + firewall
 cargo run -p entelechy-cli -- eval
 

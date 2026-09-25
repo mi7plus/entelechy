@@ -81,6 +81,18 @@ fn diff_shows_the_repaired_candidate() {
 }
 
 #[test]
+fn committee_runs_and_synthesizes() {
+    let (ok, out) = run(&["committee", "how do I reset my password?"]);
+    assert!(ok, "committee failed: {out}");
+    // Map/reduce: a coordinator reduce step synthesizes the committee's outputs.
+    assert!(out.contains("coordinator"), "no coordinator step: {out}");
+    assert!(
+        out.contains("Synthesized answer"),
+        "no synthesized answer: {out}"
+    );
+}
+
+#[test]
 fn unknown_command_fails() {
     let (ok, _out) = run(&["definitely-not-a-command"]);
     assert!(!ok, "unknown command should exit non-zero");

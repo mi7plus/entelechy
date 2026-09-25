@@ -2,7 +2,7 @@
 //!
 //! Command surface from PRD 16.1: init, objective, capability, eval, design,
 //! study, trace, replay, diff, assure, release, serve (plus demo, requirements,
-//! and, under the `openai` feature, infer).
+//! committee, and, under the `openai` feature, infer).
 #![forbid(unsafe_code)]
 
 mod demo;
@@ -68,6 +68,15 @@ enum Command {
         #[arg(long, default_value_t = 8787)]
         port: u16,
     },
+    /// Run a multi-agent committee (map/reduce) against a model and print the
+    /// synthesized answer (PRD 11.4 level 4). Uses a live OpenAI-compatible model
+    /// when built with `--features openai` and `ENTELECHY_BASE_URL` /
+    /// `ENTELECHY_MODEL` are set; otherwise the deterministic mock model.
+    Committee {
+        /// The question or task to route through the committee.
+        #[arg(default_value = "How do I reset my password?")]
+        prompt: String,
+    },
     /// Run one inference against a self-hosted OpenAI-compatible model (Q7).
     /// Requires the `openai` feature: `cargo run -p entelechy-cli --features openai`.
     #[cfg(feature = "openai")]
@@ -119,6 +128,125 @@ fn main() -> anyhow::Result<()> {
         Command::Assure => release::cmd_assure(),
         Command::Release => release::cmd_release(),
         Command::Serve { port } => cmd_serve(port),
+        Command::Committee { prompt } => cmd_committee(prompt),
+    }
+}
+
+/// Select the committee's model gateway. With the `openai` feature and
+/// `ENTELECHY_BASE_URL`/`ENTELECHY_MODEL` set, this is a live OpenAI-compatible
+/// endpoint; otherwise the deterministic mock model (so the command always runs).
+#[cfg(feature = "openai")]
+fn committee_gateway() -> (String, Box<dyn entelechy_gateway::ModelGateway>, String) {
+    use entelechy_gateway::{MockModel, OpenAiGateway};
+    match (
+        std::env::var("ENTELECHY_BASE_URL"),
+        std::env::var("ENTELECHY_MODEL"),
+    ) {
+        (Ok(base), Ok(model)) => {
+            let key = std::env::var("ENTELECHY_API_KEY").ok();
+            let source = format!("OpenAI-compatible @ {base} (model {model})");
+            (model, Box::new(OpenAiGateway::new(base, key)), source)
+        }
+        _ => (
+            "mock".into(),
+            Box::new(MockModel::new()),
+            "mock — set ENTELECHY_BASE_URL and ENTELECHY_MODEL for a live model".into(),
+        ),
+    }
+}
+
+/// Mock-only gateway when not built with the `openai` feature.
+#[cfg(not(feature = "openai"))]
+fn committee_gateway() -> (String, Box<dyn entelechy_gateway::ModelGateway>, String) {
+    (
+        "mock".into(),
+        Box::new(entelechy_gateway::MockModel::new()),
+        "mock — rebuild with --features openai and set ENTELECHY_BASE_URL/MODEL for a live model"
+            .into(),
+    )
+}
+
+/// Build a committee design (single agent → SplitParallel map/reduce), run it
+/// against the selected model, and print each sub-agent's output plus the
+/// coordinator's synthesized answer (PRD 11.4 level 4).
+fn cmd_committee(prompt: String) -> anyhow::Result<()> {
+    use entelechy_design::{apply, synthesize_single_agent, AgentSpec, EditOp};
+    use entelechy_gateway::NativeToolGateway;
+    use entelechy_ir::{AuthorityEnvelope, Value};
+    use entelechy_runtime::{Engine, JournalEvent, RunStatus};
+
+    let (model_id, gateway, source) = committee_gateway();
+    println!("Committee model: {source}");
+
+    // Baseline single agent, then fan out into a committee with a reduce step.
+    let baseline = synthesize_single_agent(AuthorityEnvelope::empty(), &model_id, "{input}");
+    let design = apply(
+        &baseline,
+        &EditOp::SplitParallel {
+            node: "agent".into(),
+            agents: vec![
+                AgentSpec {
+                    id: "analyst".into(),
+                    prompt_template: "Analyze the request and list the key facts:\n{input}".into(),
+                },
+                AgentSpec {
+                    id: "responder".into(),
+                    prompt_template: "Draft a helpful response to:\n{input}".into(),
+                },
+            ],
+            reducer: AgentSpec {
+                id: "coordinator".into(),
+                prompt_template: "Synthesize the sub-agent outputs into one final answer:\n{input}"
+                    .into(),
+            },
+        },
+    )?;
+
+    // Structural check (authority narrowing, bounded loops, etc.).
+    let violations = entelechy_ir::validate(&design, &std::collections::HashMap::new());
+    if !violations.is_empty() {
+        println!("design is structurally invalid: {violations:?}");
+        return Ok(());
+    }
+
+    let mut tools = NativeToolGateway::new();
+    let mut engine = Engine::new(gateway.as_ref(), &mut tools);
+    let run = engine.execute(
+        &design,
+        Value::trusted(serde_json::json!(prompt)),
+        "committee",
+    );
+
+    println!("\nQuestion: {prompt}\n--- committee ---");
+    for entry in &run.journal.entries {
+        if let JournalEvent::ModelCall { response, .. } = &entry.event {
+            println!(
+                "  {:<24} → {}",
+                entry.node_path,
+                truncate(&response.text, 100)
+            );
+        }
+    }
+    match run.status {
+        RunStatus::Succeeded => {
+            let answer = run
+                .output
+                .map(|v| v.data.to_string())
+                .unwrap_or_else(|| "<no output>".into());
+            println!("\nSynthesized answer:\n{answer}");
+        }
+        other => println!("\nrun did not succeed: {other:?}"),
+    }
+    Ok(())
+}
+
+/// Collapse newlines and cap a string for one-line display.
+fn truncate(s: &str, n: usize) -> String {
+    let flat = s.replace('\n', " ");
+    if flat.chars().count() > n {
+        format!("{}…", flat.chars().take(n).collect::<String>())
+    } else {
+        flat
     }
 }
 

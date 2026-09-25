@@ -41,6 +41,11 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   `Seq[Par[specialists], coordinator]`, where a coordinator `Llm` aggregates the
   agents' outputs into one synthesized value instead of returning a raw array
   (PRD 11.4 level 4). Executes end to end with any model.
+- **`entelechy committee` CLI command.** Builds a multi-agent committee, runs it
+  against a model, and prints each sub-agent's output plus the coordinator's
+  synthesized answer. Uses a live OpenAI-compatible model when built with
+  `--features openai` and `ENTELECHY_BASE_URL`/`ENTELECHY_MODEL` are set; otherwise
+  the deterministic mock model, so it always runs.
 
 - Workspace implementing the PRD v11 architecture (§24), plus a dedicated
   `entelechy-integration` crate for cross-crate pipeline tests.
