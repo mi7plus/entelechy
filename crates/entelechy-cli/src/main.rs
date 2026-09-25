@@ -76,6 +76,10 @@ enum Command {
         /// The question or task to route through the committee.
         #[arg(default_value = "How do I reset my password?")]
         prompt: String,
+        /// Number of specialist agents in the committee (minimum 2). The first two
+        /// are the analyst and responder; any beyond are generic specialists.
+        #[arg(long, default_value_t = 2)]
+        agents: usize,
         /// Override the analyst agent's prompt template. `{input}` is substituted
         /// with the user request; if omitted from the template it is appended.
         #[arg(long)]
@@ -141,10 +145,11 @@ fn main() -> anyhow::Result<()> {
         Command::Serve { port } => cmd_serve(port),
         Command::Committee {
             prompt,
+            agents,
             analyst,
             responder,
             coordinator,
-        } => cmd_committee(prompt, analyst, responder, coordinator),
+        } => cmd_committee(prompt, agents, analyst, responder, coordinator),
     }
 }
 
@@ -187,6 +192,7 @@ fn committee_gateway() -> (String, Box<dyn entelechy_gateway::ModelGateway>, Str
 /// coordinator's synthesized answer (PRD 11.4 level 4).
 fn cmd_committee(
     prompt: String,
+    agents: usize,
     analyst: Option<String>,
     responder: Option<String>,
     coordinator: Option<String>,
@@ -196,25 +202,29 @@ fn cmd_committee(
     use entelechy_ir::{AuthorityEnvelope, Value};
     use entelechy_runtime::{Engine, JournalEvent, RunStatus};
 
-    // Tuned, role-grounded defaults. `{input}` for the two specialists is the user
+    if agents < 2 {
+        anyhow::bail!("--agents must be at least 2 (a committee needs multiple specialists)");
+    }
+
+    // Tuned, role-grounded defaults. `{input}` for the specialists is the user
     // request object `{"request": "..."}`; for the coordinator it is the committee's
-    // JSON array of `{"text": ...}` results — element 0 is the analyst, element 1
-    // the responder (their order in the `Par`). Any of these may be overridden.
+    // JSON array of `{"text": ...}` results (element 0 the analyst, element 1 the
+    // responder, any further elements extra specialists). Any may be overridden.
     const ANALYST: &str = "You are the analyst on a support team. From the user request below, \
         extract ONLY the concrete facts, constraints, and what the user is actually asking for, \
         as a short bullet list. Do not write a reply.\n\nUser request (JSON): {input}";
     const RESPONDER: &str = "You are the responder on a support team. Write a clear, friendly, \
         step-by-step answer to the user request below. Be concrete and concise; do not restate \
         the question.\n\nUser request (JSON): {input}";
-    const COORDINATOR: &str = "You are the coordinator. The JSON array below holds two sub-agent \
-        results: element 0 is the analyst's extracted facts, element 1 is the responder's draft \
-        answer (each under a \"text\" field). Write ONE final answer for the user that is \
-        accurate according to the analyst's facts and as clear and friendly as the responder's \
-        draft. Correct anything in the draft that conflicts with the facts, drop unsupported \
-        claims, and return only the final answer.\n\nSub-agent results (JSON): {input}";
+    const COORDINATOR: &str = "You are the coordinator. The JSON array below holds the sub-agent \
+        results (each under a \"text\" field): element 0 is an analyst's extracted facts, element \
+        1 a drafted answer, and any further elements are additional specialist perspectives. \
+        Write ONE final answer for the user that is accurate and clear; resolve conflicts in \
+        favor of the analyst's facts, drop unsupported claims, and return only the final \
+        answer.\n\nSub-agent results (JSON): {input}";
 
     let (model_id, gateway, source) = committee_gateway();
-    println!("Committee model: {source}");
+    println!("Committee model: {source} ({agents} specialists)");
     for (role, overridden) in [
         ("analyst", analyst.is_some()),
         ("responder", responder.is_some()),
@@ -225,22 +235,35 @@ fn cmd_committee(
         }
     }
 
+    // Build N specialists: analyst, responder, then generic specialist-k (k>=3).
+    let mut specs = vec![
+        AgentSpec {
+            id: "analyst".into(),
+            prompt_template: prompt_or(analyst, ANALYST),
+        },
+        AgentSpec {
+            id: "responder".into(),
+            prompt_template: prompt_or(responder, RESPONDER),
+        },
+    ];
+    for k in 3..=agents {
+        specs.push(AgentSpec {
+            id: format!("specialist-{k}"),
+            prompt_template: format!(
+                "You are specialist {k} of {agents} on a support team. Give your best answer to \
+                 the user request, taking a distinct angle from the other specialists.\n\n\
+                 User request (JSON): {{input}}"
+            ),
+        });
+    }
+
     // Baseline single agent, then fan out into a committee with a reduce step.
     let baseline = synthesize_single_agent(AuthorityEnvelope::empty(), &model_id, "{input}");
     let design = apply(
         &baseline,
         &EditOp::SplitParallel {
             node: "agent".into(),
-            agents: vec![
-                AgentSpec {
-                    id: "analyst".into(),
-                    prompt_template: prompt_or(analyst, ANALYST),
-                },
-                AgentSpec {
-                    id: "responder".into(),
-                    prompt_template: prompt_or(responder, RESPONDER),
-                },
-            ],
+            agents: specs,
             reducer: AgentSpec {
                 id: "coordinator".into(),
                 prompt_template: prompt_or(coordinator, COORDINATOR),
