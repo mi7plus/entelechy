@@ -4,6 +4,9 @@
 //! per-run cost is multiplied across every candidate a study evaluates. This
 //! measures a small mixed program (LLM + code + verify) end to end, plus replay
 //! against a recorded journal. Run with `cargo bench -p entelechy-runtime`.
+// The criterion_group! macro emits an undocumented public symbol; a bench harness
+// is not public API, so waive the workspace missing_docs lint here.
+#![allow(missing_docs)]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use entelechy_gateway::{MockModel, NativeToolGateway};

@@ -45,6 +45,9 @@ categories = ["development-tools", "science"]
 # Broader clippy enforcement is applied in CI via `cargo clippy -- -D warnings`.
 [workspace.lints.rust]
 unsafe_code = "forbid"
+# Every public item must be documented (the whole workspace already is; this keeps
+# it that way). The rustdoc `-D warnings` CI gate turns a regression into a failure.
+missing_docs = "warn"
 
 [workspace.dependencies]
 # Internal crates

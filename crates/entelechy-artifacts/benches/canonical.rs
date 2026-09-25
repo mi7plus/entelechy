@@ -3,6 +3,9 @@
 //! `to_canonical_bytes` and `ArtifactId::of` run on every artifact write and on
 //! every id comparison in search, so they are worth a regression baseline. Run
 //! with `cargo bench -p entelechy-artifacts`.
+// The criterion_group! macro emits an undocumented public symbol; a bench harness
+// is not public API, so waive the workspace missing_docs lint here.
+#![allow(missing_docs)]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use entelechy_artifacts::{to_canonical_bytes, ArtifactId};

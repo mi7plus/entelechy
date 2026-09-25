@@ -13,8 +13,14 @@ struct Rng(u64);
 
 impl Rng {
     fn new(seed: u64) -> Self {
-        // Avoid the zero state.
-        Rng(seed ^ 0x9E37_79B9_7F4A_7C15)
+        // xorshift is degenerate at state 0 (it stays 0 forever), so guard the one
+        // seed that would XOR to zero as well as a literal zero seed.
+        let state = seed ^ 0x9E37_79B9_7F4A_7C15;
+        Rng(if state == 0 {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            state
+        })
     }
     fn next_u64(&mut self) -> u64 {
         let mut x = self.0;
@@ -244,6 +250,20 @@ mod tests {
         assert_eq!(c.delta, 0.0);
         assert!(!c.improves());
         assert!(c.ci_low <= 0.0 && c.ci_high >= 0.0);
+    }
+
+    #[test]
+    fn prng_is_nondegenerate_for_the_zeroing_seed() {
+        // The seed that XORs the state to zero must not collapse the PRNG: the
+        // bootstrap must still produce a non-trivial interval.
+        let seed = 0x9E37_79B9_7F4A_7C15;
+        let baseline = vec![false, true, false, true, false, true, false, true];
+        let candidate = vec![true, true, false, true, true, true, false, true];
+        let c = paired_comparison(&baseline, &candidate, seed);
+        assert!(
+            c.ci_high > c.ci_low,
+            "degenerate PRNG collapsed the interval: {c:?}"
+        );
     }
 
     #[test]

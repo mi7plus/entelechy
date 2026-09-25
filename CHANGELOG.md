@@ -19,6 +19,9 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
 - CI: an MSRV (1.85) build job and a non-blocking coverage job; the RUSTSEC
   advisory scan now runs on push/schedule only (not on PRs).
 - A pull-request template surfacing the CI gates and DCO sign-off.
+- `missing_docs = "warn"` as a workspace lint, so the (already universal) public-API
+  documentation discipline is enforced and the rustdoc `-D warnings` gate fails on a
+  regression.
 
 ### Fixed
 - HTTP server hardening (loopback DoS): the request body is now capped
@@ -27,6 +30,8 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   single stalled client from wedging the serial accept loop.
 - OpenAI gateway: the client now bounds the TCP dial with `connect_timeout`, so a
   wrong `--base-url` fails within the timeout instead of blocking on the OS default.
+- Bootstrap PRNG: guard the one seed that would zero the xorshift state (which would
+  collapse the confidence interval); such a seed now falls back to a non-zero state.
 - IR with node model, value envelope (taint + confidentiality), effect taxonomy,
   AuthorityEnvelope and static compiler invariants (§7, §5.4, §5.6).
 - Content-addressed artifacts (RFC 8785 + SHA-256, digest agility), schema

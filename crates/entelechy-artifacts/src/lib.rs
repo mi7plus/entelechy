@@ -110,7 +110,12 @@ pub enum LineageKind {
     BranchOf,
     /// `to` is a deterministic migration of `from` (PRD 5.9). Carries a
     /// semantics-preserving claim relevant to approval survival (14.5).
-    MigrationOf { semantics_preserving: bool },
+    MigrationOf {
+        /// Whether the migration is claimed to preserve semantics (PRD 14.5): a
+        /// semantics-preserving migration can carry an approval forward, while a
+        /// non-preserving one requires re-approval.
+        semantics_preserving: bool,
+    },
     /// `to` supersedes `from` (e.g. a newer release).
     Supersedes,
 }
