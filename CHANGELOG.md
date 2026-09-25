@@ -11,6 +11,17 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Multi-agent designs (Phase 1, PRD 11.4 level 4/5).** A multi-agent synthesizer
+  (`synthesize_multi_agent`, a coordinator over parallel scoped `Delegate`
+  sub-agents) and the level-4/5 typed edit operators `SplitParallel` (fan a single
+  agent into a parallel committee) and `AddDelegate` (wrap a subgraph in a
+  narrowed-authority sub-agent). Delegation narrowing is enforced at apply time
+  against the authority in force at the wrap site, including nested delegates
+  (A2 / IR-I6); widening is rejected. A `DesignHypothesis::decomposition`
+  constructor ties these operators to the `reasoning.decomposition` failure class
+  the Architecture Explorer unlocks them on. Cross-crate tests execute and replay
+  the synthesized multi-agent programs end to end.
+
 - Workspace implementing the PRD v11 architecture (§24), plus a dedicated
   `entelechy-integration` crate for cross-crate pipeline tests.
 - Property tests (`proptest`) for the content-addressing trust root, criterion

@@ -4,12 +4,22 @@
 
 use serde::{Deserialize, Serialize};
 
-use entelechy_ir::{Node, NodeKind, Program, VerifyNode};
+use entelechy_ir::{AuthorityEnvelope, LlmNode, Node, NodeKind, Program, VerifyNode};
 
-/// A typed edit operator over a design (PRD 11.5). Phase 0 covers the level-0/1
-/// operators (model, prompt, parameters, add/remove verify, delete node); higher
-/// operators (retrieval, routing, parallelism, delegation) arrive with the
-/// hierarchical search unlocks (PRD 11.4).
+/// One agent in a parallel decomposition (PRD 11.4 level 4 / 11.5).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AgentSpec {
+    /// Node id for this agent's `Llm` node (must be unique within the design).
+    pub id: String,
+    /// The agent's specialized prompt template (`{input}` is substituted).
+    pub prompt_template: String,
+}
+
+/// A typed edit operator over a design (PRD 11.5). The level-0/1 operators (model,
+/// prompt, parameters, add/remove verify, delete node) cover single-agent repair;
+/// the level-4/5 operators ([`EditOp::SplitParallel`], [`EditOp::AddDelegate`])
+/// introduce parallel and multi-agent structure, and are only reached once the
+/// Architecture Explorer unlocks that complexity level on evidence (PRD 11.4, Q4).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EditOp {
@@ -46,6 +56,29 @@ pub enum EditOp {
     DeleteNode {
         /// Target node id.
         node: String,
+    },
+    /// Level 4 (parallelism): replace an `Llm` node with a bounded `Par` of
+    /// specialized agent `Llm` nodes over the same input (a committee/ensemble).
+    /// The node keeps its id and becomes the `Par`; results are collected as an
+    /// array (PRD 7.1 Par semantics, 11.4 level 4).
+    SplitParallel {
+        /// The `Llm` node to fan out.
+        node: String,
+        /// The agents to run in parallel (at least two; the parent model is reused).
+        agents: Vec<AgentSpec>,
+    },
+    /// Level 5 (delegation / multi-agent): wrap the subgraph rooted at `node` in a
+    /// `Delegate` with narrowed authority — a scoped sub-agent (PRD 7.1, 11.4 level
+    /// 5). The delegated authority must be a subset of the authority in force at
+    /// the wrap site (A2 / IR-I6); widening is rejected.
+    AddDelegate {
+        /// The subgraph to place under a scoped authority.
+        node: String,
+        /// The new `Delegate` wrapper node's id.
+        wrapper_id: String,
+        /// The narrowed authority for the sub-agent (must be a subset of the
+        /// enclosing authority — A2 / IR-I6).
+        authority: AuthorityEnvelope,
     },
 }
 
@@ -103,8 +136,95 @@ pub fn apply(program: &Program, op: &EditOp) -> Result<Program, PatchError> {
                 return Err(PatchError::NotFound(node.clone()));
             }
         }
+        EditOp::SplitParallel { node, agents } => {
+            if agents.len() < 2 {
+                return Err(PatchError::Structural(
+                    "SplitParallel requires at least two agents".into(),
+                ));
+            }
+            let target =
+                find_node_mut(&mut next.root, node).ok_or(PatchError::NotFound(node.clone()))?;
+            if target.pinned {
+                return Err(PatchError::Pinned(node.clone()));
+            }
+            let NodeKind::Llm(base) = &target.kind else {
+                return Err(PatchError::WrongKind(node.clone()));
+            };
+            let base = base.clone();
+            let children = agents
+                .iter()
+                .map(|a| {
+                    Node::new(
+                        a.id.clone(),
+                        NodeKind::Llm(LlmNode {
+                            model: base.model.clone(),
+                            prompt_template: a.prompt_template.clone(),
+                            temperature: base.temperature,
+                        }),
+                    )
+                })
+                .collect();
+            target.kind = NodeKind::Par(children);
+        }
+        EditOp::AddDelegate {
+            node,
+            wrapper_id,
+            authority,
+        } => {
+            // A2 / IR-I6: the sub-agent's authority must narrow the authority in
+            // force at the wrap site. Compute it before mutating and fail closed.
+            let enclosing = authority_at(&next.root, &next.authority, node)
+                .ok_or(PatchError::NotFound(node.clone()))?;
+            if !authority.is_subset_of(&enclosing) {
+                return Err(PatchError::Structural(format!(
+                    "delegated authority for '{node}' is not a subset of the enclosing \
+                     authority (A2 / IR-I6)"
+                )));
+            }
+            let target =
+                find_node_mut(&mut next.root, node).ok_or(PatchError::NotFound(node.clone()))?;
+            if target.pinned {
+                return Err(PatchError::Pinned(node.clone()));
+            }
+            // Wrap the subgraph in a Delegate, preserving the body's id.
+            let placeholder = Node::new("", NodeKind::Seq(Vec::new()));
+            let body = std::mem::replace(target, placeholder);
+            *target = Node::new(
+                wrapper_id.clone(),
+                NodeKind::Delegate {
+                    authority: authority.clone(),
+                    body: Box::new(body),
+                },
+            );
+        }
     }
     Ok(next)
+}
+
+/// The authority in force at the node with id `target`: the program authority,
+/// narrowed by every `Delegate` ancestor on the path to it (A2 / IR-I6). `None`
+/// if no such node exists.
+fn authority_at(
+    node: &Node,
+    current: &AuthorityEnvelope,
+    target: &str,
+) -> Option<AuthorityEnvelope> {
+    if node.id == target {
+        return Some(current.clone());
+    }
+    match &node.kind {
+        NodeKind::Seq(c) | NodeKind::Par(c) => {
+            c.iter().find_map(|ch| authority_at(ch, current, target))
+        }
+        NodeKind::Map { body, .. } | NodeKind::Loop { body, .. } => {
+            authority_at(body, current, target)
+        }
+        NodeKind::Delegate { authority, body } => authority_at(body, authority, target),
+        NodeKind::Branch { then, els, .. } => {
+            authority_at(then, current, target).or_else(|| authority_at(els, current, target))
+        }
+        _ => None,
+    }
 }
 
 /// Find an `Llm` node by id and apply `f`, honoring the pin guard (IR-I7).
@@ -303,5 +423,197 @@ mod tests {
             ),
             Err(PatchError::NotFound("ghost".into()))
         );
+    }
+
+    #[test]
+    fn split_parallel_fans_an_llm_into_a_committee() {
+        let p = base();
+        let q = apply(
+            &p,
+            &EditOp::SplitParallel {
+                node: "llm".into(),
+                agents: vec![
+                    AgentSpec {
+                        id: "fast".into(),
+                        prompt_template: "quick: {input}".into(),
+                    },
+                    AgentSpec {
+                        id: "careful".into(),
+                        prompt_template: "careful: {input}".into(),
+                    },
+                ],
+            },
+        )
+        .unwrap();
+        // The node kept its id and became a Par of two Llm agents reusing the model.
+        let target = find(&q.root, "llm").unwrap();
+        match &target.kind {
+            NodeKind::Par(children) => {
+                assert_eq!(children.len(), 2);
+                assert_eq!(children[0].id, "fast");
+                if let NodeKind::Llm(l) = &children[0].kind {
+                    assert_eq!(l.model, "small"); // parent model reused
+                    assert_eq!(l.prompt_template, "quick: {input}");
+                } else {
+                    panic!("expected Llm");
+                }
+            }
+            other => panic!("expected Par, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn split_parallel_requires_two_agents_and_an_llm() {
+        let p = base();
+        assert!(matches!(
+            apply(
+                &p,
+                &EditOp::SplitParallel {
+                    node: "llm".into(),
+                    agents: vec![AgentSpec {
+                        id: "only".into(),
+                        prompt_template: "{input}".into()
+                    }],
+                }
+            ),
+            Err(PatchError::Structural(_))
+        ));
+        // Not an Llm node.
+        assert_eq!(
+            apply(
+                &p,
+                &EditOp::SplitParallel {
+                    node: "code".into(),
+                    agents: vec![
+                        AgentSpec {
+                            id: "a".into(),
+                            prompt_template: "{input}".into()
+                        },
+                        AgentSpec {
+                            id: "b".into(),
+                            prompt_template: "{input}".into()
+                        },
+                    ],
+                }
+            ),
+            Err(PatchError::WrongKind("code".into()))
+        );
+    }
+
+    #[test]
+    fn add_delegate_wraps_with_narrowed_authority() {
+        // Program authority grants two capabilities; delegate to a subset.
+        let mut p = base();
+        p.authority.capabilities.insert("read_crm".into());
+        p.authority.capabilities.insert("draft_reply".into());
+
+        let mut narrowed = AuthorityEnvelope::empty();
+        narrowed.capabilities.insert("read_crm".into());
+
+        let q = apply(
+            &p,
+            &EditOp::AddDelegate {
+                node: "llm".into(),
+                wrapper_id: "sub_agent".into(),
+                authority: narrowed.clone(),
+            },
+        )
+        .unwrap();
+
+        let wrapper = find(&q.root, "sub_agent").unwrap();
+        match &wrapper.kind {
+            NodeKind::Delegate { authority, body } => {
+                assert_eq!(authority, &narrowed);
+                assert_eq!(body.id, "llm"); // body id preserved
+            }
+            other => panic!("expected Delegate, got {other:?}"),
+        }
+        // The result is structurally valid (IR-I6 holds).
+        let catalog: std::collections::HashMap<String, entelechy_ir::EffectMetadata> =
+            std::collections::HashMap::new();
+        assert!(entelechy_ir::validate(&q, &catalog)
+            .iter()
+            .all(|v| v.code != "IR-I6"));
+    }
+
+    #[test]
+    fn add_delegate_rejects_authority_widening() {
+        // Program grants only read_crm; a delegate cannot add draft_reply (A2).
+        let mut p = base();
+        p.authority.capabilities.insert("read_crm".into());
+
+        let mut widened = AuthorityEnvelope::empty();
+        widened.capabilities.insert("read_crm".into());
+        widened.capabilities.insert("draft_reply".into()); // not in parent
+
+        assert!(matches!(
+            apply(
+                &p,
+                &EditOp::AddDelegate {
+                    node: "llm".into(),
+                    wrapper_id: "w".into(),
+                    authority: widened,
+                }
+            ),
+            Err(PatchError::Structural(_))
+        ));
+    }
+
+    #[test]
+    fn nested_delegate_cannot_rewiden_beyond_its_parent() {
+        // root(auth: a,b) -> Delegate d(auth: a) -> llm. Wrapping llm with {b} would
+        // widen beyond the enclosing delegate authority {a}, and must be rejected
+        // even though {b} is within the program authority.
+        let mut auth = AuthorityEnvelope::empty();
+        auth.capabilities.insert("a".into());
+        auth.capabilities.insert("b".into());
+        let mut inner = AuthorityEnvelope::empty();
+        inner.capabilities.insert("a".into());
+
+        let prog = Program::new(
+            auth,
+            Node::new(
+                "d",
+                NodeKind::Delegate {
+                    authority: inner,
+                    body: Box::new(Node::new(
+                        "llm",
+                        NodeKind::Llm(LlmNode {
+                            model: "m".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    )),
+                },
+            ),
+        );
+        let mut rewiden = AuthorityEnvelope::empty();
+        rewiden.capabilities.insert("b".into()); // in program, not in enclosing {a}
+        assert!(matches!(
+            apply(
+                &prog,
+                &EditOp::AddDelegate {
+                    node: "llm".into(),
+                    wrapper_id: "w".into(),
+                    authority: rewiden,
+                }
+            ),
+            Err(PatchError::Structural(_))
+        ));
+    }
+
+    /// Depth-first find by id (test helper).
+    fn find<'a>(node: &'a Node, id: &str) -> Option<&'a Node> {
+        if node.id == id {
+            return Some(node);
+        }
+        match &node.kind {
+            NodeKind::Seq(c) | NodeKind::Par(c) => c.iter().find_map(|n| find(n, id)),
+            NodeKind::Map { body, .. }
+            | NodeKind::Loop { body, .. }
+            | NodeKind::Delegate { body, .. } => find(body, id),
+            NodeKind::Branch { then, els, .. } => find(then, id).or_else(|| find(els, id)),
+            _ => None,
+        }
     }
 }

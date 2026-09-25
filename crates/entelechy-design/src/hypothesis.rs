@@ -54,6 +54,36 @@ pub struct DesignHypothesis {
 }
 
 impl DesignHypothesis {
+    /// A multi-agent decomposition hypothesis (PRD 11.4 level 4/5): the single
+    /// agent is failing a `reasoning.decomposition` class the higher levels
+    /// address, so split it into parallel specialists ([`EditOp::SplitParallel`])
+    /// or delegate scoped sub-agents. This is the evidence-gated entry point to the
+    /// multi-agent operators — it should be formed only after the failure analyzer
+    /// attributes failures to decomposition/coordination and the Architecture
+    /// Explorer unlocks the level (PRD 11.4, Q4).
+    pub fn decomposition(
+        id: impl Into<String>,
+        evidence: impl Into<String>,
+        confidence: f64,
+        patch: Vec<EditOp>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            evidence: evidence.into(),
+            failure_class: "reasoning.decomposition".into(),
+            suspected_cause: "a single agent cannot decompose the task; specialized \
+                              sub-agents should each handle a part"
+                .into(),
+            cause_confidence: confidence,
+            patch,
+            expected_effect: "raise task success on tasks needing decomposition".into(),
+            expected_tradeoff: "higher cost/latency and coordination complexity".into(),
+            experiment: "paired eval vs the single-agent parent on tune, confirm on validation"
+                .into(),
+            result: HypothesisResult::Pending,
+        }
+    }
+
     /// Whether this hypothesis is diagnostic-only: its cause confidence is below
     /// the threshold, so it may only end accepted or inconclusive (Q3).
     pub fn is_diagnostic(&self) -> bool {
@@ -107,5 +137,30 @@ mod tests {
         assert!(h.is_diagnostic());
         h.resolve(HypothesisResult::Rejected);
         assert_eq!(h.result, HypothesisResult::Inconclusive);
+    }
+
+    #[test]
+    fn decomposition_hypothesis_targets_the_multi_agent_class() {
+        let h = DesignHypothesis::decomposition(
+            "H-9",
+            "cluster FC-3: multi-part tickets fail as a single agent",
+            0.7,
+            vec![EditOp::SplitParallel {
+                node: "agent".into(),
+                agents: vec![
+                    crate::AgentSpec {
+                        id: "triage".into(),
+                        prompt_template: "triage: {input}".into(),
+                    },
+                    crate::AgentSpec {
+                        id: "resolve".into(),
+                        prompt_template: "resolve: {input}".into(),
+                    },
+                ],
+            }],
+        );
+        assert_eq!(h.failure_class, "reasoning.decomposition");
+        assert!(!h.is_diagnostic());
+        assert_eq!(h.patch.len(), 1);
     }
 }
