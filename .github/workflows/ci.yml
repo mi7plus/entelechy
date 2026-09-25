@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly re-scan so security advisories against dependencies are caught even
+    # without new commits.
+    - cron: "0 6 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
@@ -61,6 +65,18 @@ jobs:
       - name: clippy (all features)
         run: cargo clippy -p entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings
 
+  docs:
+    name: docs (rustdoc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, pinned 2026-09-24
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: cargo doc (deny broken intra-doc links)
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
   licenses:
     name: licence audit (MIT, G11)
     runs-on: ubuntu-latest
@@ -71,4 +87,18 @@ jobs:
         with:
           command: check licenses bans
           # Also check optional heavy backends' dependency trees.
+          arguments: --all-features
+
+  advisories:
+    name: security advisories (RUSTSEC)
+    runs-on: ubuntu-latest
+    # Advisory findings are surfaced but do not block merges (a newly published
+    # advisory should not turn an unrelated PR red); the weekly schedule re-scans.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, pinned 2026-09-24
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories
           arguments: --all-features
