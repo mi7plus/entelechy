@@ -76,6 +76,17 @@ enum Command {
         /// The question or task to route through the committee.
         #[arg(default_value = "How do I reset my password?")]
         prompt: String,
+        /// Override the analyst agent's prompt template. `{input}` is substituted
+        /// with the user request; if omitted from the template it is appended.
+        #[arg(long)]
+        analyst: Option<String>,
+        /// Override the responder agent's prompt template (see `--analyst`).
+        #[arg(long)]
+        responder: Option<String>,
+        /// Override the coordinator (reduce) prompt template. Here `{input}` is the
+        /// committee's JSON array of `{"text": ...}` results.
+        #[arg(long)]
+        coordinator: Option<String>,
     },
     /// Run one inference against a self-hosted OpenAI-compatible model (Q7).
     /// Requires the `openai` feature: `cargo run -p entelechy-cli --features openai`.
@@ -128,7 +139,12 @@ fn main() -> anyhow::Result<()> {
         Command::Assure => release::cmd_assure(),
         Command::Release => release::cmd_release(),
         Command::Serve { port } => cmd_serve(port),
-        Command::Committee { prompt } => cmd_committee(prompt),
+        Command::Committee {
+            prompt,
+            analyst,
+            responder,
+            coordinator,
+        } => cmd_committee(prompt, analyst, responder, coordinator),
     }
 }
 
@@ -169,21 +185,48 @@ fn committee_gateway() -> (String, Box<dyn entelechy_gateway::ModelGateway>, Str
 /// Build a committee design (single agent → SplitParallel map/reduce), run it
 /// against the selected model, and print each sub-agent's output plus the
 /// coordinator's synthesized answer (PRD 11.4 level 4).
-fn cmd_committee(prompt: String) -> anyhow::Result<()> {
+fn cmd_committee(
+    prompt: String,
+    analyst: Option<String>,
+    responder: Option<String>,
+    coordinator: Option<String>,
+) -> anyhow::Result<()> {
     use entelechy_design::{apply, synthesize_single_agent, AgentSpec, EditOp};
     use entelechy_gateway::NativeToolGateway;
     use entelechy_ir::{AuthorityEnvelope, Value};
     use entelechy_runtime::{Engine, JournalEvent, RunStatus};
 
+    // Tuned, role-grounded defaults. `{input}` for the two specialists is the user
+    // request object `{"request": "..."}`; for the coordinator it is the committee's
+    // JSON array of `{"text": ...}` results — element 0 is the analyst, element 1
+    // the responder (their order in the `Par`). Any of these may be overridden.
+    const ANALYST: &str = "You are the analyst on a support team. From the user request below, \
+        extract ONLY the concrete facts, constraints, and what the user is actually asking for, \
+        as a short bullet list. Do not write a reply.\n\nUser request (JSON): {input}";
+    const RESPONDER: &str = "You are the responder on a support team. Write a clear, friendly, \
+        step-by-step answer to the user request below. Be concrete and concise; do not restate \
+        the question.\n\nUser request (JSON): {input}";
+    const COORDINATOR: &str = "You are the coordinator. The JSON array below holds two sub-agent \
+        results: element 0 is the analyst's extracted facts, element 1 is the responder's draft \
+        answer (each under a \"text\" field). Write ONE final answer for the user that is \
+        accurate according to the analyst's facts and as clear and friendly as the responder's \
+        draft. Correct anything in the draft that conflicts with the facts, drop unsupported \
+        claims, and return only the final answer.\n\nSub-agent results (JSON): {input}";
+
     let (model_id, gateway, source) = committee_gateway();
     println!("Committee model: {source}");
+    for (role, overridden) in [
+        ("analyst", analyst.is_some()),
+        ("responder", responder.is_some()),
+        ("coordinator", coordinator.is_some()),
+    ] {
+        if overridden {
+            println!("Prompt override: {role}");
+        }
+    }
 
     // Baseline single agent, then fan out into a committee with a reduce step.
     let baseline = synthesize_single_agent(AuthorityEnvelope::empty(), &model_id, "{input}");
-    // Tuned, role-grounded prompts. `{input}` for the two specialists is the user
-    // request object `{"request": "..."}`; for the coordinator it is the committee's
-    // JSON array of `{"text": ...}` results — element 0 is the analyst, element 1
-    // the responder (their order in the `Par`).
     let design = apply(
         &baseline,
         &EditOp::SplitParallel {
@@ -191,30 +234,16 @@ fn cmd_committee(prompt: String) -> anyhow::Result<()> {
             agents: vec![
                 AgentSpec {
                     id: "analyst".into(),
-                    prompt_template: "You are the analyst on a support team. From the user \
-                        request below, extract ONLY the concrete facts, constraints, and what \
-                        the user is actually asking for, as a short bullet list. Do not write a \
-                        reply.\n\nUser request (JSON): {input}"
-                        .into(),
+                    prompt_template: prompt_or(analyst, ANALYST),
                 },
                 AgentSpec {
                     id: "responder".into(),
-                    prompt_template: "You are the responder on a support team. Write a clear, \
-                        friendly, step-by-step answer to the user request below. Be concrete and \
-                        concise; do not restate the question.\n\nUser request (JSON): {input}"
-                        .into(),
+                    prompt_template: prompt_or(responder, RESPONDER),
                 },
             ],
             reducer: AgentSpec {
                 id: "coordinator".into(),
-                prompt_template: "You are the coordinator. The JSON array below holds two \
-                    sub-agent results: element 0 is the analyst's extracted facts, element 1 is \
-                    the responder's draft answer (each under a \"text\" field). Write ONE final \
-                    answer for the user that is accurate according to the analyst's facts and as \
-                    clear and friendly as the responder's draft. Correct anything in the draft \
-                    that conflicts with the facts, drop unsupported claims, and return only the \
-                    final answer.\n\nSub-agent results (JSON): {input}"
-                    .into(),
+                prompt_template: prompt_or(coordinator, COORDINATOR),
             },
         },
     )?;
@@ -252,6 +281,17 @@ fn cmd_committee(prompt: String) -> anyhow::Result<()> {
         other => println!("\nrun did not succeed: {other:?}"),
     }
     Ok(())
+}
+
+/// Pick a prompt override or the default, ensuring the template carries the
+/// `{input}` placeholder (appended if a bare override omits it, so the agent still
+/// receives its input).
+fn prompt_or(override_template: Option<String>, default: &str) -> String {
+    match override_template {
+        Some(t) if t.contains("{input}") => t,
+        Some(t) => format!("{t}\n\n{{input}}"),
+        None => default.to_string(),
+    }
 }
 
 /// Collapse newlines and cap a string for one-line display.

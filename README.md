@@ -33,6 +33,7 @@ cargo run -p entelechy-cli -- study
 # Run a multi-agent committee (map/reduce) — mock model, or a live one with
 # --features openai and ENTELECHY_BASE_URL/ENTELECHY_MODEL set
 cargo run -p entelechy-cli -- committee "How do I reset my password?"
+#   tune prompts: --analyst <t> --responder <t> --coordinator <t> ({input} auto-appended)
 
 # Compile the EvalContract, check power, exercise the holdout gate + firewall
 cargo run -p entelechy-cli -- eval
