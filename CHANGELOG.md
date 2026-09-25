@@ -1,0 +1,36 @@
+# Changelog
+
+All notable changes to this project are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
+Semantic Versioning with explicit compatibility promises for the IR, artifact
+schemas and journal format (PRD §5.9, §16.5, §16.6).
+
+## [Unreleased]
+
+Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §21,
+Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
+
+### Added
+- 24-crate workspace implementing the PRD v11 architecture (§24).
+- IR with node model, value envelope (taint + confidentiality), effect taxonomy,
+  AuthorityEnvelope and static compiler invariants (§7, §5.4, §5.6).
+- Content-addressed artifacts (RFC 8785 + SHA-256, digest agility), schema
+  versioning, tenant-scoped stores, deployment profiles, erasure ledger and an
+  append-only metadata store (§5.9, §17).
+- Runtime: interpreter, append-only journal, deterministic replay, counterfactual
+  replay, typed terminal states, memory tiers, cluster work queue + worker pool,
+  and a compiled backend with an interpreter-vs-codegen conformance/Q10 gate
+  (§8, §10.2, §12, §17, Q10).
+- Evaluation subsystem (contract, power analysis, holdout gate + firewall, stats,
+  retrieval metrics, adversarial generation, judge calibration) (§9, MK-4).
+- Policy engine (native core + Cedar-style adapter), identity/approvals with a
+  tamper-evident audit log, gateways (model/tool + WASM sandbox), capability
+  discovery + tool-synthesis governance, failure analyzer, design/search,
+  assurance + release ladder, objective compiler, benchmark governance + task
+  synthesis, protocol negotiation, requirement traceability, and a local HTTP API.
+- OpenAI-compatible model gateway for self-hosted OSS models (Ollama/vLLM/
+  llama.cpp/LM Studio), with an optional TLS transport for hosted providers (Q7).
+- CI (build/test on Linux + Windows, feature matrix, fmt, clippy, `cargo deny`
+  licence audit) with SHA-pinned actions and Dependabot; project-health docs.
+
+[Unreleased]: https://github.com/mi7plus/entelechy/commits/main

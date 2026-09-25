@@ -1,0 +1,14 @@
+# Normalize line endings: LF in the repo, checked out natively per platform.
+* text=auto
+
+# Source and text files are always LF so formatting/CI is stable cross-platform.
+*.rs      text eol=lf
+*.toml    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.json    text eol=lf
+Cargo.lock text eol=lf
+
+# Treat lockfiles as generated in diffs.
+Cargo.lock linguist-generated=true

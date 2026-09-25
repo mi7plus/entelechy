@@ -1,0 +1,35 @@
+# Maintainers & Governance
+
+Entelechy starts maintainer-led under a public organization (PRD §16.5, Q26).
+
+## Maintainers
+
+| Name           | GitHub    | Areas                     |
+|----------------|-----------|---------------------------|
+| George Olteanu | @mi7plus  | Project lead, all areas   |
+
+<!-- Add maintainers as the project grows. -->
+
+## Decision process
+
+- Routine changes: one maintainer review + green CI to merge.
+- **Releases require two maintainers to approve** (Q26). Until there are at least
+  two maintainers, releases are cut by the project lead with a recorded rationale.
+- Material changes to public contracts (IR, artifact schemas, journal format,
+  public APIs, plugin manifests) follow the compatibility and deprecation policy
+  in the PRD (§5.9, §16.6, Q29) and are called out in the CHANGELOG.
+
+## Governance evolution (Q26)
+
+At 1.0, or once there are five external maintainers, the project moves to a
+steering group of at least three maintainers.
+
+## Security & disclosure
+
+A security team of at least two people handles reports via the private advisory
+channel with 90-day coordinated disclosure (see [SECURITY.md](SECURITY.md), Q26).
+
+## Licence
+
+MIT (G11). Contributions are accepted under the DCO (see
+[CONTRIBUTING.md](CONTRIBUTING.md)).

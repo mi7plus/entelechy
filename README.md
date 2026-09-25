@@ -63,9 +63,18 @@ cargo run -p entelechy-cli -- requirements
 
 ## Where things are
 
+- [`docs/quickstart.md`](docs/quickstart.md) — from clone to a running loop and a real model.
+- [`docs/concepts.md`](docs/concepts.md) — the model: lifecycle, artifacts, principles.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — crate map and what is implemented vs. scaffolded.
 - [`docs/phase0.md`](docs/phase0.md) — the Phase 0 milestone and how this code maps to it.
 - `crates/` — the 24-crate workspace from PRD §24.
+
+## Contributing & security
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, CI gates, conventions, DCO.
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), [`MAINTAINERS`](MAINTAINERS) — community & governance.
+- [`SECURITY.md`](SECURITY.md) — private vulnerability reporting (coordinated disclosure).
+- [`CHANGELOG.md`](CHANGELOG.md) — notable changes.
 
 ## Principles (PRD §4, abbreviated)
 

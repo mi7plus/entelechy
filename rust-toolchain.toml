@@ -1,0 +1,5 @@
+# Pin the toolchain for reproducible builds and CI (PRD 16.5 project health).
+# Bump deliberately; CI resolves `stable` but contributors get a consistent set.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
