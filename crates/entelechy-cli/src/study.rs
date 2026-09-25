@@ -35,8 +35,10 @@ const AGENT_NODE: &str = "agent";
 /// (level 5) automatically; anything above needs approval (PRD 11.4, Q4).
 const COMPLEXITY_CEILING: u8 = 5;
 
-/// Run the Phase 0 study demo, printing a narrative of each governed step.
-pub fn run() -> anyhow::Result<()> {
+/// Run the Phase 0 study demo, printing a narrative of each governed step. When
+/// `out` is set, the final best design IR and a study report are written there
+/// (durable, content-addressed artifacts — PRD principle 6).
+pub fn run(out: Option<&str>) -> anyhow::Result<()> {
     // --- 1. Baseline design (PRD 11.1: mandatory single-agent baseline) ---
     let mut authority = AuthorityEnvelope::empty();
     authority.capabilities.insert("draft_reply".into());
@@ -272,18 +274,86 @@ pub fn run() -> anyhow::Result<()> {
         &move |t| score_one(&base_ref, t),
         &move |t| score_one(&best_ref, t),
     );
-    match resp {
-        GateResponse::Pass { ci_low_pp, ci_high_pp } => println!(
-            "5. Holdout gate: PASS — improvement 95% interval [{ci_low_pp:.1}, {ci_high_pp:.1}]pp (coarse)."
-        ),
-        GateResponse::Fail { ci_low_pp, ci_high_pp } => println!(
-            "5. Holdout gate: FAIL — [{ci_low_pp:.1}, {ci_high_pp:.1}]pp."
-        ),
-        GateResponse::Refused { reason } => println!("5. Holdout gate: REFUSED — {reason}"),
+    let holdout_summary = match &resp {
+        GateResponse::Pass {
+            ci_low_pp,
+            ci_high_pp,
+        } => {
+            println!(
+                "5. Holdout gate: PASS — improvement 95% interval [{ci_low_pp:.1}, {ci_high_pp:.1}]pp (coarse)."
+            );
+            serde_json::json!({ "result": "pass", "ci_low_pp": *ci_low_pp, "ci_high_pp": *ci_high_pp })
+        }
+        GateResponse::Fail {
+            ci_low_pp,
+            ci_high_pp,
+        } => {
+            println!("5. Holdout gate: FAIL — [{ci_low_pp:.1}, {ci_high_pp:.1}]pp.");
+            serde_json::json!({ "result": "fail", "ci_low_pp": *ci_low_pp, "ci_high_pp": *ci_high_pp })
+        }
+        GateResponse::Refused { reason } => {
+            println!("5. Holdout gate: REFUSED — {reason}");
+            serde_json::json!({ "result": "refused", "reason": reason })
+        }
+    };
+
+    // Persist the final design and a study report (PRD principle 6: artifacts).
+    if let Some(dir) = out {
+        write_study_outputs(
+            dir,
+            &plan,
+            &baseline_id,
+            &best,
+            level,
+            study.consumed(),
+            plan.candidate_budget(),
+            &hyps,
+            &holdout_summary,
+        )?;
     }
 
     println!(
         "\nEvery accepted mutation has a DesignHypothesis with an experiment result (PRD 25)."
+    );
+    Ok(())
+}
+
+/// Write the final design IR (`design.json`) and a study report
+/// (`study-report.json`) to `dir` (PRD principle 6, 21.1). The report records the
+/// StudyPlan commitment, the baseline and best content addresses, the final
+/// complexity level, budget usage, every hypothesis with its result, and the
+/// holdout gate outcome — a reproducible, auditable record of the run.
+#[allow(clippy::too_many_arguments)]
+fn write_study_outputs(
+    dir: &str,
+    plan: &StudyPlan,
+    baseline_id: &entelechy_artifacts::ArtifactId,
+    best: &Program,
+    level: u8,
+    budget_used: u32,
+    budget_total: u32,
+    hyps: &[DesignHypothesis],
+    holdout: &serde_json::Value,
+) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let best_id = entelechy_artifacts::ArtifactId::of(best)?;
+    let report = serde_json::json!({
+        "plan_id": plan.id().to_string(),
+        "baseline_id": baseline_id.to_string(),
+        "best_id": best_id.to_string(),
+        "final_complexity_level": level,
+        "budget": { "used": budget_used, "total": budget_total },
+        "hypotheses": serde_json::to_value(hyps)?,
+        "holdout": holdout.clone(),
+    });
+    let design_path = std::path::Path::new(dir).join("design.json");
+    let report_path = std::path::Path::new(dir).join("study-report.json");
+    std::fs::write(&design_path, serde_json::to_string_pretty(best)?)?;
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+    println!(
+        "   Wrote {} (best design {best_id}) and {}.",
+        design_path.display(),
+        report_path.display()
     );
     Ok(())
 }

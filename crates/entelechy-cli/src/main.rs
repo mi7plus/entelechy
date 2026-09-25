@@ -36,7 +36,11 @@ enum Command {
         validate: Option<String>,
     },
     /// Run an optimization study (Phase 2+).
-    Study,
+    Study {
+        /// Directory to write the final design IR and a study report into.
+        #[arg(long)]
+        out: Option<String>,
+    },
     /// Explore a run's trace (Phase 1+).
     Trace,
     /// Replay a recorded journal against a Design IR (PRD 8.2).
@@ -137,7 +141,7 @@ fn main() -> anyhow::Result<()> {
         Command::Objective => cmd_objective(),
         Command::Capability => cmd_capability(),
         Command::Eval => cmd_eval(),
-        Command::Study => study::run(),
+        Command::Study { out } => study::run(out.as_deref()),
         Command::Trace => cmd_trace(),
         Command::Diff { old, new } => cmd_diff(old, new),
         Command::Assure => release::cmd_assure(),

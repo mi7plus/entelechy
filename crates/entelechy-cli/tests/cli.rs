@@ -81,6 +81,25 @@ fn diff_shows_the_repaired_candidate() {
 }
 
 #[test]
+fn study_out_writes_design_and_report() {
+    let dir = std::env::temp_dir().join(format!("entelechy-study-{}", std::process::id()));
+    let dir_s = dir.to_string_lossy().into_owned();
+    let (ok, out) = run(&["study", "--out", &dir_s]);
+    assert!(ok, "study --out failed: {out}");
+    let design = dir.join("design.json");
+    let report = dir.join("study-report.json");
+    assert!(design.exists(), "design.json not written");
+    assert!(report.exists(), "study-report.json not written");
+    // The report is valid JSON recording the best content address and holdout.
+    let report_text = std::fs::read_to_string(&report).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&report_text).unwrap();
+    assert!(parsed["best_id"].as_str().unwrap().starts_with("sha256:"));
+    assert!(parsed["holdout"]["result"].is_string());
+    assert!(!parsed["hypotheses"].as_array().unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn committee_runs_and_synthesizes() {
     let (ok, out) = run(&["committee", "how do I reset my password?"]);
     assert!(ok, "committee failed: {out}");
