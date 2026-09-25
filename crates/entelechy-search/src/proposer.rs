@@ -103,6 +103,13 @@ fn ops_for_level(
                     prompt_template: "Sub-task B of the objective:\n{input}".to_string(),
                 },
             ],
+            // Reduce: a coordinator synthesizes the committee's outputs into one
+            // answer (map/reduce, PRD 11.4 level 4).
+            reducer: AgentSpec {
+                id: format!("{target}_reduce"),
+                prompt_template: "Synthesize the sub-agent results into one answer:\n{input}"
+                    .to_string(),
+            },
         }],
         5 => vec![EditOp::AddDelegate {
             node: target.to_string(),
@@ -175,9 +182,14 @@ mod tests {
         .unwrap();
         assert_eq!(p.level, 4);
         match &p.ops[0] {
-            EditOp::SplitParallel { node, agents } => {
+            EditOp::SplitParallel {
+                node,
+                agents,
+                reducer,
+            } => {
                 assert_eq!(node, "agent");
                 assert_eq!(agents.len(), 2);
+                assert_eq!(reducer.id, "agent_reduce");
             }
             other => panic!("expected SplitParallel, got {other:?}"),
         }

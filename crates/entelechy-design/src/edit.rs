@@ -57,15 +57,20 @@ pub enum EditOp {
         /// Target node id.
         node: String,
     },
-    /// Level 4 (parallelism): replace an `Llm` node with a bounded `Par` of
-    /// specialized agent `Llm` nodes over the same input (a committee/ensemble).
-    /// The node keeps its id and becomes the `Par`; results are collected as an
-    /// array (PRD 7.1 Par semantics, 11.4 level 4).
+    /// Level 4 (map/reduce): replace an `Llm` node with a committee — a bounded
+    /// `Par` of specialized agent `Llm` nodes over the same input, followed by a
+    /// coordinator `Llm` that reduces the agents' array of outputs into a single
+    /// synthesized value (PRD 7.1 Par semantics, 11.4 level 4 parallelism &
+    /// map/reduce). The node keeps its id and becomes `Seq[Par[agents], reducer]`;
+    /// all `Llm` nodes reuse the parent model.
     SplitParallel {
         /// The `Llm` node to fan out.
         node: String,
         /// The agents to run in parallel (at least two; the parent model is reused).
         agents: Vec<AgentSpec>,
+        /// The coordinator that aggregates the committee's outputs. Its prompt
+        /// receives the array of agent outputs as `{input}`.
+        reducer: AgentSpec,
     },
     /// Level 5 (delegation / multi-agent): wrap the subgraph rooted at `node` in a
     /// `Delegate` with narrowed authority — a scoped sub-agent (PRD 7.1, 11.4 level
@@ -136,7 +141,11 @@ pub fn apply(program: &Program, op: &EditOp) -> Result<Program, PatchError> {
                 return Err(PatchError::NotFound(node.clone()));
             }
         }
-        EditOp::SplitParallel { node, agents } => {
+        EditOp::SplitParallel {
+            node,
+            agents,
+            reducer,
+        } => {
             if agents.len() < 2 {
                 return Err(PatchError::Structural(
                     "SplitParallel requires at least two agents".into(),
@@ -151,20 +160,25 @@ pub fn apply(program: &Program, op: &EditOp) -> Result<Program, PatchError> {
                 return Err(PatchError::WrongKind(node.clone()));
             };
             let base = base.clone();
-            let children = agents
+            let llm = |id: &str, prompt: &str| {
+                Node::new(
+                    id.to_string(),
+                    NodeKind::Llm(LlmNode {
+                        model: base.model.clone(),
+                        prompt_template: prompt.to_string(),
+                        temperature: base.temperature,
+                    }),
+                )
+            };
+            let committee: Vec<Node> = agents
                 .iter()
-                .map(|a| {
-                    Node::new(
-                        a.id.clone(),
-                        NodeKind::Llm(LlmNode {
-                            model: base.model.clone(),
-                            prompt_template: a.prompt_template.clone(),
-                            temperature: base.temperature,
-                        }),
-                    )
-                })
+                .map(|a| llm(&a.id, &a.prompt_template))
                 .collect();
-            target.kind = NodeKind::Par(children);
+            let par = Node::new(format!("{node}_committee"), NodeKind::Par(committee));
+            let reduce = llm(&reducer.id, &reducer.prompt_template);
+            // Map (parallel committee) then reduce (coordinator): the node keeps its
+            // id and becomes Seq[Par[agents], reducer].
+            target.kind = NodeKind::Seq(vec![par, reduce]);
         }
         EditOp::AddDelegate {
             node,
@@ -425,8 +439,15 @@ mod tests {
         );
     }
 
+    fn reducer(id: &str) -> AgentSpec {
+        AgentSpec {
+            id: id.into(),
+            prompt_template: "aggregate: {input}".into(),
+        }
+    }
+
     #[test]
-    fn split_parallel_fans_an_llm_into_a_committee() {
+    fn split_parallel_builds_a_committee_with_a_reduce_step() {
         let p = base();
         let q = apply(
             &p,
@@ -442,23 +463,36 @@ mod tests {
                         prompt_template: "careful: {input}".into(),
                     },
                 ],
+                reducer: reducer("synth"),
             },
         )
         .unwrap();
-        // The node kept its id and became a Par of two Llm agents reusing the model.
+        // The node kept its id and became Seq[Par[agents], reducer].
         let target = find(&q.root, "llm").unwrap();
         match &target.kind {
-            NodeKind::Par(children) => {
+            NodeKind::Seq(children) => {
                 assert_eq!(children.len(), 2);
-                assert_eq!(children[0].id, "fast");
-                if let NodeKind::Llm(l) = &children[0].kind {
-                    assert_eq!(l.model, "small"); // parent model reused
-                    assert_eq!(l.prompt_template, "quick: {input}");
-                } else {
-                    panic!("expected Llm");
+                match &children[0].kind {
+                    NodeKind::Par(agents) => {
+                        assert_eq!(agents.len(), 2);
+                        assert_eq!(agents[0].id, "fast");
+                        if let NodeKind::Llm(l) = &agents[0].kind {
+                            assert_eq!(l.model, "small"); // parent model reused
+                            assert_eq!(l.prompt_template, "quick: {input}");
+                        } else {
+                            panic!("expected Llm agent");
+                        }
+                    }
+                    other => panic!("expected Par committee, got {other:?}"),
+                }
+                // The reduce step is a coordinator Llm reusing the parent model.
+                assert_eq!(children[1].id, "synth");
+                match &children[1].kind {
+                    NodeKind::Llm(l) => assert_eq!(l.model, "small"),
+                    other => panic!("expected Llm reducer, got {other:?}"),
                 }
             }
-            other => panic!("expected Par, got {other:?}"),
+            other => panic!("expected Seq[Par, reducer], got {other:?}"),
         }
     }
 
@@ -474,6 +508,7 @@ mod tests {
                         id: "only".into(),
                         prompt_template: "{input}".into()
                     }],
+                    reducer: reducer("synth"),
                 }
             ),
             Err(PatchError::Structural(_))
@@ -494,6 +529,7 @@ mod tests {
                             prompt_template: "{input}".into()
                         },
                     ],
+                    reducer: reducer("synth"),
                 }
             ),
             Err(PatchError::WrongKind("code".into()))

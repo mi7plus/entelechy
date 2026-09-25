@@ -37,6 +37,10 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   decomposition/level 4), so a run visibly escalates single-agent → verification →
   parallel multi-agent committee before the holdout gate. Adds a
   `Symptom::IncompleteDecomposition` mapping to `reasoning.decomposition`.
+- **Committee reduce step.** `SplitParallel` is now a full map/reduce: it produces
+  `Seq[Par[specialists], coordinator]`, where a coordinator `Llm` aggregates the
+  agents' outputs into one synthesized value instead of returning a raw array
+  (PRD 11.4 level 4). Executes end to end with any model.
 
 - Workspace implementing the PRD v11 architecture (§24), plus a dedicated
   `entelechy-integration` crate for cross-crate pipeline tests.

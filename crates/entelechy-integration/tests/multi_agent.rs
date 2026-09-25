@@ -96,6 +96,10 @@ fn split_parallel_operator_produces_a_runnable_committee() {
                     prompt_template: "worst case: {input}".into(),
                 },
             ],
+            reducer: AgentSpec {
+                id: "coordinator".into(),
+                prompt_template: "synthesize the results into one answer: {input}".into(),
+            },
         },
     )
     .expect("split should apply to the baseline agent");
@@ -111,6 +115,8 @@ fn split_parallel_operator_produces_a_runnable_committee() {
         "committee-run",
     );
     assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
-    // Two committee members each made one model call.
-    assert_eq!(run.journal.entries.len(), 2);
+    // Two committee members plus the coordinator each made one model call, and the
+    // final output is the coordinator's single synthesized value (not a raw array).
+    assert_eq!(run.journal.entries.len(), 3);
+    assert!(!run.output.as_ref().unwrap().data.is_array());
 }

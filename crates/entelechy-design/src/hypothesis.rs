@@ -157,6 +157,10 @@ mod tests {
                         prompt_template: "resolve: {input}".into(),
                     },
                 ],
+                reducer: crate::AgentSpec {
+                    id: "synth".into(),
+                    prompt_template: "aggregate: {input}".into(),
+                },
             }],
         );
         assert_eq!(h.failure_class, "reasoning.decomposition");
