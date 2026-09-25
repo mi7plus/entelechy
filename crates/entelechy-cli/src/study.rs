@@ -351,6 +351,39 @@ fn write_study_outputs(
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir)?;
     let best_id = entelechy_artifacts::ArtifactId::of(best)?;
+
+    // Tamper-evident audit trail of the governed decisions (PRD 17.2, 8.3): the
+    // plan commitment, each hypothesis result, and the holdout outcome, hash-chained
+    // so any post-hoc edit is detectable. Timestamps are fixed for reproducibility.
+    let mut audit = entelechy_identity::AuditLog::new();
+    let mut ts = 1_700_000_000u64;
+    audit.append(
+        &plan.signed_by,
+        format!("study plan committed ({})", plan.id()),
+        ts,
+    );
+    for h in hyps {
+        ts += 1;
+        audit.append(
+            "study",
+            format!(
+                "hypothesis {} [{}] result {:?}",
+                h.id, h.failure_class, h.result
+            ),
+            ts,
+        );
+    }
+    ts += 1;
+    let holdout_result = holdout
+        .get("result")
+        .and_then(|r| r.as_str())
+        .unwrap_or("unknown");
+    let audit_head = audit.append("assure", format!("holdout gate: {holdout_result}"), ts);
+    debug_assert!(
+        audit.verify_chain(),
+        "audit chain must be internally consistent"
+    );
+
     let report = serde_json::json!({
         "plan_id": plan.id().to_string(),
         "baseline_id": baseline_id.to_string(),
@@ -360,15 +393,20 @@ fn write_study_outputs(
         "hypotheses": serde_json::to_value(hyps)?,
         "lineage": serde_json::to_value(lineage)?,
         "holdout": holdout.clone(),
+        "audit_head": audit_head,
     });
-    let design_path = std::path::Path::new(dir).join("design.json");
-    let report_path = std::path::Path::new(dir).join("study-report.json");
+    let base = std::path::Path::new(dir);
+    let design_path = base.join("design.json");
+    let report_path = base.join("study-report.json");
+    let audit_path = base.join("audit-log.json");
     std::fs::write(&design_path, serde_json::to_string_pretty(best)?)?;
     std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+    std::fs::write(&audit_path, serde_json::to_string_pretty(&audit)?)?;
     println!(
-        "   Wrote {} (best design {best_id}) and {}.",
+        "   Wrote {} (best design {best_id}), {} and {} (audit head {audit_head}).",
         design_path.display(),
-        report_path.display()
+        report_path.display(),
+        audit_path.display()
     );
     Ok(())
 }

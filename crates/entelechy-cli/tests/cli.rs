@@ -88,8 +88,10 @@ fn study_out_writes_design_and_report() {
     assert!(ok, "study --out failed: {out}");
     let design = dir.join("design.json");
     let report = dir.join("study-report.json");
+    let audit = dir.join("audit-log.json");
     assert!(design.exists(), "design.json not written");
     assert!(report.exists(), "study-report.json not written");
+    assert!(audit.exists(), "audit-log.json not written");
     // The report is valid JSON recording the best content address and holdout.
     let report_text = std::fs::read_to_string(&report).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&report_text).unwrap();
@@ -118,6 +120,22 @@ fn study_out_writes_design_and_report() {
     // It is a connected chain: each edge's `to` is the next edge's `from`.
     for pair in edges.windows(2) {
         assert_eq!(pair[0]["to"], pair[1]["from"]);
+    }
+
+    // Audit log: hash-chained entries, and the report commits to the chain head.
+    let audit_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&audit).unwrap()).unwrap();
+    let entries = audit_json["entries"].as_array().unwrap();
+    assert!(!entries.is_empty(), "audit log has no entries");
+    // The report's audit_head equals the last entry's hash (commits to the chain).
+    assert_eq!(
+        parsed["audit_head"],
+        entries.last().unwrap()["entry_hash"],
+        "report audit_head must match the audit chain head"
+    );
+    // The chain links: each entry's prev_hash is the previous entry's hash.
+    for pair in entries.windows(2) {
+        assert_eq!(pair[1]["prev_hash"], pair[0]["entry_hash"]);
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

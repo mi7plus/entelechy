@@ -47,7 +47,9 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   complexity level, budget usage, every hypothesis with its result, a typed
   `derived-from` lineage chain with one edge per accepted step (baseline → v1 →
   … → best, PRD 5.2), and the holdout gate outcome — a reproducible, auditable
-  record (PRD principle 6, 21.1).
+  record (PRD principle 6, 21.1). It also writes a tamper-evident, hash-chained
+  `audit-log.json` (PRD 17.2) recording the plan commitment, each hypothesis
+  result, and the holdout outcome; the report commits to the audit chain head.
 - **`entelechy committee` CLI command.** Builds a multi-agent committee, runs it
   against a model, and prints each sub-agent's output plus the coordinator's
   synthesized answer. Uses a live OpenAI-compatible model when built with
