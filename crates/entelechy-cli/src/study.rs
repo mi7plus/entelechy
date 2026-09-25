@@ -335,8 +335,21 @@ fn write_study_outputs(
     hyps: &[DesignHypothesis],
     holdout: &serde_json::Value,
 ) -> anyhow::Result<()> {
+    use entelechy_artifacts::{LineageEdge, LineageKind};
+
     std::fs::create_dir_all(dir)?;
     let best_id = entelechy_artifacts::ArtifactId::of(best)?;
+    // Lineage: the best design is derived from the baseline (PRD 5.2). Only emit the
+    // edge when the study actually changed the design (best != baseline).
+    let lineage: Vec<LineageEdge> = if best_id != *baseline_id {
+        vec![LineageEdge {
+            from: baseline_id.clone(),
+            to: best_id.clone(),
+            kind: LineageKind::DerivedFrom,
+        }]
+    } else {
+        Vec::new()
+    };
     let report = serde_json::json!({
         "plan_id": plan.id().to_string(),
         "baseline_id": baseline_id.to_string(),
@@ -344,6 +357,7 @@ fn write_study_outputs(
         "final_complexity_level": level,
         "budget": { "used": budget_used, "total": budget_total },
         "hypotheses": serde_json::to_value(hyps)?,
+        "lineage": serde_json::to_value(&lineage)?,
         "holdout": holdout.clone(),
     });
     let design_path = std::path::Path::new(dir).join("design.json");
