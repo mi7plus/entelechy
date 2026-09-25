@@ -79,6 +79,7 @@ cargo test --workspace
 cargo test -p entelechy-integration
 
 # Regression benchmarks for the content-addressing and interpreter hot paths
+# (baseline numbers: docs/benchmarks.md)
 cargo bench -p entelechy-artifacts
 cargo bench -p entelechy-runtime
 
