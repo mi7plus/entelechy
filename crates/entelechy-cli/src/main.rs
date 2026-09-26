@@ -95,6 +95,10 @@ enum Command {
         /// committee's JSON array of `{"text": ...}` results.
         #[arg(long)]
         coordinator: Option<String>,
+        /// Directory to write the committee design IR and its recorded journal
+        /// into, so the run can be replayed (`entelechy replay`).
+        #[arg(long)]
+        out: Option<String>,
     },
     /// Verify a persisted tamper-evident audit log and, if present, a study
     /// report's commitment to its chain head (PRD 17.2). Prints the current chain
@@ -165,7 +169,15 @@ fn main() -> anyhow::Result<()> {
             analyst,
             responder,
             coordinator,
-        } => cmd_committee(prompt, agents, analyst, responder, coordinator),
+            out,
+        } => cmd_committee(
+            prompt,
+            agents,
+            analyst,
+            responder,
+            coordinator,
+            out.as_deref(),
+        ),
         Command::Audit { path, anchor } => cmd_audit(&path, anchor.as_deref()),
     }
 }
@@ -207,12 +219,14 @@ fn committee_gateway() -> (String, Box<dyn entelechy_gateway::ModelGateway>, Str
 /// Build a committee design (single agent → SplitParallel map/reduce), run it
 /// against the selected model, and print each sub-agent's output plus the
 /// coordinator's synthesized answer (PRD 11.4 level 4).
+#[allow(clippy::too_many_arguments)]
 fn cmd_committee(
     prompt: String,
     agents: usize,
     analyst: Option<String>,
     responder: Option<String>,
     coordinator: Option<String>,
+    out: Option<&str>,
 ) -> anyhow::Result<()> {
     use entelechy_design::{apply, synthesize_single_agent, AgentSpec, EditOp};
     use entelechy_gateway::NativeToolGateway;
@@ -310,15 +324,34 @@ fn cmd_committee(
             );
         }
     }
-    match run.status {
+    match &run.status {
         RunStatus::Succeeded => {
             let answer = run
                 .output
+                .as_ref()
                 .map(|v| v.data.to_string())
                 .unwrap_or_else(|| "<no output>".into());
             println!("\nSynthesized answer:\n{answer}");
         }
         other => println!("\nrun did not succeed: {other:?}"),
+    }
+
+    // Persist the design and its recorded journal so the run can be replayed
+    // (PRD 8.2/RK-2): `entelechy replay --design <dir>/design.json --journal …`.
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let base = std::path::Path::new(dir);
+        let design_path = base.join("design.json");
+        let journal_path = base.join("journal.json");
+        std::fs::write(&design_path, serde_json::to_string_pretty(&design)?)?;
+        std::fs::write(&journal_path, serde_json::to_string_pretty(&run.journal)?)?;
+        println!(
+            "\nWrote {} and {}. Replay with:\n  entelechy replay --design {} --journal {}",
+            design_path.display(),
+            journal_path.display(),
+            design_path.display(),
+            journal_path.display()
+        );
     }
     Ok(())
 }

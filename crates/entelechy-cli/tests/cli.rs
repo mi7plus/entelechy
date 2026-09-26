@@ -195,6 +195,38 @@ fn committee_runs_and_synthesizes() {
 }
 
 #[test]
+fn committee_out_persists_a_replayable_run() {
+    let dir = std::env::temp_dir().join(format!("entelechy-committee-{}", std::process::id()));
+    let dir_s = dir.to_string_lossy().into_owned();
+    let (ok, out) = run(&[
+        "committee",
+        "reset password",
+        "--agents",
+        "3",
+        "--out",
+        &dir_s,
+    ]);
+    assert!(ok, "committee --out failed: {out}");
+    let design = dir.join("design.json");
+    let journal = dir.join("journal.json");
+    assert!(design.exists() && journal.exists(), "artifacts not written");
+    // The persisted committee run replays deterministically (PRD 8.2).
+    let (ok, out) = run(&[
+        "replay",
+        "--design",
+        &design.to_string_lossy(),
+        "--journal",
+        &journal.to_string_lossy(),
+    ]);
+    assert!(ok, "replay failed: {out}");
+    assert!(
+        out.contains("no divergence"),
+        "expected clean replay: {out}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn unknown_command_fails() {
     let (ok, _out) = run(&["definitely-not-a-command"]);
     assert!(!ok, "unknown command should exit non-zero");

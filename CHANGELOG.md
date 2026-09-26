@@ -60,7 +60,10 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   against a model, and prints each sub-agent's output plus the coordinator's
   synthesized answer. Uses a live OpenAI-compatible model when built with
   `--features openai` and `ENTELECHY_BASE_URL`/`ENTELECHY_MODEL` are set; otherwise
-  the deterministic mock model, so it always runs.
+  the deterministic mock model, so it always runs. `--agents N` sizes the
+  committee, `--analyst`/`--responder`/`--coordinator` override prompts, and
+  `--out <dir>` persists the design IR and recorded journal so the run can be
+  replayed (`entelechy replay`) and reproduces deterministically (PRD 8.2/RK-2).
 
 - Workspace implementing the PRD v11 architecture (§24), plus a dedicated
   `entelechy-integration` crate for cross-crate pipeline tests.

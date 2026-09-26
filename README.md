@@ -37,6 +37,7 @@ cargo run -p entelechy-cli -- audit ./study-out   # re-verify the audit chain (e
 cargo run -p entelechy-cli -- committee "How do I reset my password?"
 #   size it:      --agents N (>=2; first two are analyst+responder, rest generic)
 #   tune prompts: --analyst <t> --responder <t> --coordinator <t> ({input} auto-appended)
+#   persist+replay: --out <dir> writes design.json + journal.json for `entelechy replay`
 
 # Compile the EvalContract, check power, exercise the holdout gate + firewall
 cargo run -p entelechy-cli -- eval
