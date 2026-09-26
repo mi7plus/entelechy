@@ -52,7 +52,10 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   result, and the holdout outcome; the report commits to the audit chain head.
 - **`entelechy audit <dir>`** re-verifies a persisted audit log's hash chain and
   that a study report's `audit_head` still matches the chain head, exiting
-  non-zero on any tampering or mismatch (PRD 17.2).
+  non-zero on any tampering or mismatch (PRD 17.2). It prints the current chain
+  head to record as an external anchor, and `--anchor <hash>` verifies a
+  previously-held anchor is still in the chain — catching a full rewrite that an
+  internal chain check alone cannot.
 - **`entelechy committee` CLI command.** Builds a multi-agent committee, runs it
   against a model, and prints each sub-agent's output plus the coordinator's
   synthesized answer. Uses a live OpenAI-compatible model when built with

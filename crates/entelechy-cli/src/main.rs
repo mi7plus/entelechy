@@ -97,11 +97,16 @@ enum Command {
         coordinator: Option<String>,
     },
     /// Verify a persisted tamper-evident audit log and, if present, a study
-    /// report's commitment to its chain head (PRD 17.2). Exits non-zero on any
-    /// broken chain or mismatched commitment.
+    /// report's commitment to its chain head (PRD 17.2). Prints the current chain
+    /// head to record as an external anchor. Exits non-zero on any broken chain,
+    /// mismatched commitment, or missing anchor.
     Audit {
         /// Directory holding `audit-log.json` (e.g. a `study --out` directory).
         path: String,
+        /// A previously-held chain head (external anchor). Verifies it is still in
+        /// the chain's history, detecting a full rewrite (PRD 17.2).
+        #[arg(long)]
+        anchor: Option<String>,
     },
     /// Run one inference against a self-hosted OpenAI-compatible model (Q7).
     /// Requires the `openai` feature: `cargo run -p entelechy-cli --features openai`.
@@ -161,7 +166,7 @@ fn main() -> anyhow::Result<()> {
             responder,
             coordinator,
         } => cmd_committee(prompt, agents, analyst, responder, coordinator),
-        Command::Audit { path } => cmd_audit(&path),
+        Command::Audit { path, anchor } => cmd_audit(&path, anchor.as_deref()),
     }
 }
 
@@ -332,7 +337,7 @@ fn prompt_or(override_template: Option<String>, default: &str) -> String {
 /// Verify a persisted audit log's hash chain and, if a study report is present,
 /// that its `audit_head` still matches the chain head (PRD 17.2). Fails closed:
 /// any broken chain or mismatched commitment returns an error (non-zero exit).
-fn cmd_audit(path: &str) -> anyhow::Result<()> {
+fn cmd_audit(path: &str, anchor: Option<&str>) -> anyhow::Result<()> {
     let dir = std::path::Path::new(path);
     let audit_path = dir.join("audit-log.json");
     let text = std::fs::read_to_string(&audit_path)
@@ -364,10 +369,28 @@ fn cmd_audit(path: &str) -> anyhow::Result<()> {
         }
     }
 
+    // External anchor: a previously-held head must still be in this chain's
+    // history. A full rewrite is internally consistent (verify_chain passes) but
+    // recomputes to different hashes, so the externally-held anchor no longer
+    // matches — detecting the rewrite (PRD 17.2).
+    if let Some(expected) = anchor {
+        let present = audit.verify_anchor(expected);
+        println!(
+            "External anchor {} in the chain history.",
+            if present { "found" } else { "NOT found" }
+        );
+        if !present {
+            anyhow::bail!("external anchor not found — full rewrite detected (PRD 17.2)");
+        }
+    }
+
     if !ok {
         anyhow::bail!("audit chain verification failed — tampering detected (PRD 17.2)");
     }
-    println!("Audit verification passed.");
+    println!(
+        "Audit verification passed. Current chain head: {}",
+        audit.head()
+    );
     Ok(())
 }
 

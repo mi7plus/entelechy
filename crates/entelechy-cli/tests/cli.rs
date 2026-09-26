@@ -152,6 +152,23 @@ fn audit_verify_passes_clean_and_detects_tampering() {
     assert!(ok, "audit should pass on an untampered log: {out}");
     assert!(out.contains("VALID"), "expected VALID: {out}");
 
+    // A previously-held external anchor (the current chain head) is still present.
+    let head = out
+        .lines()
+        .find_map(|l| {
+            l.rsplit("head: ")
+                .next()
+                .filter(|h| h.starts_with("sha256:"))
+        })
+        .expect("audit output should print the chain head")
+        .to_string();
+    let (ok, out) = run(&["audit", &dir_s, "--anchor", &head]);
+    assert!(ok, "held anchor should verify: {out}");
+    assert!(out.contains("found in the chain history"), "{out}");
+    // A bogus anchor (a full rewrite would produce one) is rejected.
+    let (ok, _) = run(&["audit", &dir_s, "--anchor", "sha256:deadbeef"]);
+    assert!(!ok, "an unknown anchor must fail (full-rewrite detection)");
+
     // Tampering with a recorded decision breaks the chain and fails verification.
     let log = dir.join("audit-log.json");
     let text = std::fs::read_to_string(&log).unwrap();
