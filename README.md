@@ -66,6 +66,11 @@ cargo run -p entelechy-cli -- replay \
   --design ./entelechy-demo/design.json \
   --journal ./entelechy-demo/journal.json
 
+# Counterfactual replay (PRD 10.2): substitute a node's output, re-run downstream live
+cargo run -p entelechy-cli -- counterfactual \
+  --design ./entelechy-demo/design.json --journal ./entelechy-demo/journal.json \
+  --at 'root/0:classify' --value '{"text":"hello"}'
+
 # List the cross-cutting requirement registry (PRD 17.6)
 cargo run -p entelechy-cli -- requirements
 ```

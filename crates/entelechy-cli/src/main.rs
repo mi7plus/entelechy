@@ -2,7 +2,7 @@
 //!
 //! Command surface from PRD 16.1: init, objective, capability, eval, design,
 //! study, trace, replay, diff, assure, release, serve (plus demo, requirements,
-//! committee, audit, and, under the `openai` feature, infer).
+//! committee, audit, counterfactual, and, under the `openai` feature, infer).
 #![forbid(unsafe_code)]
 
 mod demo;
@@ -51,6 +51,25 @@ enum Command {
         /// Path to a recorded journal JSON file.
         #[arg(long)]
         journal: String,
+    },
+    /// Counterfactual replay (PRD 10.2, RK-8): replay recorded effects up to a
+    /// node, substitute its output, then re-execute everything downstream live.
+    Counterfactual {
+        /// Path to a Design IR JSON file.
+        #[arg(long)]
+        design: String,
+        /// Path to a recorded journal JSON file.
+        #[arg(long)]
+        journal: String,
+        /// Node path to intervene at (from a journal entry's `node_path`).
+        #[arg(long)]
+        at: String,
+        /// JSON value to substitute as that node's output.
+        #[arg(long)]
+        value: String,
+        /// JSON input to the run.
+        #[arg(long, default_value = "{}")]
+        input: String,
     },
     /// Diff two Design IRs (PRD 16.2). With no paths, diffs the demo baseline
     /// against its repaired candidate.
@@ -154,6 +173,13 @@ fn main() -> anyhow::Result<()> {
         Command::Design { validate } => cmd_design(validate),
         Command::Demo { out } => cmd_demo(&out),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
+        Command::Counterfactual {
+            design,
+            journal,
+            at,
+            value,
+            input,
+        } => cmd_counterfactual(&design, &journal, &at, &value, &input),
         Command::Objective => cmd_objective(),
         Command::Capability => cmd_capability(),
         Command::Eval => cmd_eval(),
@@ -1034,6 +1060,51 @@ fn cmd_replay(design_path: &str, journal_path: &str) -> anyhow::Result<()> {
     let journal: entelechy_runtime::Journal =
         serde_json::from_str(&std::fs::read_to_string(journal_path)?)?;
     println!("{}", replay(&program, &journal)?);
+    Ok(())
+}
+
+/// Counterfactual replay (PRD 10.2, RK-8): replay recorded effects up to `at`,
+/// substitute `value` as that node's output, then re-execute downstream live.
+fn cmd_counterfactual(
+    design_path: &str,
+    journal_path: &str,
+    at: &str,
+    value: &str,
+    input: &str,
+) -> anyhow::Result<()> {
+    use entelechy_gateway::{MockModel, NativeToolGateway};
+    use entelechy_ir::Value;
+
+    let program: entelechy_ir::Program =
+        serde_json::from_str(&std::fs::read_to_string(design_path)?)?;
+    let journal: entelechy_runtime::Journal =
+        serde_json::from_str(&std::fs::read_to_string(journal_path)?)?;
+    let input_val = Value::trusted(serde_json::from_str(input)?);
+    // A counterfactual substitution is a hypothetical, so it enters tainted.
+    let substitute = Value::tainted(serde_json::from_str(value)?);
+
+    let model = MockModel::new();
+    let mut tools = NativeToolGateway::new();
+    let mut engine = entelechy_runtime::Engine::new(&model, &mut tools);
+    engine.register_code("route_ticket", |v| Ok(v.data.clone()));
+    engine.register_checker("reply_nonempty", |_| true);
+
+    let cf = engine.counterfactual(&program, input_val, &journal, at, substitute);
+    println!("Counterfactual intervention at '{at}':");
+    println!("  diverged: {}", cf.diverged);
+    if let Some(dp) = &cf.divergence_point {
+        println!("  divergence point: {dp}");
+    }
+    println!("  live rollouts downstream: {}", cf.rollouts);
+    match &cf.output {
+        Some(v) => println!("  recomputed output: {}", v.data),
+        None => println!("  no output (run halted downstream of the intervention)"),
+    }
+    if !cf.diverged {
+        println!(
+            "  (node '{at}' was not reached — check the path against the journal's node_path fields)"
+        );
+    }
     Ok(())
 }
 

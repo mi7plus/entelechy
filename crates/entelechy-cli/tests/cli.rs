@@ -227,6 +227,37 @@ fn committee_out_persists_a_replayable_run() {
 }
 
 #[test]
+fn counterfactual_reexecutes_downstream_live() {
+    let dir = std::env::temp_dir().join(format!("entelechy-cf-{}", std::process::id()));
+    let dir_s = dir.to_string_lossy().into_owned();
+    let (ok, out) = run(&["committee", "reset password", "--out", &dir_s]);
+    assert!(ok, "committee --out failed: {out}");
+
+    // Intervene at the first journaled node and re-execute downstream live.
+    let journal: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("journal.json")).unwrap()).unwrap();
+    let at = journal["entries"][0]["node_path"].as_str().unwrap();
+    let (ok, out) = run(&[
+        "counterfactual",
+        "--design",
+        &dir.join("design.json").to_string_lossy(),
+        "--journal",
+        &dir.join("journal.json").to_string_lossy(),
+        "--at",
+        at,
+        "--value",
+        r#"{"text":"forced"}"#,
+    ]);
+    assert!(ok, "counterfactual failed: {out}");
+    assert!(out.contains("diverged: true"), "expected divergence: {out}");
+    assert!(
+        out.contains("live rollouts downstream"),
+        "expected rollout report: {out}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn unknown_command_fails() {
     let (ok, _out) = run(&["definitely-not-a-command"]);
     assert!(!ok, "unknown command should exit non-zero");

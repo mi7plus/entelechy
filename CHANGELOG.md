@@ -50,6 +50,10 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   record (PRD principle 6, 21.1). It also writes a tamper-evident, hash-chained
   `audit-log.json` (PRD 17.2) recording the plan commitment, each hypothesis
   result, and the holdout outcome; the report commits to the audit chain head.
+- **`entelechy counterfactual`** exposes counterfactual replay (PRD 10.2, RK-8)
+  from the CLI: replay a recorded journal up to a node, substitute its output, and
+  re-execute everything downstream live — reporting the divergence point, the
+  number of live rollouts, and the recomputed output.
 - **`entelechy audit <dir>`** re-verifies a persisted audit log's hash chain and
   that a study report's `audit_head` still matches the chain head, exiting
   non-zero on any tampering or mismatch (PRD 17.2). It prints the current chain
