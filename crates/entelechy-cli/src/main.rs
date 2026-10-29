@@ -580,6 +580,25 @@ fn cmd_serve(port: u16) -> anyhow::Result<()> {
             Ok(serde_json::json!({ "requirement_count": entelechy_contracts::REGISTRY.len() }))
         },
     );
+    // Map the CLI's `design --validate` to an API operation (PRD 16.2): POST a
+    // Design IR as the payload, get back its static invariant violations.
+    let catalog = demo::demo_catalog();
+    api.register(
+        "validate_design",
+        |_p| true,
+        move |_p, payload| {
+            let program: entelechy_ir::Program = serde_json::from_value(payload.clone())
+                .map_err(|e| format!("invalid design IR payload: {e}"))?;
+            let violations = entelechy_ir::validate(&program, &catalog);
+            let list: Vec<serde_json::Value> = violations
+            .iter()
+            .map(|v| {
+                serde_json::json!({ "code": v.code, "node_id": v.node_id, "message": v.message })
+            })
+            .collect();
+            Ok(serde_json::json!({ "valid": violations.is_empty(), "violations": list }))
+        },
+    );
 
     let mut server = HttpServer::new(api);
     // Loopback-only development token (PRD Q30); server modes use OIDC/mTLS.
@@ -593,6 +612,7 @@ fn cmd_serve(port: u16) -> anyhow::Result<()> {
     println!(
         "Try: curl -s -XPOST http://{addr}/v1/status -H 'Authorization: Bearer {token}' -H 'X-Protocol-Version: 1.0' -d '{{}}'"
     );
+    println!("Operations: status, requirements, validate_design (POST a Design IR to validate).");
     println!("Ctrl-C to stop.");
     server.serve(&listener)?;
     Ok(())

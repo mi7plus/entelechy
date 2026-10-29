@@ -50,6 +50,9 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   record (PRD principle 6, 21.1). It also writes a tamper-evident, hash-chained
   `audit-log.json` (PRD 17.2) recording the plan commitment, each hypothesis
   result, and the holdout outcome; the report commits to the audit chain head.
+- **Server `validate_design` operation.** The local API (`entelechy serve`) now
+  exposes Design IR validation as an operation (PRD 16.2: UI actions map to API
+  operations): POST a design as the payload, get back `{ valid, violations }`.
 - **`entelechy counterfactual`** exposes counterfactual replay (PRD 10.2, RK-8)
   from the CLI: replay a recorded journal up to a node, substitute its output, and
   re-execute everything downstream live — reporting the divergence point, the

@@ -247,4 +247,48 @@ mod tests {
             Err(ApiError::UnknownOperation(_))
         ));
     }
+
+    #[test]
+    fn payload_carrying_operation_dispatches_and_reports_handler_errors() {
+        let mut s = ApiServer::new(VersionRange::new(
+            ProtocolVersion::new(1, 0),
+            ProtocolVersion::new(1, 3),
+        ));
+        // An operation that reads its payload (e.g. validate_design in the CLI).
+        s.register(
+            "echo_n",
+            |_p| true,
+            |_p, payload| {
+                let n = payload
+                    .get("n")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(|| "missing integer field 'n'".to_string())?;
+                Ok(serde_json::json!({ "doubled": n * 2 }))
+            },
+        );
+
+        // The payload reaches the handler and its result comes back.
+        let r = ApiRequest {
+            operation: "echo_n".into(),
+            auth: ctx(PrincipalKind::Operator, 1000),
+            protocol: ProtocolVersion::new(1, 1),
+            payload: serde_json::json!({ "n": 21 }),
+        };
+        assert_eq!(
+            s.handle(&r, &FixedClock(Some(10))).unwrap(),
+            serde_json::json!({ "doubled": 42 })
+        );
+
+        // A handler error surfaces as ApiError::Handler (mapped to 500), not a panic.
+        let bad = ApiRequest {
+            operation: "echo_n".into(),
+            auth: ctx(PrincipalKind::Operator, 1000),
+            protocol: ProtocolVersion::new(1, 1),
+            payload: serde_json::json!({ "wrong": true }),
+        };
+        assert!(matches!(
+            s.handle(&bad, &FixedClock(Some(10))),
+            Err(ApiError::Handler(op, _)) if op == "echo_n"
+        ));
+    }
 }
