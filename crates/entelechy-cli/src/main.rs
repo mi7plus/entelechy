@@ -167,10 +167,11 @@ enum Command {
         #[arg(long, default_value = "entelechy-demo")]
         out: String,
     },
-    /// Run the bundled online-operations demo (PRD §15, §21.4): drive a stream of
-    /// production run observations and user feedback through the online-eval loop
-    /// and print the typed event trail — sampling, drift, incidents, regression
-    /// coverage, bounded re-studies and the quota hard stop.
+    /// Run the bundled online-operations demo (PRD §15, §9, §21.4): execute a
+    /// deployed triage design over a stream of production tickets, score each run
+    /// against a live EvalContract (EV-4), and feed the measured task_success into
+    /// the online-eval loop — printing the per-run scores and the typed decision
+    /// trail (drift, incidents, regression coverage, bounded re-studies).
     Ops {
         /// Directory to write the emitted event log (`ops-log.json`) into.
         #[arg(long)]
@@ -1148,10 +1149,51 @@ fn cmd_demo(out_dir: &str) -> anyhow::Result<()> {
 fn cmd_ops(out: Option<&str>) -> anyhow::Result<()> {
     use entelechy_ops::online::OpsEvent;
 
-    let (loopy, events) = ops::run_ops_demo();
-    println!("Online operations loop (PRD §15, §21.4): a production run + feedback stream.\n");
-    for (i, ev) in events.iter().enumerate() {
-        println!("{:>3}. {}", i + 1, ops::describe(ev));
+    // 1. The deployed design and the contract it is scored against.
+    let design = ops::deployed_design();
+    let contract = ops::ops_contract();
+    let violations = entelechy_ir::validate(&design, &std::collections::HashMap::new());
+    println!(
+        "Online operations loop (PRD §15, §9, §21.4) — scoring real runs against EvalContract v{}.",
+        contract.version
+    );
+    println!(
+        "Deployed triage agent: static check {} violation(s) (the refund negative goal is enforced by absent authority). Primary metric: {}.\n",
+        violations.len(),
+        contract.release.primary_metric
+    );
+
+    // 2. Execute + score every production ticket; feed the real scores to the loop.
+    let (loopy, events, scored) = ops::run_ops_demo();
+
+    // 3. The measured per-run scores — this is what the loop actually sees.
+    println!("Per-run EvalContract scores (task_success from EV-4 checkers):");
+    println!("  run       phase     needs   resolved  task_success  cost");
+    for r in &scored {
+        println!(
+            "  {:<9} {:<9} {:<7} {:<9} {:<13.1} {:.0}",
+            r.run_id,
+            r.phase,
+            r.needs,
+            if r.resolved { "yes" } else { "NO" },
+            r.task_success,
+            r.cost
+        );
+    }
+
+    // 4. The loop's reaction — only the decisions (the per-run "sampled" lines are
+    //    counted in the summary and kept in full in the --out log).
+    println!("\nLoop decisions:");
+    let mut any = false;
+    for ev in &events {
+        if matches!(ev, OpsEvent::Sampled { .. } | OpsEvent::NotSampled { .. }) {
+            continue;
+        }
+        any = true;
+        println!("  - {}", ops::describe(ev));
+    }
+    if !any {
+        println!("  (none — the signal stayed within the drift threshold)");
     }
 
     let count = |f: fn(&OpsEvent) -> bool| events.iter().filter(|e| f(e)).count();
@@ -1160,11 +1202,14 @@ fn cmd_ops(out: Option<&str>) -> anyhow::Result<()> {
     let regressions = count(|e| matches!(e, OpsEvent::RegressionCaptured { .. }));
     let restudies = count(|e| matches!(e, OpsEvent::ReStudyOpened { .. }));
     let blocks = count(|e| matches!(e, OpsEvent::ReStudyQuotaBlocked { .. }));
+    let resolved = scored.iter().filter(|r| r.resolved).count();
     println!(
-        "\nSummary: {sampled} run(s) sampled, {incidents} incident(s), {regressions} regression task(s), {restudies} re-study(ies), {blocks} quota block(s)."
+        "\nSummary: {sampled} run(s) sampled, {resolved}/{} resolved; {incidents} incident(s), {regressions} regression task(s), {restudies} re-study(ies), {blocks} quota block(s).",
+        scored.len()
     );
     println!(
-        "Re-studies charged against the quota: {:.0} (bounded hard stop — OP-7). Their candidates wait at the release gate; none auto-promote (OP-5, §14.3).",
+        "Final user satisfaction: {:.2}. Re-studies charged against the quota: {:.0} (bounded hard stop — OP-7); their candidates wait at the release gate and never auto-promote (OP-5, §14.3).",
+        loopy.satisfaction_rate(),
         loopy.restudies_opened()
     );
 

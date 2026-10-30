@@ -27,9 +27,18 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   opens one re-study rather than one per run, and the loop is deterministic — the
   same observations in the same order always yield the same event stream, so an
   operator can replay and audit exactly why each incident and re-study opened. A
-  new `entelechy ops [--out <dir>]` CLI command drives a bundled run+feedback
-  scenario end to end, prints the event trail with its requirement citations, and
-  persists the serialized log.
+  new `entelechy ops [--out <dir>]` CLI command drives the loop with **measured**
+  scores, not hand-supplied numbers (PRD §9): it executes a deployed single-agent
+  triage design over a stream of production tickets through the real runtime and
+  scores each run's output against a live `EvalContract` with programmatic checkers
+  (EV-4), feeding the resulting `task_success` into the loop as the drift signal
+  and deriving user feedback from each run's real resolution. The agent resolves
+  reply tickets but refuses a refund at the gate (a structural negative goal), so a
+  refund surge drops the measured `task_success`; the loop detects that drift from
+  the scores, opens an incident, captures regression coverage (EV-12) and queues a
+  bounded re-study. The command prints the per-run scores and the decision trail
+  and `--out` persists the event log; the scoring wiring lives in the CLI, keeping
+  `entelechy-ops` a leaf crate.
 - **Retrieval IR node + level-2 search unlock (PRD 11.4 level 2, §12).** A new
   `Retrieval` node (`entelechy-ir`) fetches the `top_k` most relevant entries of a
   memory tier for a query built from the current value. Statically it is a read —
