@@ -279,6 +279,17 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
          `entelechy drill --kind audit`",
         V,
     );
+    // SL-1 is first enforced at P4; its SLO operational-drill evidence is recorded now
+    // so the P4 gate is already covered when the gate advances (mirrors RB/AU).
+    index.verify(
+        "SL-1",
+        "entelechy-release: slo::slo_drill_satisfies_sl1 + an_l5_slo_must_state_all_four \
+         + error_budget_is_one_minus_target + correctness_is_independent_of_budget_both_ways \
+         (an L5 SLO states window/population/statistic/error-budget/exclusions or fails closed, and \
+         correctness gates sit outside the error budget — the promotion gate takes no budget input); \
+         operator drill `entelechy drill --kind slo`",
+        V,
+    );
 
     // Study/approval requirements not yet mechanized: scoped, expiring waivers with
     // compensating controls (PRD 17.5). These are honest gaps, not proofs — none is

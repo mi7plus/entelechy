@@ -1,6 +1,7 @@
-//! The `entelechy drill` command: operational disaster-recovery and audit drills.
+//! The `entelechy drill` command: operational disaster-recovery, audit and SLO
+//! drills.
 //!
-//! Three drills, selected with `--kind` (default: all):
+//! Four drills, selected with `--kind` (default: all):
 //!
 //! - **restore** (PRD §17.3, DR-1): builds a realistic slice of durable state —
 //!   content-addressed artifacts across two security domains, the append-only
@@ -21,6 +22,13 @@
 //!   lifecycle that rotates and revokes without mutating the content-addressed
 //!   artifact (AU-2), an uncertain clock that fails closed (AU-3), and a
 //!   hash-chained, externally-anchored audit log that detects a full rewrite (AU-1).
+//! - **slo** (PRD §18.1, SL-1): runs [`entelechy_release::slo_drill`] — an L5 SLO
+//!   that must state its window, population, statistic/error budget and exclusions
+//!   (fail closed on any omission), and the proof that *correctness gates sit outside
+//!   the error budget*: a correctness-gate failure blocks with the budget fully
+//!   intact, a budget breach with clean correctness is only an operational freeze,
+//!   and the real L5 promotion gate takes no budget input — only a recorded override
+//!   admits a failed correctness gate.
 //!
 //! `--out <dir>` persists each drill's artifacts into that directory so the
 //! verification record is auditable.
@@ -31,7 +39,7 @@ use entelechy_artifacts::{
     SchemaVersion, DEFAULT_TENANT,
 };
 use entelechy_identity::{audit_drill, AuditDrillReport};
-use entelechy_release::{rollback_drill, RollbackDrillReport};
+use entelechy_release::{rollback_drill, slo_drill, RollbackDrillReport, SloDrillReport};
 
 /// Which disaster-recovery drill(s) to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -42,6 +50,8 @@ pub enum DrillKind {
     Rollback,
     /// The AU-1/AU-2/AU-3 audit/attestation drill (PRD §17.2).
     Audit,
+    /// The SL-1 SLO / error-budget drill (PRD §18.1).
+    Slo,
     /// Every drill.
     All,
 }
@@ -63,6 +73,12 @@ pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     }
     if matches!(kind, DrillKind::Audit | DrillKind::All) {
         run_audit(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Slo | DrillKind::All) {
+        run_slo(out)?;
     }
     Ok(())
 }
@@ -293,6 +309,66 @@ fn run_audit(out: Option<&str>) -> anyhow::Result<()> {
     if let Some(dir) = out {
         std::fs::create_dir_all(dir)?;
         let report_path = std::path::Path::new(dir).join("audit-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
+/// Run the SL-1 SLO / error-budget drill (PRD §18.1). With `out`, persists the report.
+fn run_slo(out: Option<&str>) -> anyhow::Result<()> {
+    let report: SloDrillReport = slo_drill();
+    let defects: Vec<String> = report
+        .detected_defects
+        .iter()
+        .map(|d| format!("{d:?}"))
+        .collect();
+
+    println!(
+        "SLO / error-budget drill (PRD §18.1, SL-1) — L5 SLO well-formedness; correctness sits outside the error budget."
+    );
+    println!("L5 SLO declaration (SL-1):");
+    println!(
+        "  well-formed SLO accepted:   {} (states window, population, statistic/error budget and exclusions)",
+        yes_no(report.wellformed_slo_accepted)
+    );
+    println!(
+        "  incomplete SLO rejected:    {} (an L5 SLO missing any required field fails closed)",
+        yes_no(report.incomplete_slo_rejected)
+    );
+    println!("    defects detected:         [{}]", defects.join(", "));
+    println!(
+        "  error budget derived:       {} (budget = 1 - target; spend tracked over observed events)",
+        yes_no(report.error_budget_derived)
+    );
+    println!("Correctness outside the error budget (SL-1):");
+    println!(
+        "  full budget never excuses:  {} (a correctness-gate failure blocks with the budget fully intact)",
+        yes_no(report.correctness_blocks_despite_full_budget)
+    );
+    println!(
+        "  budget breach is ops-only:  {} (an exhausted budget with clean correctness is a freeze, not a correctness block)",
+        yes_no(report.budget_breach_is_operational)
+    );
+    println!(
+        "  correctness escape gated:   {} (the L5 gate refuses a failed correctness gate and takes no budget input; only a recorded override admits it)",
+        yes_no(report.correctness_escape_is_explicit_override)
+    );
+    println!(
+        "\n  => SL-1 {}.",
+        if report.ok {
+            "SATISFIED — every L5 SLO states window/population/statistic/exclusions, and correctness gates sit outside the error budget"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("SL SLO drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("slo-report.json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
         println!("\nPersisted: {}.", report_path.display());
     }

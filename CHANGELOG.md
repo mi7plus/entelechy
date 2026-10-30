@@ -11,6 +11,35 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **SLO / error-budget operational drill (PRD §18.1, SL-1).** A new
+  `entelechy-release::slo` module mechanizes both halves of SL-1. A
+  `ServiceLevelObjective` carries the four things SL-1 requires an L5 SLO to state —
+  a measurement window, the population, the statistic plus its target (from which the
+  error budget `1 - target` is derived), and the exclusions — and `defects()` fails
+  closed on any that is missing or malformed (zero window, empty population, a target
+  outside `(0, 1)`, an out-of-range latency percentile, or exclusions never declared),
+  so an under-specified objective can never be declared at L5. An `ErrorBudgetAccount`
+  accounts only availability/latency *SLO events* against the budget — there is
+  deliberately no method to charge a correctness-gate outcome to it — and
+  `release_health(correctness, budget)` evaluates the correctness verdict *first and
+  independently* of the budget. The `Correctness` verdict is derived from the real
+  `PromotionGate` (`assurance.release_eligible()` + `holdout_passed` +
+  `negative_goal_clean`), so the drill speaks about the actual correctness gates. The
+  new `slo_drill()` returns an `SloDrillReport` (one boolean per invariant) proving:
+  a fully-declared L5 SLO is accepted and an under-specified one is rejected with each
+  omission named; the error budget equals `1 - target` and spend is tracked over
+  observed events; with the budget fully intact a correctness-gate failure still
+  blocks (remaining budget never buys back correctness); an exhausted budget with
+  clean correctness is only an operational freeze (`BudgetExhausted`), not a
+  correctness block; and the real L5 promotion gate refuses a failed correctness gate
+  while taking *no* error-budget input, so the only way past is a recorded
+  `PromotionOverride` (a human-approved exception), never spending error budget. The
+  `entelechy drill` command now takes `--kind restore|rollback|audit|slo|all` (default
+  `all`): `slo` runs this drill and with `--out` persists `slo-report.json`. SL-1 is
+  first enforced at P4, so its operational-drill verification is recorded in
+  `phase_gate_evidence()` now; the current P1 gate is unchanged. Five new tests
+  (composite SL-1 invariants, determinism, per-field well-formedness, budget
+  arithmetic, correctness/budget independence both ways).
 - **Audit / attestation operational drill (PRD §17.2, AU-1/AU-2/AU-3).** A new
   `entelechy-identity::drill` module composes the identity stack into the single
   operational/key drill those three requirements call for: `audit_drill()` returns
