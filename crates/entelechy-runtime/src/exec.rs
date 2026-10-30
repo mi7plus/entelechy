@@ -269,6 +269,27 @@ pub(crate) fn exec_node(
                 Ok(value)
             }
         },
+        NodeKind::Retrieval(r) => {
+            // Build the query the same way an Llm builds its prompt, then read the
+            // top_k most relevant entries of the tier (PRD 12, 11.4 level 2).
+            let query = r.query_template.replace("{input}", &value.data.to_string());
+            let hits = engine.memory.retrieve(r.tier, &query, r.top_k);
+            // The result is external content: tainted (PRD 5.8), inheriting the
+            // input's labels joined with every retrieved entry's labels so
+            // confidentiality propagates downstream (PRD 7.5 / IR-I9). Retrieval is
+            // a deterministic in-process read, so — like a Mem node — it records no
+            // journal event and reproduces exactly on replay/counterfactual (RK-2).
+            let mut meta = ValueMeta::tainted().join(&value.meta);
+            let mut results = Vec::with_capacity(hits.len());
+            for h in &hits {
+                meta = meta.join(&h.meta);
+                results.push(h.data.clone());
+            }
+            Ok(Value {
+                data: serde_json::json!({ "query": query, "results": results }),
+                meta,
+            })
+        }
         NodeKind::Human(_) => Err(Halt::Terminal(RunStatus::Failed {
             node_path: path.to_string(),
             reason: FailureReason::Unsupported(

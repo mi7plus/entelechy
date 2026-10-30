@@ -77,6 +77,13 @@ fn walk<C: CapabilityCatalog>(
         }
         NodeKind::Code(_) => tainted_in,
         NodeKind::Mem(_) => tainted_in,
+        NodeKind::Retrieval(_) => {
+            // Retrieval is a read over stored knowledge, not a capability
+            // invocation, so there is no IR-I2/IR-I3 effect to check here. Its
+            // output is external content and enters as tainted (PRD 5.8, 7.5) —
+            // a downstream privileged effect must still be gated (IR-I3).
+            true
+        }
         NodeKind::Human(_) => tainted_in,
         NodeKind::Verify(_) => {
             // A Verify step produces evidence but does not by itself declassify
@@ -238,6 +245,38 @@ mod tests {
                             model: "mock".into(),
                             prompt_template: "{input}".into(),
                             temperature: 0.0,
+                        }),
+                    ),
+                    Node::new(
+                        "pay",
+                        NodeKind::Tool(ToolNode {
+                            capability: "send_payment".into(),
+                            args: serde_json::Value::Null,
+                        }),
+                    ),
+                ]),
+            ),
+        );
+        let vio = validate(&prog, &catalog());
+        assert!(vio.iter().any(|v| v.code == "IR-I3"), "{vio:?}");
+    }
+
+    #[test]
+    fn retrieval_output_is_tainted_and_must_be_gated() {
+        use crate::node::RetrievalNode;
+        // Retrieval (tainted output) -> payment tool, no gate: IR-I3. This proves
+        // the walk treats retrieved content as untrusted (PRD 5.8, 7.5).
+        let prog = Program::new(
+            authority(&["send_payment"]),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "fetch",
+                        NodeKind::Retrieval(RetrievalNode {
+                            query_template: "{input}".into(),
+                            tier: crate::node::MemoryTier::Semantic,
+                            top_k: 3,
                         }),
                     ),
                     Node::new(

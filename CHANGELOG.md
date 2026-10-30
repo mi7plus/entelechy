@@ -11,6 +11,21 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Retrieval IR node + level-2 search unlock (PRD 11.4 level 2, §12).** A new
+  `Retrieval` node (`entelechy-ir`) fetches the `top_k` most relevant entries of a
+  memory tier for a query built from the current value. Statically it is a read —
+  no capability, no authority — and its output enters as tainted content carrying
+  forward the confidentiality labels of whatever it retrieves (IR-I9); a
+  downstream privileged effect must still be gated (IR-I3). The runtime executes it
+  against `TieredMemory::retrieve`, a deterministic lexical-overlap search with a
+  stable (score-desc, key-asc) order; being an in-process read it records no
+  journal event and replays/counterfactuals reproduce it exactly (RK-2). A new
+  `Engine::seed_memory` stages the semantic knowledge base it reads. The design
+  layer gains the typed `AddRetrieval` operator (prepend a retrieval to the root
+  `Seq` — retrieve, then reason), and the search proposer now emits it at level 2,
+  closing the gap where a `knowledge.retrieval-miss` was eligible for retrieval but
+  had no operator. The compiled backend reports `Retrieval` as unsupported (the
+  interpreter is its reference executor for the Q10 conformance gate).
 - **TR-1 traceability check in CI (PRD §17.5).** `entelechy requirements --check`
   builds the authoritative phase-gate evidence (`entelechy_contracts::phase_gate_evidence`)
   and fails non-zero if any requirement first enforced at or before the current

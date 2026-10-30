@@ -6,50 +6,45 @@ to `main` after each self-contained unit, only when asked.
 
 ## Current state (verified)
 
-- HEAD `d96988c`, branch `main`, tree clean.
+- HEAD `main` — the retrieval-node commit (this change), tree clean.
 - Full gate green at HEAD: `cargo fmt --all --check`, `cargo clippy --workspace
   --all-targets -- -D warnings` (plus gateway `--features wasm,openai-tls`),
-  `cargo test --workspace` (**264 passed**), `RUSTDOCFLAGS="-D warnings" cargo doc
+  `cargo test --workspace` (**272 passed**), `RUSTDOCFLAGS="-D warnings" cargo doc
   --workspace --no-deps`. Build under memory pressure with `-j 2`.
 - **Phase 1 is complete.** Phase 0 mechanisms + Phase 1–3 primitives are built;
   Phase 4–5 are mostly library primitives, not operationalized.
 
 ## Done since the last handoff
 
-- **1.0 contract freeze (Phase-1 exit).** `docs/contracts-1.0.md` + the
-  machine-readable `entelechy_contracts::FROZEN_CONTRACTS` freeze six contracts
-  (canonical serialization, Design IR, journal, model-request, failure ontology,
-  protocol) with explicit version constants (`JOURNAL_FORMAT_VERSION`,
-  `NATIVE_REQUEST_SCHEMA_VERSION`, `CURRENT_PROTOCOL_VERSION` were added). A
-  version-bump gate (`entelechy-cli/tests/contract_freeze.rs`) ties each frozen
-  version to its owning constant; the golden tests pin the bytes.
-- **TR-1 traceability check in CI.** `entelechy requirements --check` +
-  `entelechy_contracts::phase_gate_evidence()` + a `traceability` CI job fail on any
-  requirement first enforced at/before the current gate phase (P1) with no
-  verification record and no active waiver. Three study/drill/approval requirements
-  carry scoped waivers (PV-2, DR-1, DP-1) that **expire 2027-07-01** and must be
-  retired by real evidence (see gaps below).
+- **Retrieval IR node + level-2 search unlock (PRD 11.4 level 2, §12).** A new
+  `Retrieval` node (`entelechy-ir`): query template + tier + top-k, statically a
+  read (no capability/authority; output is tainted and carries forward retrieved
+  confidentiality labels — IR-I9, IR-I3). The runtime executes it against
+  `TieredMemory::retrieve` (deterministic lexical-overlap, stable score-desc/
+  key-asc order); it records **no journal event** and replays/counterfactuals
+  reproduce it exactly (RK-2). `Engine::seed_memory` stages the knowledge base.
+  The design layer gains `EditOp::AddRetrieval` (prepend to the root `Seq`), and
+  the search proposer now emits it at **level 2** for `knowledge.retrieval-miss`
+  — closing the one gap where that class was eligible but had no operator. The
+  compiled backend reports `Retrieval` as unsupported (the interpreter is its
+  reference executor for the Q10 conformance gate).
 
-## Recommended next item: Retrieval IR node (P3)
+## Recommended next item: online-eval / drift / incident loop (P4)
 
-Started this session. Memory tiers (`entelechy-runtime` `MemoryTier`/`TieredMemory`)
-and retrieval *metrics* (`entelechy-eval`) exist, but there is no Retrieval IR node
-and the search proposer cannot yet unlock retrieval. Shape:
-- Add a `Retrieval` node to the IR (`entelechy-ir`): query template + source/tier +
-  top-k, with static invariants (it is a read; honors confidentiality/taint labels).
-- Execute it in the runtime against a memory/knowledge source, journaling the
-  retrieval as an effect so replay is exact.
-- Wire the search proposer (`entelechy-search`) to unlock it on a
-  `knowledge.retrieval-miss` failure class, within the Architecture Explorer's
-  ceiling/budget/authority rules (Q4).
+`entelechy-ops` has the primitives (`sample_for_eval`, `FeedbackStore`,
+`DriftKind`) but no running loop. Wire a loop that samples production runs for
+evaluation, scores them against the live `EvalContract`, detects drift, and opens
+a typed incident — the P4 half of the "measure in production" story (PRD §21.4).
+Smaller alternative follow-on: exercise the new level-2 path end to end by adding
+a retrieval-miss failure class to the `study`/`demo` suite (today it only
+escalates through levels 3 and 4), so a run visibly unlocks retrieval.
 
 ## Top remaining gaps (from the PRD §21 / §17.6 audit)
 
 | Gap | Phase | Note |
 |---|---|---|
-| Retrieval IR node + proposer unlock | P3 | recommended next (in progress) |
 | Phase-0 study never run on a real domain | P0 | `study` uses a *declared simulator*; no resettable helpdesk / comparator / reproduction packet |
-| Online-eval / drift / incident loops | P4 | `entelechy-ops` has primitives (`sample_for_eval`, `FeedbackStore`, `DriftKind`); no running loop |
+| Online-eval / drift / incident loops | P4 | recommended next; `entelechy-ops` has primitives (`sample_for_eval`, `FeedbackStore`, `DriftKind`); no running loop |
 | Operational drills (RB/DR/AU/PV/SL) | P4 | not implemented; retiring these also clears the TR-1 waivers (PV-2, DR-1, DP-1) |
 | Shadow/canary rollout, web console, SDKs | P4/P3 | not implemented |
 | Multi-tenancy, plugin registry, learned priors, distillation | P5 | mostly not implemented (cluster execution is done) |

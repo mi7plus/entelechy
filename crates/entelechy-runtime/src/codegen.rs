@@ -131,6 +131,10 @@ fn lower(kind: &NodeKind) -> Result<CompiledStep, CompileError> {
         NodeKind::Tool(_) => return Err(CompileError::Unsupported("tool")),
         NodeKind::Gate(_) => return Err(CompileError::Unsupported("gate")),
         NodeKind::Human(_) => return Err(CompileError::Unsupported("human")),
+        // The compiled backend handles the flat Llm/Code/Verify/Mem slice; a
+        // Retrieval node (like Tool/Gate/control flow) runs on the interpreter,
+        // the reference executor for the interpreter-vs-codegen conformance gate.
+        NodeKind::Retrieval(_) => return Err(CompileError::Unsupported("retrieval")),
     })
 }
 

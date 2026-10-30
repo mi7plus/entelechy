@@ -95,6 +95,10 @@ pub enum NodeKind {
     Verify(VerifyNode),
     /// Read/write memory according to policy.
     Mem(MemNode),
+    /// Retrieve the most relevant memory/knowledge entries for a query from a
+    /// tier (PRD 12, 11.4 level 2). A read: it never mutates state, and its
+    /// output enters as tainted (retrieved content is untrusted — PRD 5.8, 7.5).
+    Retrieval(RetrievalNode),
     /// Policy/evidence/approval boundary before an authority transition (PRD 7.3).
     Gate(GateNode),
     /// Explicit human decision or data input (carries a timeout — PRD 8.6).
@@ -148,6 +152,30 @@ pub struct MemNode {
     /// memory so existing IR remains valid.
     #[serde(default)]
     pub tier: MemoryTier,
+}
+
+/// A retrieval node (PRD 12, 11.4 level 2): fetch the `top_k` most relevant
+/// entries of a memory tier for a query built from the current value. It is a
+/// read over stored knowledge — the search engine's level-2 answer to a
+/// `knowledge.retrieval-miss` — never a capability invocation, so it declares no
+/// effect and grants no authority. Its output is tainted and carries forward the
+/// confidentiality labels of whatever it retrieves (IR-I9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RetrievalNode {
+    /// Query template. `{input}` is replaced with the current value's payload,
+    /// exactly as [`LlmNode::prompt_template`] is.
+    pub query_template: String,
+    /// The memory tier searched (PRD 12, MK-2). Defaults to [`MemoryTier::Semantic`]
+    /// — durable facts and knowledge, the natural target for a retrieval miss.
+    #[serde(default = "default_retrieval_tier")]
+    pub tier: MemoryTier,
+    /// Maximum number of entries to return, ranked by relevance.
+    pub top_k: u32,
+}
+
+/// The default tier a [`RetrievalNode`] searches: durable semantic knowledge.
+fn default_retrieval_tier() -> MemoryTier {
+    MemoryTier::Semantic
 }
 
 /// Memory operation.
@@ -278,5 +306,33 @@ mod tests {
         let json = serde_json::to_string(&prog).unwrap();
         let back: Program = serde_json::from_str(&json).unwrap();
         assert_eq!(prog, back);
+    }
+
+    #[test]
+    fn retrieval_node_roundtrips_and_defaults_to_semantic() {
+        let node = Node::new(
+            "fetch",
+            NodeKind::Retrieval(RetrievalNode {
+                query_template: "relevant to {input}".into(),
+                tier: MemoryTier::Episodic,
+                top_k: 5,
+            }),
+        );
+        let json = serde_json::to_string(&node).unwrap();
+        let back: Node = serde_json::from_str(&json).unwrap();
+        assert_eq!(node, back);
+
+        // `tier` defaults to Semantic when omitted, so older IR still deserializes.
+        let back: Node = serde_json::from_str(
+            r#"{"id":"f","kind":{"retrieval":{"query_template":"{input}","top_k":3}}}"#,
+        )
+        .unwrap();
+        match back.kind {
+            NodeKind::Retrieval(r) => {
+                assert_eq!(r.tier, MemoryTier::Semantic);
+                assert_eq!(r.top_k, 3);
+            }
+            other => panic!("expected Retrieval, got {other:?}"),
+        }
     }
 }

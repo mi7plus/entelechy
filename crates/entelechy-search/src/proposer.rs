@@ -10,7 +10,7 @@
 //! it (PRD principle 4).
 
 use entelechy_design::{AgentSpec, EditOp};
-use entelechy_ir::AuthorityEnvelope;
+use entelechy_ir::{AuthorityEnvelope, MemoryTier};
 
 use crate::explorer::{level_description, ArchitectureExplorer, UnlockDecision};
 
@@ -87,6 +87,14 @@ fn ops_for_level(
     parent_authority: &AuthorityEnvelope,
 ) -> Option<Vec<EditOp>> {
     let ops = match level {
+        2 => vec![EditOp::AddRetrieval {
+            id: format!("{target}_retrieve"),
+            // The baseline value is the objective input; retrieve durable
+            // knowledge relevant to it and feed it to the agent (PRD 11.4 level 2).
+            query_template: "{input}".to_string(),
+            tier: MemoryTier::Semantic,
+            top_k: 4,
+        }],
         3 => vec![EditOp::AddVerify {
             id: format!("{target}_check"),
             checker: "supported".into(),
@@ -148,6 +156,34 @@ mod tests {
         a.capabilities.insert("draft_reply".into());
         a.forbidden_capabilities.insert("refund".into());
         a
+    }
+
+    #[test]
+    fn retrieval_miss_proposes_a_retrieval_node_at_level_2() {
+        // knowledge.retrieval_miss is eligible at [2]; from the baseline that is
+        // the smallest unlock and it adds no authority (automatic).
+        let p = propose(
+            0,
+            "knowledge.retrieval_miss",
+            &[2],
+            "agent",
+            &parent(),
+            6,
+            true,
+        )
+        .unwrap();
+        assert_eq!(p.level, 2);
+        assert!(!p.needs_approval);
+        match &p.ops[0] {
+            EditOp::AddRetrieval {
+                id, tier, top_k, ..
+            } => {
+                assert_eq!(id, "agent_retrieve");
+                assert_eq!(*tier, MemoryTier::Semantic);
+                assert_eq!(*top_k, 4);
+            }
+            other => panic!("expected AddRetrieval, got {other:?}"),
+        }
     }
 
     #[test]

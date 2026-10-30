@@ -20,7 +20,7 @@ pub use effect::{AttestationLevel, EffectClass, EffectMetadata};
 pub use invariants::{validate, CapabilityCatalog, Violation};
 pub use node::{
     CodeNode, Condition, GateNode, HumanNode, LlmNode, MemNode, MemOp, MemoryTier, Node, NodeKind,
-    Program, ToolNode, VerifyNode,
+    Program, RetrievalNode, ToolNode, VerifyNode,
 };
 pub use value::{Confidentiality, Taint, Value, ValueMeta, VerificationState};
 

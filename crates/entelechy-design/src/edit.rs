@@ -4,7 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use entelechy_ir::{AuthorityEnvelope, LlmNode, Node, NodeKind, Program, VerifyNode};
+use entelechy_ir::{
+    AuthorityEnvelope, LlmNode, MemoryTier, Node, NodeKind, Program, RetrievalNode, VerifyNode,
+};
 
 /// One agent in a parallel decomposition (PRD 11.4 level 4 / 11.5).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,6 +58,21 @@ pub enum EditOp {
     DeleteNode {
         /// Target node id.
         node: String,
+    },
+    /// Level 2 (retrieval): prepend a `Retrieval` node to the root `Seq`, so the
+    /// agent reasons over retrieved context (PRD 11.4 level 2). This is the
+    /// smallest structural answer to a `knowledge.retrieval-miss`: a read that
+    /// adds no authority. The node is inserted at the front — retrieve, then
+    /// reason.
+    AddRetrieval {
+        /// New node id.
+        id: String,
+        /// Query template (`{input}` is substituted).
+        query_template: String,
+        /// Memory tier to search.
+        tier: MemoryTier,
+        /// Maximum number of entries to retrieve.
+        top_k: u32,
     },
     /// Level 4 (map/reduce): replace an `Llm` node with a committee — a bounded
     /// `Par` of specialized agent `Llm` nodes over the same input, followed by a
@@ -129,6 +146,30 @@ pub fn apply(program: &Program, op: &EditOp) -> Result<Program, PatchError> {
             _ => {
                 return Err(PatchError::Structural(
                     "AddVerify requires a Seq root".into(),
+                ))
+            }
+        },
+        EditOp::AddRetrieval {
+            id,
+            query_template,
+            tier,
+            top_k,
+        } => match &mut next.root.kind {
+            // Prepend: retrieval feeds context to everything that follows.
+            NodeKind::Seq(children) => children.insert(
+                0,
+                Node::new(
+                    id.clone(),
+                    NodeKind::Retrieval(RetrievalNode {
+                        query_template: query_template.clone(),
+                        tier: *tier,
+                        top_k: *top_k,
+                    }),
+                ),
+            ),
+            _ => {
+                return Err(PatchError::Structural(
+                    "AddRetrieval requires a Seq root".into(),
                 ))
             }
         },
@@ -423,6 +464,66 @@ mod tests {
             assert_eq!(c.len(), 2);
             assert!(!c.iter().any(|n| n.id == "code"));
         }
+    }
+
+    #[test]
+    fn add_retrieval_prepends_to_the_seq_root() {
+        let p = base();
+        let q = apply(
+            &p,
+            &EditOp::AddRetrieval {
+                id: "fetch".into(),
+                query_template: "{input}".into(),
+                tier: MemoryTier::Semantic,
+                top_k: 4,
+            },
+        )
+        .unwrap();
+        match &q.root.kind {
+            NodeKind::Seq(c) => {
+                // Inserted at the front: retrieve, then reason.
+                assert_eq!(c.len(), 3);
+                assert_eq!(c[0].id, "fetch");
+                match &c[0].kind {
+                    NodeKind::Retrieval(r) => {
+                        assert_eq!(r.tier, MemoryTier::Semantic);
+                        assert_eq!(r.top_k, 4);
+                    }
+                    other => panic!("expected Retrieval, got {other:?}"),
+                }
+                // The original agent still follows it.
+                assert_eq!(c[1].id, "llm");
+            }
+            other => panic!("expected Seq root, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn add_retrieval_requires_a_seq_root() {
+        // A bare Llm root is not a Seq: the operator fails closed.
+        let p = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "solo",
+                NodeKind::Llm(LlmNode {
+                    model: "m".into(),
+                    prompt_template: "{input}".into(),
+                    temperature: 0.0,
+                }),
+            ),
+        );
+        assert!(matches!(
+            apply(
+                &p,
+                &EditOp::AddRetrieval {
+                    id: "fetch".into(),
+                    query_template: "{input}".into(),
+                    tier: MemoryTier::Semantic,
+                    top_k: 2,
+                }
+            ),
+            Err(PatchError::Structural(_))
+        ));
     }
 
     #[test]

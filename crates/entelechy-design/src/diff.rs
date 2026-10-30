@@ -123,6 +123,7 @@ fn kind_name(kind: &NodeKind) -> &'static str {
         NodeKind::Delegate { .. } => "Delegate",
         NodeKind::Verify(_) => "Verify",
         NodeKind::Mem(_) => "Mem",
+        NodeKind::Retrieval(_) => "Retrieval",
         NodeKind::Gate(_) => "Gate",
         NodeKind::Human(_) => "Human",
     }

@@ -30,7 +30,9 @@ pub(crate) use exec::egress_output;
 use exec::{exec_node, outcome_output, Counters, Mode};
 
 use entelechy_gateway::{ModelGateway, ToolGateway};
-use entelechy_ir::{AuthorityEnvelope, Confidentiality, EffectMetadata, Program, Taint, Value};
+use entelechy_ir::{
+    AuthorityEnvelope, Confidentiality, EffectMetadata, MemoryTier, Program, Taint, Value,
+};
 use entelechy_policy::{Decision, DecisionLog, PolicyEngine, PolicyRequest, PolicySnapshot};
 
 pub use journal::{
@@ -271,6 +273,15 @@ impl<'a> Engine<'a> {
             Some(reason) => Err(FailureReason::PolicyDenied(reason)),
             None => Ok(()),
         }
+    }
+
+    /// Pre-seed a memory tier with a known value before a run — e.g. the durable
+    /// semantic knowledge base a [`entelechy_ir::RetrievalNode`] reads, or shared
+    /// blackboard context for coordinating agents (PRD 12, MK-2). The full value
+    /// envelope is kept, so the seeded entry's taint and confidentiality propagate
+    /// into whatever retrieves it (MK-7, IR-I9).
+    pub fn seed_memory(&mut self, tier: MemoryTier, key: impl Into<String>, value: Value) {
+        self.memory.write(tier, key, value);
     }
 
     /// Register a checker for Verify nodes.
@@ -804,6 +815,68 @@ mod tests {
                 budget: "max_model_calls"
             }
         );
+    }
+
+    #[test]
+    fn retrieval_node_reads_seeded_knowledge_and_replays_exactly() {
+        use entelechy_ir::{MemoryTier, RetrievalNode};
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = Engine::new(&model, &mut tools);
+
+        // Seed a tiny semantic knowledge base; the matching entry carries a
+        // confidentiality label that must propagate into the retrieval output.
+        let mut pw = Value::trusted(serde_json::json!(
+            "to reset your password, open the login page"
+        ));
+        pw.meta.confidentiality.insert("internal".into());
+        e.seed_memory(MemoryTier::Semantic, "pw", pw);
+        e.seed_memory(
+            MemoryTier::Semantic,
+            "refund",
+            Value::trusted(serde_json::json!("refund requests take five business days")),
+        );
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "fetch",
+                NodeKind::Retrieval(RetrievalNode {
+                    query_template: "reset password".into(),
+                    tier: MemoryTier::Semantic,
+                    top_k: 3,
+                }),
+            ),
+        );
+
+        let input = Value::trusted(serde_json::json!({}));
+        let run = e.execute(&prog, input.clone(), "run-retr");
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+        let out = run.output.clone().expect("retrieval output");
+
+        // Only the matching entry is retrieved.
+        let results = out
+            .data
+            .get("results")
+            .and_then(|r| r.as_array())
+            .expect("results array");
+        assert_eq!(results.len(), 1, "got {results:?}");
+        assert!(results[0].as_str().unwrap().contains("password"));
+        // Output is tainted (external content) and carries the seeded label (IR-I9).
+        assert_eq!(out.meta.taint, Taint::Tainted);
+        assert!(out.meta.confidentiality.contains("internal"));
+        // A deterministic in-process read records no journal effect (RK-2).
+        assert!(
+            run.journal.entries.is_empty(),
+            "retrieval must not journal: {:?}",
+            run.journal.entries
+        );
+        // Replay reproduces the value exactly, with no divergence.
+        let replayed = e
+            .replay(&prog, input, &run.journal)
+            .expect("replay should not diverge")
+            .expect("replayed output");
+        assert_eq!(replayed.data, out.data);
     }
 
     #[test]
