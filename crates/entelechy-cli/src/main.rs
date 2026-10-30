@@ -433,19 +433,24 @@ fn cmd_audit(path: &str, anchor: Option<&str>) -> anyhow::Result<()> {
         if ok { "VALID" } else { "BROKEN" }
     );
 
-    // Cross-check the study report's commitment to the chain head, if present.
-    let report_path = dir.join("study-report.json");
-    if report_path.exists() {
+    // Cross-check any report's commitment to the chain head. A study writes
+    // `study-report.json`; the online-ops loop writes `ops-report.json`
+    // (PRD 17.2) — either commits to `audit_head`.
+    for name in ["study-report.json", "ops-report.json"] {
+        let report_path = dir.join(name);
+        if !report_path.exists() {
+            continue;
+        }
         let report: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&report_path)?)?;
         if let Some(head) = report.get("audit_head").and_then(|h| h.as_str()) {
             let matches = head == audit.head();
             println!(
-                "Report audit_head {} the chain head.",
+                "{name} audit_head {} the chain head.",
                 if matches { "matches" } else { "does NOT match" }
             );
             if !matches {
-                anyhow::bail!("study-report.json audit_head does not match the audit chain head");
+                anyhow::bail!("{name} audit_head does not match the audit chain head");
             }
         }
     }
@@ -1214,12 +1219,21 @@ fn cmd_ops(out: Option<&str>) -> anyhow::Result<()> {
     );
 
     if let Some(dir) = out {
-        std::fs::create_dir_all(dir)?;
-        let path = format!("{dir}/ops-log.json");
-        std::fs::write(&path, serde_json::to_string_pretty(&events)?)?;
+        let o = ops::write_outputs(
+            dir,
+            &events,
+            &scored,
+            &contract,
+            loopy.satisfaction_rate(),
+            loopy.restudies_opened(),
+        )?;
         println!(
-            "\nWrote {path} ({} events) — a replayable, auditable log.",
-            events.len()
+            "\nPersisted ({} events): {}, {}, {}.",
+            o.events, o.log_path, o.report_path, o.audit_path
+        );
+        println!(
+            "  {} incident(s), {} regression task(s), {} re-study(ies) recorded; audit chain head {} — verify with `entelechy audit {dir}`.",
+            o.incidents, o.regressions, o.restudies, o.audit_head
         );
     }
     Ok(())

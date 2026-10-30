@@ -36,9 +36,14 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   reply tickets but refuses a refund at the gate (a structural negative goal), so a
   refund surge drops the measured `task_success`; the loop detects that drift from
   the scores, opens an incident, captures regression coverage (EV-12) and queues a
-  bounded re-study. The command prints the per-run scores and the decision trail
-  and `--out` persists the event log; the scoring wiring lives in the CLI, keeping
-  `entelechy-ops` a leaf crate.
+  bounded re-study. The command prints the per-run scores and the decision trail;
+  `--out <dir>` persists the governed output (PRD 17.2) — the full event log, a
+  structured `ops-report.json` of the incidents (with their trace refs), the
+  regression tasks and the re-studies, and a tamper-evident hash-chained
+  `audit-log.json` of every decision that the report commits to by chain head, so
+  `entelechy audit <dir>` re-verifies both the chain and that commitment. The
+  scoring and persistence wiring lives in the CLI, keeping `entelechy-ops` a leaf
+  crate.
 - **Retrieval IR node + level-2 search unlock (PRD 11.4 level 2, §12).** A new
   `Retrieval` node (`entelechy-ir`) fetches the `top_k` most relevant entries of a
   memory tier for a query built from the current value. Statically it is a read —

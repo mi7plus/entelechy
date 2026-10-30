@@ -21,12 +21,13 @@ use entelechy_eval::{
     NegativeGoal, Provenance, ReleaseRule, RiskClass, Split, SplitPolicy, Task,
 };
 use entelechy_gateway::{MockModel, NativeToolGateway};
+use entelechy_identity::AuditLog;
 use entelechy_ir::{
     AuthorityEnvelope, CodeNode, Condition, GateNode, LlmNode, Node, NodeKind, Program, Value,
     VerifyNode,
 };
 use entelechy_ops::online::{OnlineEvalLoop, OpsEvent, OpsPolicy, RunObservation};
-use entelechy_ops::{DriftKind, Feedback, QuotaScope};
+use entelechy_ops::{DriftKind, Feedback, Incident, QuotaScope, ReStudy, RegressionTask};
 use entelechy_runtime::{Engine, JournalEvent, RunResult};
 
 /// The deployed triage design under watch. Routing is a `Code` node *first*, so it
@@ -303,6 +304,155 @@ pub fn run_ops_demo() -> (OnlineEvalLoop, Vec<OpsEvent>, Vec<ScoredRun>) {
     (loopy, events, scored)
 }
 
+/// The persistent artifacts a run produced, collected from its event stream.
+struct Collected {
+    incidents: Vec<Incident>,
+    regressions: Vec<RegressionTask>,
+    restudies: Vec<ReStudy>,
+    blocked: usize,
+}
+
+/// Pull the typed incidents, regression tasks and re-studies out of the event
+/// stream (the loop's durable output, as opposed to the sampling bookkeeping).
+fn collect(events: &[OpsEvent]) -> Collected {
+    let mut c = Collected {
+        incidents: Vec::new(),
+        regressions: Vec::new(),
+        restudies: Vec::new(),
+        blocked: 0,
+    };
+    for ev in events {
+        match ev {
+            OpsEvent::IncidentOpened { incident } => c.incidents.push(incident.clone()),
+            OpsEvent::RegressionCaptured { task } => c.regressions.push(task.clone()),
+            OpsEvent::ReStudyOpened { restudy } => c.restudies.push(restudy.clone()),
+            OpsEvent::ReStudyQuotaBlocked { .. } => c.blocked += 1,
+            _ => {}
+        }
+    }
+    c
+}
+
+/// Build a tamper-evident, hash-chained audit log of the run's governed decisions
+/// (PRD 17.2): a leading summary entry, then one chained entry per drift,
+/// satisfaction breach, incident, regression, re-study and quota block — in order,
+/// so any post-hoc edit breaks the chain. Timestamps are fixed for reproducibility.
+fn build_audit(events: &[OpsEvent], scored: &[ScoredRun], contract: &EvalContract) -> AuditLog {
+    let mut audit = AuditLog::new();
+    let mut ts = 1_700_000_000u64;
+    audit.append(
+        "ops",
+        format!(
+            "online-eval run: {} tickets scored against EvalContract v{}",
+            scored.len(),
+            contract.version
+        ),
+        ts,
+    );
+    for ev in events {
+        let action = match ev {
+            OpsEvent::DriftDetected { evidence } => {
+                format!("drift {:?} z={:.2}", evidence.kind, evidence.z_shift)
+            }
+            OpsEvent::SatisfactionBreach { satisfaction } => {
+                format!("satisfaction breach {satisfaction:.2}")
+            }
+            OpsEvent::IncidentOpened { incident } => {
+                format!("incident {} opened: {}", incident.id, incident.summary)
+            }
+            OpsEvent::RegressionCaptured { task } => {
+                format!("regression {} from {}", task.id, task.source_incident)
+            }
+            OpsEvent::ReStudyOpened { restudy } => {
+                format!("re-study {} opened ({:?})", restudy.id, restudy.reason)
+            }
+            OpsEvent::ReStudyQuotaBlocked { reason } => format!("re-study blocked: {reason}"),
+            // Sampling bookkeeping is not a governed decision; it stays in the log.
+            OpsEvent::Sampled { .. } | OpsEvent::NotSampled { .. } => continue,
+        };
+        ts += 1;
+        audit.append("ops", action, ts);
+    }
+    audit
+}
+
+/// Paths and counts written by [`write_outputs`], for the caller to report.
+pub struct OpsOutputs {
+    /// The full event log path.
+    pub log_path: String,
+    /// The structured run report path.
+    pub report_path: String,
+    /// The audit log path.
+    pub audit_path: String,
+    /// The audit chain head the report commits to.
+    pub audit_head: String,
+    /// Incidents persisted.
+    pub incidents: usize,
+    /// Regression tasks persisted.
+    pub regressions: usize,
+    /// Re-studies persisted.
+    pub restudies: usize,
+    /// Total events logged.
+    pub events: usize,
+}
+
+/// Persist the loop's governed output to `dir` (PRD §15, 17.2), mirroring
+/// `study --out`: the full event log (`ops-log.json`), a structured run report
+/// (`ops-report.json` — the incidents, regression tasks and re-studies, plus a
+/// commitment to the audit chain head), and a tamper-evident hash-chained audit
+/// log (`audit-log.json`) of every governed decision. The report's `audit_head`
+/// lets `entelechy audit <dir>` detect any later edit.
+pub fn write_outputs(
+    dir: &str,
+    events: &[OpsEvent],
+    scored: &[ScoredRun],
+    contract: &EvalContract,
+    satisfaction: f64,
+    restudies_opened: f64,
+) -> anyhow::Result<OpsOutputs> {
+    std::fs::create_dir_all(dir)?;
+    let base = std::path::Path::new(dir);
+    let c = collect(events);
+    let audit = build_audit(events, scored, contract);
+    debug_assert!(
+        audit.verify_chain(),
+        "freshly built audit chain is consistent"
+    );
+    let audit_head = audit.head();
+
+    let report = serde_json::json!({
+        "contract_version": contract.version,
+        "primary_metric": contract.release.primary_metric,
+        "runs": scored.len(),
+        "resolved": scored.iter().filter(|r| r.resolved).count(),
+        "final_satisfaction": satisfaction,
+        "restudies_opened": restudies_opened,
+        "restudies_blocked": c.blocked,
+        "incidents": c.incidents,
+        "regression_tasks": c.regressions,
+        "restudies": c.restudies,
+        "audit_head": audit_head,
+    });
+
+    let log_path = base.join("ops-log.json");
+    let report_path = base.join("ops-report.json");
+    let audit_path = base.join("audit-log.json");
+    std::fs::write(&log_path, serde_json::to_string_pretty(&events)?)?;
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+    std::fs::write(&audit_path, serde_json::to_string_pretty(&audit)?)?;
+
+    Ok(OpsOutputs {
+        log_path: log_path.display().to_string(),
+        report_path: report_path.display().to_string(),
+        audit_path: audit_path.display().to_string(),
+        audit_head,
+        incidents: c.incidents.len(),
+        regressions: c.regressions.len(),
+        restudies: c.restudies.len(),
+        events: events.len(),
+    })
+}
+
 /// A one-line, human-readable description of an event for the CLI log, each
 /// citing the PRD requirement it realizes.
 pub fn describe(event: &OpsEvent) -> String {
@@ -401,5 +551,54 @@ mod tests {
             sa.iter().map(|r| r.task_success).collect::<Vec<_>>(),
             sb.iter().map(|r| r.task_success).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn audit_chain_records_every_governed_decision() {
+        let (_, events, scored) = run_ops_demo();
+        let audit = build_audit(&events, &scored, &ops_contract());
+        assert!(
+            audit.verify_chain(),
+            "the chain must be internally consistent"
+        );
+        // One leading summary entry plus one per governed (non-sampling) event.
+        let decisions = events
+            .iter()
+            .filter(|e| !matches!(e, OpsEvent::Sampled { .. } | OpsEvent::NotSampled { .. }))
+            .count();
+        assert_eq!(audit.len(), decisions + 1);
+        assert_ne!(audit.head(), "genesis", "a run opens at least one incident");
+    }
+
+    #[test]
+    fn persisted_outputs_are_verifiable() {
+        let (loopy, events, scored) = run_ops_demo();
+        let dir = std::env::temp_dir().join(format!("entelechy-ops-test-{}", std::process::id()));
+        let dir_s = dir.to_str().expect("utf-8 temp path");
+        let o = write_outputs(
+            dir_s,
+            &events,
+            &scored,
+            &ops_contract(),
+            loopy.satisfaction_rate(),
+            loopy.restudies_opened(),
+        )
+        .expect("write outputs");
+        assert_eq!((o.incidents, o.regressions, o.restudies), (2, 2, 2));
+
+        // Re-read and verify exactly as `entelechy audit <dir>` does: the chain is
+        // valid and the report commits to its head (PRD 17.2).
+        let audit: AuditLog =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("audit-log.json")).unwrap())
+                .unwrap();
+        assert!(audit.verify_chain());
+        let report: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("ops-report.json")).unwrap())
+                .unwrap();
+        assert_eq!(report["audit_head"].as_str().unwrap(), audit.head());
+        assert_eq!(report["restudies"].as_array().unwrap().len(), 2);
+        assert_eq!(report["incidents"].as_array().unwrap().len(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -6,10 +6,10 @@ to `main` after each self-contained unit, only when asked.
 
 ## Current state (verified)
 
-- HEAD `main` — the real-EvalContract-scores commit (this change), tree clean.
+- HEAD `main` — the online-ops-persistence commit (this change), tree clean.
 - Full gate green at HEAD: `cargo fmt --all --check`, `cargo clippy --workspace
   --all-targets -- -D warnings` (plus gateway `--features wasm,openai-tls`),
-  `cargo test --workspace` (**281 passed**), `RUSTDOCFLAGS="-D warnings" cargo doc
+  `cargo test --workspace` (**283 passed**), `RUSTDOCFLAGS="-D warnings" cargo doc
   --workspace --no-deps`. Build under memory pressure with `-j 2`.
 - **Phase 1 is complete.** Phase 0 mechanisms + Phase 1–3 primitives are built;
   Phase 4–5 are mostly library primitives, now beginning to be operationalized
@@ -17,30 +17,28 @@ to `main` after each self-contained unit, only when asked.
 
 ## Done since the last handoff
 
-- **Online-eval loop now driven by real EvalContract scores (PRD §15, §9, §21.4).**
-  `entelechy ops` no longer feeds the `OnlineEvalLoop` hand-supplied numbers. It
-  executes a deployed single-agent triage design over a stream of production
-  tickets through the real runtime, scores each run's output against a live
-  `EvalContract` with programmatic checkers (EV-4), and feeds the measured
-  `task_success` as the drift signal (user feedback is likewise derived from each
-  run's real resolution). The agent resolves reply tickets but refuses a refund at
-  the gate (a structural negative goal), so a refund surge drops the measured
-  `task_success`; the loop detects that drift *from the scores*, opens an incident,
-  captures regression coverage (EV-12) and queues a bounded re-study (OP-5). The
-  command prints the per-run scores and the decision trail; `--out` persists the
-  event log. The scoring wiring lives in the CLI, keeping `entelechy-ops` a leaf;
-  three CLI tests lock in the real-score-driven drift, the design's static validity
-  and run determinism.
+- **Online-ops output is now persisted and tamper-evident (PRD §15, 17.2).**
+  `entelechy ops --out <dir>` writes the loop's governed output the way
+  `study --out` does: the full event log (`ops-log.json`), a structured
+  `ops-report.json` (the incidents with their trace refs, the regression tasks and
+  the re-studies, plus a commitment to the audit chain head), and a hash-chained
+  `audit-log.json` of every governed decision. `entelechy audit <dir>` was
+  generalized to re-verify the chain and the ops report's `audit_head` (it already
+  did so for `study-report.json`), so a durable, tamper-evident operator record now
+  exists for an online run. Two CLI tests cover the audit chain and the
+  round-trip (write → re-read → verify); the loop itself still runs on the real
+  `EvalContract` scores wired in the previous change.
 
-## Recommended next item: persist the loop's output, or operational drills
+## Recommended next item: close the operate → re-study → release loop
 
-The loop now runs on real `EvalContract` scores, but its incidents/re-studies live
-only in memory. Two natural follow-ons:
-1. **Persist the online loop's output (PRD §15, 17.2).** Write the emitted
-   incidents, regression tasks and re-studies — plus a hash-chained audit log, as
-   `study --out` does — so operators have a durable, tamper-evident record; and
-   feed a captured re-study back into the `study` loop so an incident actually
-   drives a re-optimization (closing the operate → re-study → release cycle).
+The online loop now detects drift from real scores and persists typed incidents /
+re-studies, but a captured `ReStudy` is still inert. Natural follow-ons:
+1. **Feed a captured re-study back into `study` (PRD §14.3, 21).** Turn an opened
+   `ReStudy` (and the `RegressionTask` from its incident) into an actual
+   re-optimization: seed a `study` run from the incident's failing traces, so an
+   operate-time regression drives a governed re-study whose candidate still stops
+   at the release gate (never auto-promoted). That closes the measure → operate →
+   re-study → release cycle end to end.
 2. **Operational drills (RB/DR/AU/PV/SL, P4).** Not implemented; mechanizing them
    retires the three TR-1 waivers (PV-2, DR-1, DP-1) — see the gaps table.
 
@@ -53,7 +51,7 @@ escalates through levels 3 and 4), so a run visibly unlocks retrieval.
 | Gap | Phase | Note |
 |---|---|---|
 | Phase-0 study never run on a real domain | P0 | `study` uses a *declared simulator*; no resettable helpdesk / comparator / reproduction packet |
-| Online-eval / drift / incident loop | P4 | **loop built + driven by real `EvalContract` scores** (`entelechy-ops::online` + `entelechy ops`); still open: persist incidents/re-studies + audit log, and feed a re-study back into `study` (next-item §1) |
+| Online-eval / drift / incident loop | P4 | **loop built, driven by real `EvalContract` scores, output persisted + audited** (`entelechy-ops::online` + `entelechy ops [--out]`, `entelechy audit`); still open: feed a captured re-study back into `study` (next-item §1) |
 | Operational drills (RB/DR/AU/PV/SL) | P4 | not implemented; retiring these also clears the TR-1 waivers (PV-2, DR-1, DP-1) |
 | Shadow/canary rollout, web console, SDKs | P4/P3 | not implemented |
 | Multi-tenancy, plugin registry, learned priors, distillation | P5 | mostly not implemented (cluster execution is done) |
