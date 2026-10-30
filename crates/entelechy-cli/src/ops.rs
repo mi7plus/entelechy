@@ -27,7 +27,9 @@ use entelechy_ir::{
     VerifyNode,
 };
 use entelechy_ops::online::{OnlineEvalLoop, OpsEvent, OpsPolicy, RunObservation};
-use entelechy_ops::{DriftKind, Feedback, Incident, QuotaScope, ReStudy, RegressionTask};
+use entelechy_ops::{
+    DriftKind, Feedback, Incident, QuotaScope, ReStudy, ReStudyReason, RegressionTask,
+};
 use entelechy_runtime::{Engine, JournalEvent, RunResult};
 
 /// The deployed triage design under watch. Routing is a `Code` node *first*, so it
@@ -158,8 +160,10 @@ fn scoring_task() -> Task {
     }
 }
 
-/// Execute the deployed design on one ticket input, returning the run result.
-fn execute_ticket(input: serde_json::Value, run_id: &str) -> RunResult {
+/// Execute a triage design on one ticket input, returning the run result. The
+/// shared triage/draft registries let any design in this demo family (the
+/// deployed one, or a re-study candidate) run against the same production tickets.
+pub(crate) fn execute_on(program: &Program, input: serde_json::Value, run_id: &str) -> RunResult {
     let model = MockModel::new();
     let mut tools = NativeToolGateway::new();
     let mut engine = Engine::new(&model, &mut tools);
@@ -183,7 +187,19 @@ fn execute_ticket(input: serde_json::Value, run_id: &str) -> RunResult {
             .map(|s| !s.is_empty())
             .unwrap_or(false)
     });
-    engine.execute(&deployed_design(), Value::trusted(input), run_id)
+    engine.execute(program, Value::trusted(input), run_id)
+}
+
+/// Whether `program` resolves `task` under the EvalContract's checkers (EV-4):
+/// execute it on the task's input and score the output. Reused by the online loop
+/// and by the re-study's holdout gate so both score runs identically.
+pub(crate) fn resolves(program: &Program, task: &Task) -> bool {
+    let result = execute_on(program, task.input.clone(), &task.id);
+    let output = result
+        .output
+        .map(|v| v.data)
+        .unwrap_or(serde_json::Value::Null);
+    eval_registry().task_passes(&scoring_task(), &output)
 }
 
 /// The real cost of a run (PRD 7.5): egress model calls plus tool effects. A
@@ -267,7 +283,7 @@ pub fn run_ops_demo() -> (OnlineEvalLoop, Vec<OpsEvent>, Vec<ScoredRun>) {
             "text": format!("ticket {i}: customer needs a {needs}"),
             "needs": needs,
         });
-        let result = execute_ticket(input, &run_id);
+        let result = execute_on(&deployed_design(), input, &run_id);
         let output = result
             .output
             .clone()
@@ -333,11 +349,35 @@ fn collect(events: &[OpsEvent]) -> Collected {
     c
 }
 
+/// The drift re-study and the incident that triggered it, if the run opened one.
+/// This is the case the close-the-loop re-study ([`crate::restudy`]) re-optimizes:
+/// a re-study opened by detected drift (OP-5), paired with the drift incident
+/// (OP-4) whose failing traces become the regression class.
+pub(crate) fn drift_case(events: &[OpsEvent]) -> Option<(ReStudy, Incident)> {
+    let c = collect(events);
+    let restudy = c
+        .restudies
+        .iter()
+        .find(|r| r.reason == ReStudyReason::Drift)
+        .cloned()?;
+    let incident = c
+        .incidents
+        .iter()
+        .find(|i| i.summary.to_lowercase().contains("drift"))
+        .cloned()?;
+    Some((restudy, incident))
+}
+
 /// Build a tamper-evident, hash-chained audit log of the run's governed decisions
 /// (PRD 17.2): a leading summary entry, then one chained entry per drift,
 /// satisfaction breach, incident, regression, re-study and quota block — in order,
 /// so any post-hoc edit breaks the chain. Timestamps are fixed for reproducibility.
-fn build_audit(events: &[OpsEvent], scored: &[ScoredRun], contract: &EvalContract) -> AuditLog {
+fn build_audit(
+    events: &[OpsEvent],
+    scored: &[ScoredRun],
+    contract: &EvalContract,
+    restudy: Option<&crate::restudy::ReStudyOutcome>,
+) -> AuditLog {
     let mut audit = AuditLog::new();
     let mut ts = 1_700_000_000u64;
     audit.append(
@@ -372,6 +412,13 @@ fn build_audit(events: &[OpsEvent], scored: &[ScoredRun], contract: &EvalContrac
         };
         ts += 1;
         audit.append("ops", action, ts);
+    }
+    // The re-study's release-gate decision is itself a governed decision (OP-5):
+    // record it last so the chain head commits to the full operate → re-study →
+    // release trail.
+    if let Some(o) = restudy {
+        ts += 1;
+        audit.append("assure", o.audit_line(), ts);
     }
     audit
 }
@@ -409,11 +456,12 @@ pub fn write_outputs(
     contract: &EvalContract,
     satisfaction: f64,
     restudies_opened: f64,
+    restudy_outcome: Option<&crate::restudy::ReStudyOutcome>,
 ) -> anyhow::Result<OpsOutputs> {
     std::fs::create_dir_all(dir)?;
     let base = std::path::Path::new(dir);
     let c = collect(events);
-    let audit = build_audit(events, scored, contract);
+    let audit = build_audit(events, scored, contract, restudy_outcome);
     debug_assert!(
         audit.verify_chain(),
         "freshly built audit chain is consistent"
@@ -431,6 +479,9 @@ pub fn write_outputs(
         "incidents": c.incidents,
         "regression_tasks": c.regressions,
         "restudies": c.restudies,
+        // The closed-loop re-study outcome: the regression fix, the release-gate
+        // result, and the (always false) promotion decision (OP-5, §14.3).
+        "restudy": restudy_outcome,
         "audit_head": audit_head,
     });
 
@@ -556,7 +607,7 @@ mod tests {
     #[test]
     fn audit_chain_records_every_governed_decision() {
         let (_, events, scored) = run_ops_demo();
-        let audit = build_audit(&events, &scored, &ops_contract());
+        let audit = build_audit(&events, &scored, &ops_contract(), None);
         assert!(
             audit.verify_chain(),
             "the chain must be internally consistent"
@@ -568,11 +619,24 @@ mod tests {
             .count();
         assert_eq!(audit.len(), decisions + 1);
         assert_ne!(audit.head(), "genesis", "a run opens at least one incident");
+
+        // With a re-study outcome, the chain gains exactly one more governed entry
+        // (the release-gate decision) and stays consistent.
+        let (restudy, incident) = drift_case(&events).expect("the demo opens a drift re-study");
+        let outcome =
+            crate::restudy::run_restudy(&restudy, &incident, &ops_contract()).expect("re-study");
+        let with_rs = build_audit(&events, &scored, &ops_contract(), Some(&outcome));
+        assert!(with_rs.verify_chain());
+        assert_eq!(with_rs.len(), audit.len() + 1);
     }
 
     #[test]
     fn persisted_outputs_are_verifiable() {
         let (loopy, events, scored) = run_ops_demo();
+        // Close the loop: run the drift re-study so its outcome is persisted too.
+        let (restudy, incident) = drift_case(&events).expect("the demo opens a drift re-study");
+        let outcome =
+            crate::restudy::run_restudy(&restudy, &incident, &ops_contract()).expect("re-study");
         let dir = std::env::temp_dir().join(format!("entelechy-ops-test-{}", std::process::id()));
         let dir_s = dir.to_str().expect("utf-8 temp path");
         let o = write_outputs(
@@ -582,6 +646,7 @@ mod tests {
             &ops_contract(),
             loopy.satisfaction_rate(),
             loopy.restudies_opened(),
+            Some(&outcome),
         )
         .expect("write outputs");
         assert_eq!((o.incidents, o.regressions, o.restudies), (2, 2, 2));
@@ -598,6 +663,9 @@ mod tests {
         assert_eq!(report["audit_head"].as_str().unwrap(), audit.head());
         assert_eq!(report["restudies"].as_array().unwrap().len(), 2);
         assert_eq!(report["incidents"].as_array().unwrap().len(), 2);
+        // The persisted re-study outcome is a gated-but-unpromoted candidate.
+        assert_eq!(report["restudy"]["promoted"].as_bool(), Some(false));
+        assert!(report["restudy"]["gate"].get("Pass").is_some());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -9,6 +9,7 @@
 mod demo;
 mod ops;
 mod release;
+mod restudy;
 mod study;
 
 use clap::{Parser, Subcommand};
@@ -1218,6 +1219,23 @@ fn cmd_ops(out: Option<&str>) -> anyhow::Result<()> {
         loopy.restudies_opened()
     );
 
+    // 5. Close the loop: turn the opened drift re-study into a real re-optimization
+    //    — repair the design, fix the incident's regression class, gate the
+    //    candidate on a sealed independent holdout, and stop at the release gate
+    //    (never auto-promoted — OP-5, §14.3).
+    let outcome = match ops::drift_case(&events) {
+        Some((restudy, incident)) => {
+            let o = restudy::run_restudy(&restudy, &incident, &contract)?;
+            println!("\nClosing the operate → re-study → release loop:");
+            println!("  {}", restudy::describe_outcome(&o));
+            Some(o)
+        }
+        None => {
+            println!("\n(No drift re-study was opened, so there is nothing to re-optimize.)");
+            None
+        }
+    };
+
     if let Some(dir) = out {
         let o = ops::write_outputs(
             dir,
@@ -1226,6 +1244,7 @@ fn cmd_ops(out: Option<&str>) -> anyhow::Result<()> {
             &contract,
             loopy.satisfaction_rate(),
             loopy.restudies_opened(),
+            outcome.as_ref(),
         )?;
         println!(
             "\nPersisted ({} events): {}, {}, {}.",

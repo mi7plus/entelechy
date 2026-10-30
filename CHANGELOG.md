@@ -11,6 +11,30 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Closed operate → re-study → release loop (PRD §14.3, §21, OP-5).** The online
+  loop's opened `ReStudy` is no longer inert: a new `entelechy-cli::restudy` module
+  turns the drift re-study into a real re-optimization and drives it to a governed
+  release decision. It builds a repaired candidate as a minimal typed patch —
+  the deployed design with its over-restrictive refund-refusing `Gate` removed, so
+  a refund ticket gets a safe drafted escalation instead of being left unresolved —
+  while the authority envelope is unchanged (`refund` stays forbidden and ungranted),
+  so the structural negative goal is fully preserved: the candidate still has no way
+  to issue a refund. The candidate is exercised on the incident-derived **regression
+  suite** (`Provenance::Incident`, EV-12, scored directly — these are regression
+  coverage, never independent holdout evidence, PRD §9.5), fixing the class 0/8 →
+  8/8, and then gated on a sealed, incident-free **independent holdout** through the
+  assurance-only release gate (`HoldoutVault`, EV-14, §9.6), which passes on the
+  measured ~50pp improvement. Critically, even a passing candidate is **never
+  auto-promoted** (`ReStudy::auto_promotes()` is always `false`): it stops at the
+  release gate awaiting human approval (OP-5, the PRD non-goal of autonomous
+  production promotion). `entelechy ops` now runs the drift re-study and prints the
+  closed-loop outcome; `--out <dir>` persists it in `ops-report.json` (the regression
+  fix, the coarse gate verdict, and `promoted: false`) and records the release-gate
+  decision as a final entry in the hash-chained `audit-log.json`, so
+  `entelechy audit <dir>` re-verifies the whole operate → re-study → release trail.
+  `ops.rs` grew a reusable `execute_on`/`resolves` scoring pair so the loop and the
+  re-study's holdout gate score runs through the same real runtime and `EvalContract`
+  checkers.
 - **Online-eval / drift / incident loop (PRD §15, §21.4).** A running
   `OnlineEvalLoop` (`entelechy-ops::online`) composes the crate's stateless
   primitives into the P4 "measure and operate in production" story. It consumes a
