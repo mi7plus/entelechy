@@ -6,37 +6,52 @@ to `main` after each self-contained unit, only when asked.
 
 ## Current state (verified)
 
-- HEAD `6301366`, branch `main`, tree clean.
+- HEAD `d96988c`, branch `main`, tree clean.
 - Full gate green at HEAD: `cargo fmt --all --check`, `cargo clippy --workspace
-  --all-targets -- -D warnings`, `cargo test --workspace` (**251 passed**),
-  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`.
-- Phase 0 mechanisms + Phase 1–3 primitives are built; Phase 4–5 are mostly
-  library primitives, not operationalized. See the gap table below.
+  --all-targets -- -D warnings` (plus gateway `--features wasm,openai-tls`),
+  `cargo test --workspace` (**264 passed**), `RUSTDOCFLAGS="-D warnings" cargo doc
+  --workspace --no-deps`. Build under memory pressure with `-j 2`.
+- **Phase 1 is complete.** Phase 0 mechanisms + Phase 1–3 primitives are built;
+  Phase 4–5 are mostly library primitives, not operationalized.
 
-## Recommended next item: formalize the 1.0 contract freeze (Phase-1 exit)
+## Done since the last handoff
 
-The clearest bounded deliverable. Golden byte-tests already pin canonical-JSON and
-journal formats (`crates/entelechy-artifacts/tests/golden_format.rs`,
-`crates/entelechy-runtime/tests/golden_journal.rs`) and `CANONICAL_SERIALIZATION_VERSION`
-exists. What's missing is the *formalization*: a documented frozen-schema policy
-(IR, artifacts, journal, task/checker interfaces, AuthorityEnvelope) with explicit
-version constants and a compatibility/version-bump gate. Suggested approach:
-- Add a `docs/contracts-1.0.md` (or similar) listing each frozen schema + its
-  version and the compatibility promise.
-- Add schema-version constants where missing and a test/gate that fails if a
-  frozen byte format changes without a version bump (extend the golden tests).
+- **1.0 contract freeze (Phase-1 exit).** `docs/contracts-1.0.md` + the
+  machine-readable `entelechy_contracts::FROZEN_CONTRACTS` freeze six contracts
+  (canonical serialization, Design IR, journal, model-request, failure ontology,
+  protocol) with explicit version constants (`JOURNAL_FORMAT_VERSION`,
+  `NATIVE_REQUEST_SCHEMA_VERSION`, `CURRENT_PROTOCOL_VERSION` were added). A
+  version-bump gate (`entelechy-cli/tests/contract_freeze.rs`) ties each frozen
+  version to its owning constant; the golden tests pin the bytes.
+- **TR-1 traceability check in CI.** `entelechy requirements --check` +
+  `entelechy_contracts::phase_gate_evidence()` + a `traceability` CI job fail on any
+  requirement first enforced at/before the current gate phase (P1) with no
+  verification record and no active waiver. Three study/drill/approval requirements
+  carry scoped waivers (PV-2, DR-1, DP-1) that **expire 2027-07-01** and must be
+  retired by real evidence (see gaps below).
+
+## Recommended next item: Retrieval IR node (P3)
+
+Started this session. Memory tiers (`entelechy-runtime` `MemoryTier`/`TieredMemory`)
+and retrieval *metrics* (`entelechy-eval`) exist, but there is no Retrieval IR node
+and the search proposer cannot yet unlock retrieval. Shape:
+- Add a `Retrieval` node to the IR (`entelechy-ir`): query template + source/tier +
+  top-k, with static invariants (it is a read; honors confidentiality/taint labels).
+- Execute it in the runtime against a memory/knowledge source, journaling the
+  retrieval as an effect so replay is exact.
+- Wire the search proposer (`entelechy-search`) to unlock it on a
+  `knowledge.retrieval-miss` failure class, within the Architecture Explorer's
+  ceiling/budget/authority rules (Q4).
 
 ## Top remaining gaps (from the PRD §21 / §17.6 audit)
 
 | Gap | Phase | Note |
 |---|---|---|
-| 1.0 contract freeze (formalization) | P1 | recommended next |
-| TR-1 traceability check not in CI | P1 | `entelechy-contracts::TraceabilityIndex` exists; wire into `.github/workflows/ci.yml` |
+| Retrieval IR node + proposer unlock | P3 | recommended next (in progress) |
 | Phase-0 study never run on a real domain | P0 | `study` uses a *declared simulator*; no resettable helpdesk / comparator / reproduction packet |
-| Retrieval IR node + level-2 proposer unlock | P3 | memory tiers + retrieval *metrics* exist; no Retrieval node |
 | Online-eval / drift / incident loops | P4 | `entelechy-ops` has primitives (`sample_for_eval`, `FeedbackStore`, `DriftKind`); no running loop |
+| Operational drills (RB/DR/AU/PV/SL) | P4 | not implemented; retiring these also clears the TR-1 waivers (PV-2, DR-1, DP-1) |
 | Shadow/canary rollout, web console, SDKs | P4/P3 | not implemented |
-| Operational drills (RB/DR/AU/PV/SL) | P4 | not implemented |
 | Multi-tenancy, plugin registry, learned priors, distillation | P5 | mostly not implemented (cluster execution is done) |
 
 ## How to work here (see CLAUDE.md for the durable invariants)
@@ -50,7 +65,10 @@ version constants and a compatibility/version-bump gate. Suggested approach:
 - Conventions: each crate's `//!` cites its PRD section; commit messages reference
   requirement IDs (OC-*, IR-I*, EV-*, RK-*, AC-*, …); heavy engines stay behind
   features (`wasm`, `openai`, `openai-tls`).
+- The TR-1 phase gate is `entelechy requirements --check`. A new requirement or a
+  phase advance needs matching evidence/waivers in
+  `entelechy_contracts::phase_gate_evidence()` (and bumping `CURRENT_GATE_PHASE`).
 
 The CLI surface: `init, objective, capability, eval, design, study, trace, replay,
-counterfactual, diff, assure, release, serve, committee, audit, demo, requirements`
-(+ `infer` under `--features openai`).
+counterfactual, diff, assure, release, serve, committee, audit, demo,
+requirements [--check]` (+ `infer` under `--features openai`).
