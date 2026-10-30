@@ -253,6 +253,32 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
          (production promotion refused without a tested rollback target or approved rationale); operator drill `entelechy drill --kind rollback`",
         V,
     );
+    // AU-1/AU-2/AU-3 are first enforced at P4; their audit/attestation operational
+    // and key-drill evidence is recorded now so the P4 gate is already covered when
+    // the gate advances (mirrors RB-1/RB-2).
+    index.verify(
+        "AU-1",
+        "entelechy-identity: drill::audit_drill_satisfies_au1_au2_au3 + credential_expiry_fails_closed \
+         + audit::{valid_chain_verifies, external_anchor_detects_full_rewrite} (authenticated identity, \
+         separate authorization, fail-closed expiry, tamper-evident externally-anchored log); operator \
+         drill `entelechy drill --kind audit`",
+        V,
+    );
+    index.verify(
+        "AU-2",
+        "entelechy-identity: drill::audit_drill_satisfies_au1_au2_au3 + keyring::revoked_key_cannot_sign \
+         + expired_and_revoked_and_uncertain_fail_closed (key rotation/revocation with a stable content \
+         address; a revoked key never signs new writes and its approval fails closed); operator drill \
+         `entelechy drill --kind audit`",
+        V,
+    );
+    index.verify(
+        "AU-3",
+        "entelechy-identity: drill::audit_drill_satisfies_au1_au2_au3 + expired_and_revoked_and_uncertain_fail_closed \
+         (a security-sensitive time decision on an uncertain clock fails closed); operator drill \
+         `entelechy drill --kind audit`",
+        V,
+    );
 
     // Study/approval requirements not yet mechanized: scoped, expiring waivers with
     // compensating controls (PRD 17.5). These are honest gaps, not proofs — none is

@@ -11,6 +11,27 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Audit / attestation operational drill (PRD §17.2, AU-1/AU-2/AU-3).** A new
+  `entelechy-identity::drill` module composes the identity stack into the single
+  operational/key drill those three requirements call for: `audit_drill()` returns
+  an `AuditDrillReport` with one boolean per invariant. It proves **AU-1** — a
+  privileged operation carries an authenticated identity whose credential expiry
+  fails closed, authentication never implies authorization (separation of duties
+  still refuses a self-approval while admitting a distinct approver), and every
+  privileged action lands in a hash-chained, externally-anchored audit log whose
+  external anchor detects a full rewrite even when the forged log is internally
+  consistent; **AU-2** (key drill) — a signing key rotates (a new key signs and
+  validates new writes) and revokes (a revoked key can never sign a new write and
+  its existing approval fails closed) *without* mutating the content-addressed
+  artifact, whose address is stable across the whole lifecycle; and **AU-3** — a
+  security-sensitive time decision on an uncertain clock fails closed for both
+  authentication and an expiring approval rather than defaulting to "valid". The
+  `entelechy drill` command now takes `--kind restore|rollback|audit|all` (default
+  `all`): `audit` runs this drill, prints the per-invariant report, and with `--out`
+  persists `audit-report.json`. The AU-1/AU-2/AU-3 operational-drill verification is
+  recorded in `phase_gate_evidence()` now (they are first enforced at P4), so the P4
+  gate is already covered when the gate advances; the current P1 gate is unchanged.
+  Two new drill tests (the composite AU-1/AU-2/AU-3 invariants, determinism).
 - **Rollback disaster-recovery drill (PRD §14.6, RB-1/RB-2).** A new
   `entelechy-release::drill` module mechanizes the operational drill those two
   requirements call for: `rollback_drill()` runs the real promote → deploy →

@@ -1,6 +1,6 @@
-//! The `entelechy drill` command: operational disaster-recovery drills.
+//! The `entelechy drill` command: operational disaster-recovery and audit drills.
 //!
-//! Two drills, selected with `--kind` (default: both):
+//! Three drills, selected with `--kind` (default: all):
 //!
 //! - **restore** (PRD §17.3, DR-1): builds a realistic slice of durable state —
 //!   content-addressed artifacts across two security domains, the append-only
@@ -15,6 +15,12 @@
 //!   (RB-2), that stop authority is separate from promote authority and declared
 //!   triggers fire automatic rollback (RB-1), and that a rollback recovers the prior
 //!   known-good release.
+//! - **audit** (PRD §17.2, AU-1/AU-2/AU-3): runs [`entelechy_identity::audit_drill`]
+//!   — an authenticated privileged operation whose credential expiry fails closed
+//!   and whose authentication never implies authorization (AU-1), a signing-key
+//!   lifecycle that rotates and revokes without mutating the content-addressed
+//!   artifact (AU-2), an uncertain clock that fails closed (AU-3), and a
+//!   hash-chained, externally-anchored audit log that detects a full rewrite (AU-1).
 //!
 //! `--out <dir>` persists each drill's artifacts into that directory so the
 //! verification record is auditable.
@@ -24,6 +30,7 @@ use entelechy_artifacts::{
     InMemoryMetadataStore, InMemoryStore, LineageEdge, LineageKind, MetadataStore, RestoreError,
     SchemaVersion, DEFAULT_TENANT,
 };
+use entelechy_identity::{audit_drill, AuditDrillReport};
 use entelechy_release::{rollback_drill, RollbackDrillReport};
 
 /// Which disaster-recovery drill(s) to run.
@@ -33,12 +40,14 @@ pub enum DrillKind {
     Restore,
     /// The RB-1/RB-2 rollback drill (PRD §14.6).
     Rollback,
-    /// Both drills.
+    /// The AU-1/AU-2/AU-3 audit/attestation drill (PRD §17.2).
+    Audit,
+    /// Every drill.
     All,
 }
 
-/// Run the selected disaster-recovery drill(s). With `out`, persists each drill's
-/// artifacts into that directory.
+/// Run the selected disaster-recovery/audit drill(s). With `out`, persists each
+/// drill's artifacts into that directory.
 pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     if matches!(kind, DrillKind::Restore | DrillKind::All) {
         run_restore(out)?;
@@ -48,6 +57,12 @@ pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     }
     if matches!(kind, DrillKind::Rollback | DrillKind::All) {
         run_rollback(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Audit | DrillKind::All) {
+        run_audit(out)?;
     }
     Ok(())
 }
@@ -193,6 +208,91 @@ fn run_rollback(out: Option<&str>) -> anyhow::Result<()> {
     if let Some(dir) = out {
         std::fs::create_dir_all(dir)?;
         let report_path = std::path::Path::new(dir).join("rollback-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
+/// Run the AU-1/AU-2/AU-3 audit/attestation drill (PRD §17.2). With `out`, persists
+/// the report.
+fn run_audit(out: Option<&str>) -> anyhow::Result<()> {
+    let report: AuditDrillReport = audit_drill();
+
+    println!(
+        "Audit/attestation drill (PRD §17.2, AU-1/AU-2/AU-3) — authenticated identity, key lifecycle, tamper-evident log."
+    );
+    println!("Authenticated privileged operation (AU-1):");
+    println!(
+        "  authenticated principal:    {} (a privileged operation carries an authenticated identity)",
+        report.authenticated_principal
+    );
+    println!(
+        "  authn ≠ authz:              {} (separation of duties still refuses a self-approval)",
+        yes_no(report.authentication_requires_authorization)
+    );
+    println!(
+        "  credential expiry closes:   {} (an expired credential is refused)",
+        yes_no(report.expiry_fails_closed)
+    );
+    println!("Tamper-evident audit log (AU-1):");
+    println!(
+        "  privileged actions logged:  {} entries in the hash chain",
+        report.audit_entries
+    );
+    println!(
+        "  hash chain verifies:        {}",
+        yes_no(report.audit_chain_valid)
+    );
+    println!(
+        "  external anchor holds:      {} (an externally-held anchor is still in the chain's history)",
+        yes_no(report.audit_anchor_holds)
+    );
+    println!(
+        "  full rewrite detected:      {} (a forged, internally-consistent log no longer matches the anchor)",
+        yes_no(report.tamper_detected)
+    );
+    println!("Key lifecycle without plaintext mutation (AU-2):");
+    println!(
+        "  original key valid first:   {} (the pre-lifecycle approval was valid)",
+        yes_no(report.approval_valid_before_revocation)
+    );
+    println!(
+        "  rotated key signs writes:   {} (a new key signs and validates new writes)",
+        yes_no(report.rotated_key_signs_new_writes)
+    );
+    println!(
+        "  revoked key cannot sign:    {} (a revoked key never signs a new write)",
+        yes_no(report.revoked_key_cannot_sign)
+    );
+    println!(
+        "  revoked approval closes:    {} (the revoked key's existing approval fails closed)",
+        yes_no(report.revoked_key_approval_fails_closed)
+    );
+    println!(
+        "  artifact address stable:    {} (rotation/revocation never mutate the signed artifact)",
+        yes_no(report.artifact_address_stable)
+    );
+    println!("Uncertain clock (AU-3):");
+    println!(
+        "  time uncertainty closes:    {} (an uncertain clock fails closed rather than defaulting to valid)",
+        yes_no(report.uncertain_time_fails_closed)
+    );
+    println!(
+        "\n  => AU-1/AU-2/AU-3 {}.",
+        if report.ok {
+            "SATISFIED — authenticated identity with fail-closed expiry, a rotatable/revocable key lifecycle that never mutates artifacts, and a tamper-evident, externally-anchored audit log"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("AU audit drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("audit-report.json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
         println!("\nPersisted: {}.", report_path.display());
     }

@@ -179,13 +179,16 @@ enum Command {
         #[arg(long)]
         out: Option<String>,
     },
-    /// Run the disaster-recovery drills (PRD §17.3 DR-1, §14.6 RB-1/RB-2). The
-    /// `restore` drill backs up durable state across security domains, restores it
-    /// through a self-verifying drill (hashes, lineage and authorization metadata
-    /// preserved, erasures survive, tampering rejected). The `rollback` drill runs
-    /// the real promote → deploy → trigger → rollback → revoke sequence (production
-    /// promotion gated on a tested rollback target, stop authority separate from
-    /// promote authority, declared triggers fire, recovery to the known-good).
+    /// Run the disaster-recovery and audit drills (PRD §17.3 DR-1, §14.6 RB-1/RB-2,
+    /// §17.2 AU-1/AU-2/AU-3). The `restore` drill backs up durable state across
+    /// security domains, restores it through a self-verifying drill (hashes, lineage
+    /// and authorization metadata preserved, erasures survive, tampering rejected).
+    /// The `rollback` drill runs the real promote → deploy → trigger → rollback →
+    /// revoke sequence (production promotion gated on a tested rollback target, stop
+    /// authority separate from promote authority, declared triggers fire, recovery to
+    /// the known-good). The `audit` drill exercises an authenticated privileged
+    /// operation with fail-closed expiry, a rotate/revoke key lifecycle that never
+    /// mutates the signed artifact, and a tamper-evident, externally-anchored log.
     Drill {
         /// Which drill(s) to run.
         #[arg(long, value_enum, default_value_t = drill::DrillKind::All)]

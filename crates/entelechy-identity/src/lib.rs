@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod audit;
+pub mod drill;
 pub mod keyring;
 
 use std::collections::BTreeMap;
@@ -16,6 +17,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 pub use audit::{AuditEntry, AuditLog};
+pub use drill::{audit_drill, AuditDrillReport};
 pub use keyring::KeyRing;
 
 /// The kind of principal (PRD 5.8).
