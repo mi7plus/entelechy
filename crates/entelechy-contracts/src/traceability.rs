@@ -236,7 +236,21 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
         "DR-1",
         "entelechy-artifacts: backup::backup_restore_preserves_hashes_lineage_and_authorization \
          (+ a_corrupt_backup_is_rejected_not_loaded, restore_re_enforces_the_tenant_firewall, \
-         a_restore_never_resurrects_erased_data); operator drill `entelechy drill`",
+         a_restore_never_resurrects_erased_data); operator drill `entelechy drill --kind restore`",
+        V,
+    );
+    // RB-1/RB-2 are first enforced at P4; their operational-drill evidence is
+    // recorded now so the P4 gate is already covered when the gate advances.
+    index.verify(
+        "RB-1",
+        "entelechy-release: drill::rollback_drill_satisfies_rb1_and_rb2 + stop_authority_is_separate_from_promote \
+         (declared auto-triggers fire; stop authority separate from promote); operator drill `entelechy drill --kind rollback`",
+        V,
+    );
+    index.verify(
+        "RB-2",
+        "entelechy-release: drill::rollback_drill_satisfies_rb1_and_rb2 + l5_requires_rollback_ready \
+         (production promotion refused without a tested rollback target or approved rationale); operator drill `entelechy drill --kind rollback`",
         V,
     );
 

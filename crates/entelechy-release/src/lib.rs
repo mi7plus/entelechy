@@ -12,6 +12,7 @@
 //! rights.
 #![forbid(unsafe_code)]
 
+pub mod drill;
 pub mod maturity;
 
 use std::collections::BTreeSet;
@@ -21,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use entelechy_assurance::{AssuranceReport, SafetyCase};
 use entelechy_identity::{Approval, ApprovalBinding, ApprovalStatus, KeyRing, TimeSource};
 
+pub use drill::{rollback_drill, RollbackDrillReport};
 pub use maturity::{LifecycleState, MaturityLevel};
 
 /// A release bundle (PRD 14.4): everything needed to execute, replay and defend a

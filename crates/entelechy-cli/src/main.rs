@@ -179,12 +179,18 @@ enum Command {
         #[arg(long)]
         out: Option<String>,
     },
-    /// Run the backup → restore → verify disaster-recovery drill (PRD §17.3,
-    /// DR-1): back up durable state across security domains, restore it through a
-    /// self-verifying drill, confirm hashes, lineage and authorization metadata
-    /// are preserved and erasures survive, and prove a tampered backup is rejected.
+    /// Run the disaster-recovery drills (PRD §17.3 DR-1, §14.6 RB-1/RB-2). The
+    /// `restore` drill backs up durable state across security domains, restores it
+    /// through a self-verifying drill (hashes, lineage and authorization metadata
+    /// preserved, erasures survive, tampering rejected). The `rollback` drill runs
+    /// the real promote → deploy → trigger → rollback → revoke sequence (production
+    /// promotion gated on a tested rollback target, stop authority separate from
+    /// promote authority, declared triggers fire, recovery to the known-good).
     Drill {
-        /// Directory to write the backup packet and the restore report into.
+        /// Which drill(s) to run.
+        #[arg(long, value_enum, default_value_t = drill::DrillKind::All)]
+        kind: drill::DrillKind,
+        /// Directory to write each drill's artifacts/report into.
         #[arg(long)]
         out: Option<String>,
     },
@@ -205,7 +211,7 @@ fn main() -> anyhow::Result<()> {
         Command::Design { validate } => cmd_design(validate),
         Command::Demo { out } => cmd_demo(&out),
         Command::Ops { out } => cmd_ops(out.as_deref()),
-        Command::Drill { out } => drill::run(out.as_deref()),
+        Command::Drill { kind, out } => drill::run(kind, out.as_deref()),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
         Command::Counterfactual {
             design,

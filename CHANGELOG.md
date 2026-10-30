@@ -11,6 +11,24 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Rollback disaster-recovery drill (PRD §14.6, RB-1/RB-2).** A new
+  `entelechy-release::drill` module mechanizes the operational drill those two
+  requirements call for: `rollback_drill()` runs the real promote → deploy →
+  trigger → rollback → revoke sequence end to end and returns a `RollbackDrillReport`.
+  It proves **RB-2** — a production (L4/L5) promotion with no tested rollback target
+  *and* no approved no-rollback rationale is refused at the real promotion gate,
+  while an otherwise-identical rollback-ready bundle (target or rationale) passes —
+  and **RB-1** — stop authority is separate from promote authority (an on-call
+  stopper cannot deploy; a releaser cannot roll back or revoke), the declared
+  automatic rollback triggers fire while an undeclared signal does not, a rollback
+  recovers the prior known-good release as active, and emergency revocation of the
+  active release is a fail-safe stop (the system then serves nothing). The `entelechy
+  drill` command now takes `--kind restore|rollback|all` (default `all`): `restore`
+  runs the DR-1 backup/restore drill, `rollback` runs this one, and `--out` persists
+  each drill's report (`rollback-report.json`). The RB-1/RB-2 operational-drill
+  verification is recorded in `phase_gate_evidence()` now (they are first enforced at
+  P4), so the P4 gate is already covered when the gate advances; the current P1 gate
+  is unchanged. Two new drill tests (the composite RB-1/RB-2 invariants, determinism).
 - **Backup → restore → verify disaster-recovery drill (PRD §17.3, DR-1).** A new
   `entelechy-artifacts::backup` module mechanizes DR-1 — "backup and restore
   preserve hashes, lineage and authorization metadata." A `BackupPacket` captures

@@ -1,26 +1,60 @@
-//! The `entelechy drill` command: a backup → restore → verify disaster-recovery
-//! drill (PRD §17.3, DR-1).
+//! The `entelechy drill` command: operational disaster-recovery drills.
 //!
-//! DR-1 requires that "backup and restore preserve hashes, lineage and
-//! authorization metadata". This command builds a realistic slice of durable
-//! state — content-addressed artifacts across two security domains, the
-//! append-only metadata/event log, a lineage graph and an erasure tombstone —
-//! backs it up to serialized bytes, restores it through the self-verifying
-//! [`entelechy_artifacts::run_restore_drill`], and prints the resulting
-//! [`entelechy_artifacts::RestoreReport`]. It then proves the drill is
-//! fail-closed by tampering a copy of the backup and showing the restore is
-//! *rejected*, never silently loaded. `--out` persists the backup packet and the
-//! report so the verification record is auditable.
+//! Two drills, selected with `--kind` (default: both):
+//!
+//! - **restore** (PRD §17.3, DR-1): builds a realistic slice of durable state —
+//!   content-addressed artifacts across two security domains, the append-only
+//!   metadata/event log, a lineage graph and an erasure tombstone — backs it up to
+//!   serialized bytes, restores it through the self-verifying
+//!   [`entelechy_artifacts::run_restore_drill`], prints the resulting
+//!   [`entelechy_artifacts::RestoreReport`], and proves the drill is fail-closed by
+//!   tampering a copy of the backup and showing the restore is *rejected*.
+//! - **rollback** (PRD §14.6, RB-1/RB-2): runs [`entelechy_release::rollback_drill`]
+//!   — the real promote → deploy → trigger → rollback → revoke sequence — and
+//!   reports that a production release without a tested rollback target is refused
+//!   (RB-2), that stop authority is separate from promote authority and declared
+//!   triggers fire automatic rollback (RB-1), and that a rollback recovers the prior
+//!   known-good release.
+//!
+//! `--out <dir>` persists each drill's artifacts into that directory so the
+//! verification record is auditable.
 
 use entelechy_artifacts::{
     run_restore_drill, Artifact, ArtifactHeader, BackupPacket, BlobStore, ErasureLedger,
     InMemoryMetadataStore, InMemoryStore, LineageEdge, LineageKind, MetadataStore, RestoreError,
     SchemaVersion, DEFAULT_TENANT,
 };
+use entelechy_release::{rollback_drill, RollbackDrillReport};
+
+/// Which disaster-recovery drill(s) to run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum DrillKind {
+    /// The DR-1 backup → restore → verify drill (PRD §17.3).
+    Restore,
+    /// The RB-1/RB-2 rollback drill (PRD §14.6).
+    Rollback,
+    /// Both drills.
+    All,
+}
+
+/// Run the selected disaster-recovery drill(s). With `out`, persists each drill's
+/// artifacts into that directory.
+pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
+    if matches!(kind, DrillKind::Restore | DrillKind::All) {
+        run_restore(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Rollback | DrillKind::All) {
+        run_rollback(out)?;
+    }
+    Ok(())
+}
 
 /// Run the DR-1 backup/restore drill (PRD §17.3). With `out`, persists the backup
 /// packet and the restore report into that directory.
-pub fn run(out: Option<&str>) -> anyhow::Result<()> {
+fn run_restore(out: Option<&str>) -> anyhow::Result<()> {
     // 1. Build a realistic slice of durable state across two security domains.
     let packet = populate_durable_state()?;
     let tenants = distinct_tenants(&packet);
@@ -95,6 +129,72 @@ pub fn run(out: Option<&str>) -> anyhow::Result<()> {
             backup_bytes.len(),
             report_path.display()
         );
+    }
+    Ok(())
+}
+
+/// Run the RB-1/RB-2 rollback drill (PRD §14.6). With `out`, persists the report.
+fn run_rollback(out: Option<&str>) -> anyhow::Result<()> {
+    let report: RollbackDrillReport = rollback_drill();
+    let triggers: Vec<String> = report
+        .declared_triggers
+        .iter()
+        .map(|t| format!("{t:?}"))
+        .collect();
+
+    println!(
+        "Rollback drill (PRD §14.6, RB-1/RB-2) — promote → deploy → trigger → rollback → revoke."
+    );
+    println!("Rollback readiness (RB-2):");
+    println!(
+        "  production promotion gated: {} (an L4/L5 release with no rollback target and no rationale is refused)",
+        yes_no(report.rollback_ready_enforced)
+    );
+    println!(
+        "  no-rollback rationale path: {} (a documented, approved rationale also satisfies readiness)",
+        yes_no(report.rationale_satisfies_rb2)
+    );
+    println!("Rollback authority + triggers (RB-1):");
+    println!(
+        "  stop ≠ promote authority:   {} (an on-call stopper cannot deploy; a releaser cannot roll back or revoke)",
+        yes_no(report.authority_separation_enforced)
+    );
+    println!(
+        "  declared auto-triggers:     [{}]; declared fires: {}, undeclared ignored: {}",
+        triggers.join(", "),
+        yes_no(report.declared_trigger_fired),
+        yes_no(report.undeclared_trigger_ignored)
+    );
+    println!("Recovery:");
+    println!(
+        "  rolled back to:             {} (prior known-good release restored as active)",
+        report.recovered_to
+    );
+    println!(
+        "  recovery verified:          {}",
+        yes_no(report.recovery_ok)
+    );
+    println!(
+        "  emergency revocation:       {} (revoking the active release serves nothing — fail-safe stop)",
+        yes_no(report.revocation_ok)
+    );
+    println!(
+        "\n  => RB-1/RB-2 {}.",
+        if report.ok {
+            "SATISFIED — declared rollback triggers, separated stop authority, and a tested rollback target recover a bad rollout"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("RB rollback drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("rollback-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
     }
     Ok(())
 }
