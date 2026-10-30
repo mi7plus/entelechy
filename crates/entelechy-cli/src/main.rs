@@ -1,11 +1,13 @@
 //! Entelechy CLI (PRD 16.1). Local-first workflow.
 //!
 //! Command surface from PRD 16.1: init, objective, capability, eval, design,
-//! study, trace, replay, diff, assure, release, serve (plus demo, requirements,
-//! committee, audit, counterfactual, and, under the `openai` feature, infer).
+//! study, trace, replay, diff, assure, release, serve (plus demo, ops,
+//! requirements, committee, audit, counterfactual, and, under the `openai`
+//! feature, infer).
 #![forbid(unsafe_code)]
 
 mod demo;
+mod ops;
 mod release;
 mod study;
 
@@ -165,6 +167,15 @@ enum Command {
         #[arg(long, default_value = "entelechy-demo")]
         out: String,
     },
+    /// Run the bundled online-operations demo (PRD §15, §21.4): drive a stream of
+    /// production run observations and user feedback through the online-eval loop
+    /// and print the typed event trail — sampling, drift, incidents, regression
+    /// coverage, bounded re-studies and the quota hard stop.
+    Ops {
+        /// Directory to write the emitted event log (`ops-log.json`) into.
+        #[arg(long)]
+        out: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -181,6 +192,7 @@ fn main() -> anyhow::Result<()> {
         } => cmd_infer(base_url, model, prompt, api_key),
         Command::Design { validate } => cmd_design(validate),
         Command::Demo { out } => cmd_demo(&out),
+        Command::Ops { out } => cmd_ops(out.as_deref()),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
         Command::Counterfactual {
             design,
@@ -1130,6 +1142,41 @@ fn cmd_demo(out_dir: &str) -> anyhow::Result<()> {
     println!(
         "\nDone. Phase 0 slice: execute -> journal -> replay + effect-safety conformance (PRD 21)."
     );
+    Ok(())
+}
+
+fn cmd_ops(out: Option<&str>) -> anyhow::Result<()> {
+    use entelechy_ops::online::OpsEvent;
+
+    let (loopy, events) = ops::run_ops_demo();
+    println!("Online operations loop (PRD §15, §21.4): a production run + feedback stream.\n");
+    for (i, ev) in events.iter().enumerate() {
+        println!("{:>3}. {}", i + 1, ops::describe(ev));
+    }
+
+    let count = |f: fn(&OpsEvent) -> bool| events.iter().filter(|e| f(e)).count();
+    let sampled = count(|e| matches!(e, OpsEvent::Sampled { .. }));
+    let incidents = count(|e| matches!(e, OpsEvent::IncidentOpened { .. }));
+    let regressions = count(|e| matches!(e, OpsEvent::RegressionCaptured { .. }));
+    let restudies = count(|e| matches!(e, OpsEvent::ReStudyOpened { .. }));
+    let blocks = count(|e| matches!(e, OpsEvent::ReStudyQuotaBlocked { .. }));
+    println!(
+        "\nSummary: {sampled} run(s) sampled, {incidents} incident(s), {regressions} regression task(s), {restudies} re-study(ies), {blocks} quota block(s)."
+    );
+    println!(
+        "Re-studies charged against the quota: {:.0} (bounded hard stop — OP-7). Their candidates wait at the release gate; none auto-promote (OP-5, §14.3).",
+        loopy.restudies_opened()
+    );
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let path = format!("{dir}/ops-log.json");
+        std::fs::write(&path, serde_json::to_string_pretty(&events)?)?;
+        println!(
+            "\nWrote {path} ({} events) — a replayable, auditable log.",
+            events.len()
+        );
+    }
     Ok(())
 }
 

@@ -11,6 +11,25 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Online-eval / drift / incident loop (PRD §15, §21.4).** A running
+  `OnlineEvalLoop` (`entelechy-ops::online`) composes the crate's stateless
+  primitives into the P4 "measure and operate in production" story. It consumes a
+  stream of production `RunObservation`s and user `Feedback` and emits a typed,
+  auditable `OpsEvent` log: each run is sampled for online evaluation at a bounded
+  rate (OP-2); per drift signal it holds a frozen baseline and a rolling recent
+  window and re-runs `detect_drift` as sampled values arrive (OP-3); on detected
+  drift — or a user-satisfaction breach past a floor — it captures an `Incident`
+  from the triggering trace, turns it into permanent regression coverage (OP-4,
+  EV-12), and opens a *bounded* `ReStudy` whose candidates wait at the release gate
+  and never auto-promote (OP-5, §14.3). Every re-study is charged against a
+  `QuotaLedger`; once the budget is spent the loop emits a hard-stop event instead
+  of opening another (OP-7, §17.4). A drift signal latches, so a sustained regime
+  opens one re-study rather than one per run, and the loop is deterministic — the
+  same observations in the same order always yield the same event stream, so an
+  operator can replay and audit exactly why each incident and re-study opened. A
+  new `entelechy ops [--out <dir>]` CLI command drives a bundled run+feedback
+  scenario end to end, prints the event trail with its requirement citations, and
+  persists the serialized log.
 - **Retrieval IR node + level-2 search unlock (PRD 11.4 level 2, §12).** A new
   `Retrieval` node (`entelechy-ir`) fetches the `top_k` most relevant entries of a
   memory tier for a query built from the current value. Statically it is a read —

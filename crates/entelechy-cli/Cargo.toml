@@ -29,6 +29,7 @@ entelechy-effects = { workspace = true }
 entelechy-failure = { workspace = true }
 entelechy-assurance = { workspace = true }
 entelechy-release = { workspace = true }
+entelechy-ops = { workspace = true }
 entelechy-identity = { workspace = true }
 entelechy-objective = { workspace = true }
 entelechy-capability = { workspace = true }

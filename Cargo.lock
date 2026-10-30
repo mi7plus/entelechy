@@ -629,6 +629,7 @@ dependencies = [
  "entelechy-identity",
  "entelechy-ir",
  "entelechy-objective",
+ "entelechy-ops",
  "entelechy-policy",
  "entelechy-protocol",
  "entelechy-release",

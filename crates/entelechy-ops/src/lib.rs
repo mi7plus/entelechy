@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub mod online;
+pub use online::{OnlineEvalLoop, OpsEvent, OpsPolicy, RunObservation};
+
 /// Deterministically decide whether a run is sampled for online evaluation at the
 /// given rate (PRD OP-2: online sampled evaluation). Uses a hash of the run id so
 /// the decision is stable and reproducible for a given id.
@@ -84,7 +87,7 @@ impl FeedbackStore {
 }
 
 /// The kind of signal a drift event concerns (PRD OP-3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DriftKind {
     /// Input distribution drift.
