@@ -11,6 +11,16 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **TR-1 traceability check in CI (PRD §17.5).** `entelechy requirements --check`
+  builds the authoritative phase-gate evidence (`entelechy_contracts::phase_gate_evidence`)
+  and fails non-zero if any requirement first enforced at or before the current
+  gate phase (P1) has no verification record and no active waiver. A new
+  `traceability` CI job runs it on every push/PR. Ten P0/P1 requirements are linked
+  to their verifying tests; the three study/drill/approval requirements not yet
+  mechanized (PV-2, DR-1, DP-1) carry scoped, expiring waivers with compensating
+  controls. Adds a runtime test that a Human node fails closed and never implies
+  approval (RS-2), and contracts tests asserting full phase coverage and that no
+  StaticProof requirement is waived (TR-1).
 - **1.0 contract freeze (Phase-1 exit, PRD §21).** A normative freeze of the
   externally observable contracts: `docs/contracts-1.0.md` documents each frozen
   schema (canonical serialization + artifact header, Design IR incl. task/checker

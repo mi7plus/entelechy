@@ -28,6 +28,16 @@ fn requirements_lists_the_registry() {
 }
 
 #[test]
+fn requirements_check_passes_the_phase_gate() {
+    // TR-1: the phase-gate traceability check must pass on a clean tree, exiting
+    // zero. A regression that leaves a required requirement unverified and
+    // unwaived would make this exit non-zero (and fail the `traceability` CI job).
+    let (ok, out) = run(&["requirements", "--check"]);
+    assert!(ok, "requirements --check failed: {out}");
+    assert!(out.contains("PASS"), "unexpected output: {out}");
+}
+
+#[test]
 fn eval_reports_contract_power_and_gate() {
     let (ok, out) = run(&["eval"]);
     assert!(ok, "eval failed: {out}");

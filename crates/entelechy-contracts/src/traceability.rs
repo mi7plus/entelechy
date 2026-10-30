@@ -158,6 +158,121 @@ impl TraceabilityIndex {
     }
 }
 
+/// The lifecycle phase whose gate CI currently enforces (PRD §21). The project is
+/// at the Phase-1 exit; advancing the gate means extending [`phase_gate_evidence`]
+/// to cover the newly required requirements and bumping this.
+pub const CURRENT_GATE_PHASE: Phase = Phase::P1;
+
+/// Review deadline for the pre-maturity waivers in [`phase_gate_evidence`]:
+/// 2027-07-01T00:00:00Z. Past this instant the waivers expire and the TR-1 gate
+/// reports them as gaps, forcing a re-review (PRD 17.5 — waivers are expiring).
+pub const WAIVER_REVIEW_DEADLINE: u64 = 1_814_400_000;
+
+/// The authoritative phase-gate evidence for [`CURRENT_GATE_PHASE`] (PRD 17.5,
+/// TR-1): a verification record for every requirement that has automated evidence,
+/// and a scoped, expiring waiver — with a compensating control — for the
+/// study/drill/approval requirements not yet mechanized in this pre-maturity build.
+///
+/// `entelechy requirements --check` and the `traceability` CI job consume this. A
+/// requirement first enforced at or before [`CURRENT_GATE_PHASE`] that is neither
+/// recorded nor covered by an active, permissible waiver fails the gate.
+pub fn phase_gate_evidence() -> TraceabilityIndex {
+    // Pre-1.0 workspace version; the gate pins evidence to the build that produced it.
+    const V: &str = "0.0.0";
+    let mut index = TraceabilityIndex::new();
+
+    // Requirements backed by automated verification artifacts.
+    index.verify(
+        "AC-1",
+        "entelechy-artifacts: artifact_id_includes_header + tests/golden_format.rs",
+        V,
+    );
+    index.verify(
+        "AC-2",
+        "entelechy-artifacts: tests/golden_format.rs + tests/proptest_canonical.rs",
+        V,
+    );
+    index.verify(
+        "AC-3",
+        "entelechy-release: ApprovalBinding tests (stale_approval_blocks_even_with_override)",
+        V,
+    );
+    index.verify(
+        "PV-1",
+        "entelechy-runtime: tests/golden_journal.rs + entelechy-gateway model identity capture",
+        V,
+    );
+    index.verify(
+        "RS-1",
+        "entelechy-effects: non_idempotent_unknown_commit_needs_reconciliation + entelechy-runtime terminal-state tests",
+        V,
+    );
+    index.verify(
+        "RS-2",
+        "entelechy-runtime: human_node_fails_closed_and_never_approves",
+        V,
+    );
+    index.verify(
+        "EL-2",
+        "entelechy-eval: seal_rejects_non_holdout_tasks + entelechy-bench manifest_seals_holdout_hashes",
+        V,
+    );
+    index.verify(
+        "PC-1",
+        "entelechy-protocol: disjoint_ranges_fail_closed + no_silent_security_downgrade",
+        V,
+    );
+    index.verify(
+        "OL-1",
+        "entelechy-runtime: model_budget_exhaustion_is_typed_terminal (budgets enforced outside model output)",
+        V,
+    );
+    index.verify(
+        "TR-1",
+        "CI job `traceability` (entelechy requirements --check) + entelechy-contracts phase_gate_evidence tests",
+        V,
+    );
+
+    // Study/drill/approval requirements not yet mechanized: scoped, expiring
+    // waivers with compensating controls (PRD 17.5). These are honest gaps, not
+    // proofs — none is a StaticProof requirement, so all are permissibly waivable.
+    index.waive(Waiver {
+        requirement_id: "PV-2".into(),
+        rationale: "No-silent-pooling across material drift is study evidence from a \
+                    real-domain run; the Phase-0 study on a real domain is not yet run."
+            .into(),
+        compensating_control: "Provider identity and the returned revision are recorded on \
+                               every model call (PV-1); the deterministic mock pins a fixed \
+                               revision so fingerprints are stable."
+            .into(),
+        approver: "phase-gate-owner".into(),
+        expires_at: WAIVER_REVIEW_DEADLINE,
+    });
+    index.waive(Waiver {
+        requirement_id: "DR-1".into(),
+        rationale: "A full backup/restore drill is not yet implemented.".into(),
+        compensating_control: "Content-addressing makes hashes and lineage self-verifying on \
+                               restore; erasure-ledger restore is tested \
+                               (restore_never_resurrects_erased_data)."
+            .into(),
+        approver: "phase-gate-owner".into(),
+        expires_at: WAIVER_REVIEW_DEADLINE,
+    });
+    index.waive(Waiver {
+        requirement_id: "DP-1".into(),
+        rationale: "Formal single-deployment-profile approval is an operator step taken at \
+                    deployment, not in this library build."
+            .into(),
+        compensating_control: "The DeploymentProfile type models exactly one declared profile \
+                               in code (entelechy-artifacts: platform.rs)."
+            .into(),
+        approver: "phase-gate-owner".into(),
+        expires_at: WAIVER_REVIEW_DEADLINE,
+    });
+
+    index
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +323,49 @@ mod tests {
         let gaps = index.phase_gate_gaps(Phase::P0, 2_000);
         assert_eq!(gaps.len(), 1);
         assert_eq!(gaps[0].reason, GapReason::WaiverExpired);
+    }
+
+    #[test]
+    fn phase_gate_evidence_passes_the_current_gate() {
+        // Before the waiver review deadline, the declared evidence (records +
+        // active waivers) closes every gap at the current gate phase (TR-1).
+        let index = phase_gate_evidence();
+        let before_deadline = WAIVER_REVIEW_DEADLINE - 1;
+        let gaps = index.phase_gate_gaps(CURRENT_GATE_PHASE, before_deadline);
+        assert!(gaps.is_empty(), "unexpected phase-gate gaps: {gaps:?}");
+    }
+
+    #[test]
+    fn every_required_requirement_is_recorded_or_waived() {
+        // Time-independent coverage: a requirement first enforced at or before the
+        // gate phase must ship with a verification record or a waiver, so adding a
+        // new one to the registry without evidence fails here.
+        let index = phase_gate_evidence();
+        for r in REGISTRY
+            .iter()
+            .filter(|r| r.first_enforced <= CURRENT_GATE_PHASE)
+        {
+            let recorded = index.records.iter().any(|rec| rec.requirement_id == r.id);
+            let waived = index.waivers.iter().any(|w| w.requirement_id == r.id);
+            assert!(
+                recorded || waived,
+                "{} has neither a verification record nor a waiver",
+                r.id
+            );
+        }
+    }
+
+    #[test]
+    fn waived_requirements_are_all_permissibly_waivable() {
+        // A waiver may never stand in for a StaticProof requirement (PRD 17.5).
+        let index = phase_gate_evidence();
+        for w in &index.waivers {
+            let req = crate::find(&w.requirement_id).expect("waiver names a real requirement");
+            assert!(
+                is_waivable(req),
+                "{} is non-waivable (StaticProof) and must not be waived",
+                w.requirement_id
+            );
+        }
     }
 }

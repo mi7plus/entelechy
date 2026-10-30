@@ -805,4 +805,33 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn human_node_fails_closed_and_never_approves() {
+        // RS-2 (PRD 8.6): a human decision is never an implicit approval. Until
+        // interactive human responders arrive (Phase 2+), a Human node ends in a
+        // typed `Failed` terminal — it never silently succeeds or auto-approves,
+        // even with a zero-second (already-expired) timeout.
+        use entelechy_ir::HumanNode;
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = Engine::new(&model, &mut tools);
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "ask",
+                NodeKind::Human(HumanNode {
+                    prompt: "Approve the refund?".into(),
+                    timeout_secs: 0,
+                }),
+            ),
+        );
+        let r = e.execute(&prog, Value::trusted(serde_json::json!({})), "run-human");
+        assert!(
+            matches!(r.status, RunStatus::Failed { .. }),
+            "human node must fail closed, got {:?}",
+            r.status
+        );
+        assert_ne!(r.status, RunStatus::Succeeded);
+    }
 }

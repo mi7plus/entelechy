@@ -89,6 +89,18 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
+  traceability:
+    name: traceability (TR-1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, pinned 2026-09-24
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # TR-1 (PRD 17.5): the phase-gate traceability check fails CI if a required
+      # requirement has no verification record and no active waiver.
+      - name: Phase-gate traceability check (TR-1)
+        run: cargo run -p entelechy-cli -- requirements --check
+
   licenses:
     name: licence audit (MIT, G11)
     runs-on: ubuntu-latest

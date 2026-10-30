@@ -16,7 +16,10 @@ pub mod traceability;
 use serde::{Deserialize, Serialize};
 
 pub use freeze::{FrozenContract, FROZEN_CONTRACTS};
-pub use traceability::{Gap, GapReason, TraceabilityIndex, VerificationRecord, Waiver};
+pub use traceability::{
+    phase_gate_evidence, Gap, GapReason, TraceabilityIndex, VerificationRecord, Waiver,
+    CURRENT_GATE_PHASE, WAIVER_REVIEW_DEADLINE,
+};
 
 /// A lifecycle phase (PRD section 21).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

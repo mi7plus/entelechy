@@ -148,8 +148,17 @@ enum Command {
         #[arg(long)]
         api_key: Option<String>,
     },
-    /// List the normative requirement registry (PRD 17.6).
-    Requirements,
+    /// List the normative requirement registry (PRD 17.6). With `--check`, run
+    /// the TR-1 phase-gate traceability check and exit non-zero on any gap.
+    Requirements {
+        /// Run the phase-gate traceability check (TR-1): fail if any required
+        /// requirement has no verification record and no active waiver.
+        #[arg(long)]
+        check: bool,
+        /// Phase to check (p0..p5). Defaults to the current gate phase.
+        #[arg(long)]
+        phase: Option<String>,
+    },
     /// Run the bundled end-to-end demo: execute, journal and replay.
     Demo {
         /// Directory to write the demo design + journal into.
@@ -162,7 +171,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Init => cmd_init(),
-        Command::Requirements => cmd_requirements(),
+        Command::Requirements { check, phase } => cmd_requirements(check, phase.as_deref()),
         #[cfg(feature = "openai")]
         Command::Infer {
             base_url,
@@ -985,8 +994,11 @@ fn cmd_eval() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cmd_requirements() -> anyhow::Result<()> {
+fn cmd_requirements(check: bool, phase: Option<&str>) -> anyhow::Result<()> {
     use entelechy_contracts::REGISTRY;
+    if check {
+        return run_traceability_check(phase);
+    }
     println!(
         "Cross-cutting requirement registry (PRD 17.6) — {} entries:\n",
         REGISTRY.len()
@@ -998,6 +1010,53 @@ fn cmd_requirements() -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// The TR-1 phase-gate traceability check (PRD 17.5): build the authoritative
+/// phase-gate evidence, compute gaps for the target phase at the current time, and
+/// fail (non-zero exit) on any gap so CI blocks a merge that leaves a required
+/// requirement unverified and unwaived.
+fn run_traceability_check(phase: Option<&str>) -> anyhow::Result<()> {
+    use entelechy_contracts::{phase_gate_evidence, CURRENT_GATE_PHASE};
+    let phase = match phase {
+        None => CURRENT_GATE_PHASE,
+        Some(p) => parse_phase(p)?,
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let gaps = phase_gate_evidence().phase_gate_gaps(phase, now);
+    if gaps.is_empty() {
+        println!(
+            "TR-1 phase-gate traceability check: PASS — every requirement first enforced \
+             at or before {phase:?} is verified or covered by an active waiver."
+        );
+        Ok(())
+    } else {
+        eprintln!(
+            "TR-1 phase-gate traceability check: FAIL — {} gap(s) at {phase:?}:",
+            gaps.len()
+        );
+        for g in &gaps {
+            eprintln!("  {:<5} {:?}", g.requirement_id, g.reason);
+        }
+        anyhow::bail!("traceability gaps at {phase:?}: {}", gaps.len())
+    }
+}
+
+/// Parse a `p0`..`p5` phase name (case-insensitive).
+fn parse_phase(s: &str) -> anyhow::Result<entelechy_contracts::Phase> {
+    use entelechy_contracts::Phase;
+    Ok(match s.to_ascii_lowercase().as_str() {
+        "p0" => Phase::P0,
+        "p1" => Phase::P1,
+        "p2" => Phase::P2,
+        "p3" => Phase::P3,
+        "p4" => Phase::P4,
+        "p5" => Phase::P5,
+        other => anyhow::bail!("unknown phase '{other}' (expected p0..p5)"),
+    })
 }
 
 fn cmd_design(validate: Option<String>) -> anyhow::Result<()> {
