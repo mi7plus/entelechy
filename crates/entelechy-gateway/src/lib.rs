@@ -18,6 +18,7 @@ pub mod wasm;
 
 pub use model::{
     MockModel, ModelError, ModelGateway, ModelRequest, ModelResponse, ProviderIdentity,
+    NATIVE_REQUEST_SCHEMA_VERSION,
 };
 #[cfg(feature = "openai")]
 pub use openai::{OpenAiConfig, OpenAiGateway};

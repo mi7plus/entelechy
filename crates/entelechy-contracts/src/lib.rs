@@ -10,10 +10,12 @@
 //! the types a CI traceability check (TR-1) consumes.
 #![forbid(unsafe_code)]
 
+pub mod freeze;
 pub mod traceability;
 
 use serde::{Deserialize, Serialize};
 
+pub use freeze::{FrozenContract, FROZEN_CONTRACTS};
 pub use traceability::{Gap, GapReason, TraceabilityIndex, VerificationRecord, Waiver};
 
 /// A lifecycle phase (PRD section 21).

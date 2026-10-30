@@ -11,6 +11,19 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **1.0 contract freeze (Phase-1 exit, PRD §21).** A normative freeze of the
+  externally observable contracts: `docs/contracts-1.0.md` documents each frozen
+  schema (canonical serialization + artifact header, Design IR incl. task/checker
+  nodes and `AuthorityEnvelope`, journal wire format, native model-request shape,
+  failure ontology, protocol/plugin compatibility), its version constant and its
+  compatibility promise. New version constants where they were missing
+  (`JOURNAL_FORMAT_VERSION`, `NATIVE_REQUEST_SCHEMA_VERSION`,
+  `CURRENT_PROTOCOL_VERSION`); the journal golden now pins its version next to its
+  bytes. A machine-readable `entelechy_contracts::FROZEN_CONTRACTS` registry mirrors
+  the document, and a cross-crate gate (`entelechy-cli/tests/contract_freeze.rs`)
+  fails CI if a frozen version and its owning constant drift apart — so a frozen
+  format can only change as a deliberate, reviewed version bump (AC-1, AC-2, PC-1,
+  PC-2, PC-3, RK-2, RS-1, PV-1).
 - **Multi-agent designs (Phase 1, PRD 11.4 level 4/5).** A multi-agent synthesizer
   (`synthesize_multi_agent`, a coordinator over parallel scoped `Delegate`
   sub-agents) and the level-4/5 typed edit operators `SplitParallel` (fan a single

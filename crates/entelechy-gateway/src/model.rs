@@ -3,6 +3,15 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+/// Request-schema version of the native (in-process) model contract (PRD 5.10).
+///
+/// Recorded in [`ProviderIdentity::request_schema_version`] for calls Entelechy
+/// makes through its own gateway. Frozen at the 1.0 contract freeze
+/// (`docs/contracts-1.0.md`); external providers report their own schema string
+/// (e.g. the OpenAI gateway records `openai.chat.v1`), so this names only the
+/// native shape of [`ModelRequest`].
+pub const NATIVE_REQUEST_SCHEMA_VERSION: &str = "1";
+
 /// A request to a model endpoint.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ModelRequest {
@@ -105,7 +114,7 @@ impl ModelGateway for MockModel {
                 provider: "mock".into(),
                 advertised_model: req.model.clone(),
                 endpoint: "in-process".into(),
-                request_schema_version: "1".into(),
+                request_schema_version: NATIVE_REQUEST_SCHEMA_VERSION.into(),
                 sampling: serde_json::json!({ "temperature": req.temperature }),
                 // Deterministic build: a fixed revision so fingerprints are stable.
                 revision: Some("mock-r1".into()),

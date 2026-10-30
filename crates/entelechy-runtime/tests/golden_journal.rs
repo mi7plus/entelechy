@@ -7,13 +7,22 @@
 //! reordered structure — fails CI instead of silently breaking replay of stored
 //! journals.
 //!
-//! If this fails because the format changed on purpose, update the golden value
-//! and note the journal-format change in CHANGELOG.md.
+//! If this fails because the format changed on purpose, bump
+//! `JOURNAL_FORMAT_VERSION`, update the golden value, update the `entelechy.journal`
+//! row of `docs/contracts-1.0.md` and `entelechy_contracts::FROZEN_CONTRACTS`, and
+//! note the journal-format change in CHANGELOG.md.
 
 use entelechy_artifacts::to_canonical_bytes;
 use entelechy_gateway::{MockModel, NativeToolGateway};
 use entelechy_ir::{AuthorityEnvelope, LlmNode, Node, NodeKind, Program, Value};
-use entelechy_runtime::{Engine, RunStatus};
+use entelechy_runtime::{Engine, RunStatus, JOURNAL_FORMAT_VERSION};
+
+#[test]
+fn journal_format_version_is_pinned() {
+    // Pinned next to the byte fixture so a format change and the version bump it
+    // requires are reviewed together (the 1.0 freeze — docs/contracts-1.0.md).
+    assert_eq!(JOURNAL_FORMAT_VERSION, 1);
+}
 
 fn single_llm_program() -> Program {
     Program::new(

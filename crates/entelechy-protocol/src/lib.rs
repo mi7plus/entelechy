@@ -37,6 +37,12 @@ impl std::fmt::Display for ProtocolVersion {
     }
 }
 
+/// The protocol version this build speaks (PRD 16.6). Advertised during
+/// negotiation and frozen at the 1.0 contract freeze (`docs/contracts-1.0.md`):
+/// a breaking change to the on-the-wire protocol bumps the major component, and a
+/// backward-compatible addition bumps the minor.
+pub const CURRENT_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::new(1, 0);
+
 /// An inclusive supported version range advertised during connection (16.6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VersionRange {

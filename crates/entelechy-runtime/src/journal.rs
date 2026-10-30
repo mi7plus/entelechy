@@ -14,6 +14,17 @@ use serde::{Deserialize, Serialize};
 /// owner of the effect state machine, so there is a single source of truth.
 pub use entelechy_effects::CommitStatus;
 
+/// Journal wire-format contract version (PRD 16.5/16.6).
+///
+/// A compatibility promise, frozen at the 1.0 contract freeze
+/// (`docs/contracts-1.0.md`): the serialized shape of [`Journal`] — field names,
+/// the `kind` tags of [`JournalEvent`], and entry structure — must not change
+/// without bumping this constant and updating the golden test in
+/// `tests/golden_journal.rs`. It is a module constant rather than a serialized
+/// field, so the wire format itself is unchanged; a reader that must branch on
+/// the format compares against this value.
+pub const JOURNAL_FORMAT_VERSION: u32 = 1;
+
 /// One journaled event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]

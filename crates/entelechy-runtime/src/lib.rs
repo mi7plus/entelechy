@@ -33,7 +33,9 @@ use entelechy_gateway::{ModelGateway, ToolGateway};
 use entelechy_ir::{AuthorityEnvelope, Confidentiality, EffectMetadata, Program, Taint, Value};
 use entelechy_policy::{Decision, DecisionLog, PolicyEngine, PolicyRequest, PolicySnapshot};
 
-pub use journal::{CommitStatus, Journal, JournalEvent, JournalReader, ReplayMismatch};
+pub use journal::{
+    CommitStatus, Journal, JournalEvent, JournalReader, ReplayMismatch, JOURNAL_FORMAT_VERSION,
+};
 
 /// A registered deterministic code function (PRD 7.1 Code node).
 pub type CodeFn = Box<dyn Fn(&Value) -> Result<serde_json::Value, String> + Send>;
