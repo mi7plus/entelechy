@@ -10,3 +10,6 @@
 
 # gstack/forge session artifacts
 .forge/
+
+# Harness-generated mirror of CLAUDE.md; CLAUDE.md is the tracked source of truth.
+/AGENTS.md
