@@ -10,6 +10,7 @@
 //! declare a backward-read window that fails closed on unsupported versions.
 #![forbid(unsafe_code)]
 
+mod backup;
 mod canonical;
 mod erasure;
 mod id;
@@ -17,6 +18,7 @@ mod metadata;
 mod platform;
 mod store;
 
+pub use backup::{run_restore_drill, BackupObject, BackupPacket, RestoreError, RestoreReport};
 pub use canonical::{serialize_canonical, to_canonical_bytes};
 pub use erasure::ErasureLedger;
 pub use id::{ArtifactId, DigestAlgorithm, IdParseError};

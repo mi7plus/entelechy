@@ -1,12 +1,13 @@
 //! Entelechy CLI (PRD 16.1). Local-first workflow.
 //!
 //! Command surface from PRD 16.1: init, objective, capability, eval, design,
-//! study, trace, replay, diff, assure, release, serve (plus demo, ops,
+//! study, trace, replay, diff, assure, release, serve (plus demo, ops, drill,
 //! requirements, committee, audit, counterfactual, and, under the `openai`
 //! feature, infer).
 #![forbid(unsafe_code)]
 
 mod demo;
+mod drill;
 mod ops;
 mod release;
 mod restudy;
@@ -178,6 +179,15 @@ enum Command {
         #[arg(long)]
         out: Option<String>,
     },
+    /// Run the backup → restore → verify disaster-recovery drill (PRD §17.3,
+    /// DR-1): back up durable state across security domains, restore it through a
+    /// self-verifying drill, confirm hashes, lineage and authorization metadata
+    /// are preserved and erasures survive, and prove a tampered backup is rejected.
+    Drill {
+        /// Directory to write the backup packet and the restore report into.
+        #[arg(long)]
+        out: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -195,6 +205,7 @@ fn main() -> anyhow::Result<()> {
         Command::Design { validate } => cmd_design(validate),
         Command::Demo { out } => cmd_demo(&out),
         Command::Ops { out } => cmd_ops(out.as_deref()),
+        Command::Drill { out } => drill::run(out.as_deref()),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
         Command::Counterfactual {
             design,

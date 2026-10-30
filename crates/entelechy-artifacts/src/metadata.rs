@@ -67,6 +67,20 @@ impl InMemoryMetadataStore {
     pub fn is_empty(&self) -> bool {
         self.events.is_empty()
     }
+
+    /// Export the full append-only event log for a system backup (PRD 17.3, DR-1):
+    /// every event across all tenants, in append order. Privileged, like
+    /// [`crate::InMemoryStore::export`] — the per-event tenant travels with it so a
+    /// restore re-establishes the authorization boundary (PRD 17.2).
+    pub fn export(&self) -> Vec<Event> {
+        self.events.clone()
+    }
+
+    /// Reconstruct a store from a backed-up event log (restore), preserving each
+    /// event's sequence, tenant and payload exactly.
+    pub fn import(events: Vec<Event>) -> Self {
+        Self { events }
+    }
 }
 
 impl MetadataStore for InMemoryMetadataStore {

@@ -232,10 +232,17 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
         "CI job `traceability` (entelechy requirements --check) + entelechy-contracts phase_gate_evidence tests",
         V,
     );
+    index.verify(
+        "DR-1",
+        "entelechy-artifacts: backup::backup_restore_preserves_hashes_lineage_and_authorization \
+         (+ a_corrupt_backup_is_rejected_not_loaded, restore_re_enforces_the_tenant_firewall, \
+         a_restore_never_resurrects_erased_data); operator drill `entelechy drill`",
+        V,
+    );
 
-    // Study/drill/approval requirements not yet mechanized: scoped, expiring
-    // waivers with compensating controls (PRD 17.5). These are honest gaps, not
-    // proofs — none is a StaticProof requirement, so all are permissibly waivable.
+    // Study/approval requirements not yet mechanized: scoped, expiring waivers with
+    // compensating controls (PRD 17.5). These are honest gaps, not proofs — none is
+    // a StaticProof requirement, so all are permissibly waivable.
     index.waive(Waiver {
         requirement_id: "PV-2".into(),
         rationale: "No-silent-pooling across material drift is study evidence from a \
@@ -244,16 +251,6 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
         compensating_control: "Provider identity and the returned revision are recorded on \
                                every model call (PV-1); the deterministic mock pins a fixed \
                                revision so fingerprints are stable."
-            .into(),
-        approver: "phase-gate-owner".into(),
-        expires_at: WAIVER_REVIEW_DEADLINE,
-    });
-    index.waive(Waiver {
-        requirement_id: "DR-1".into(),
-        rationale: "A full backup/restore drill is not yet implemented.".into(),
-        compensating_control: "Content-addressing makes hashes and lineage self-verifying on \
-                               restore; erasure-ledger restore is tested \
-                               (restore_never_resurrects_erased_data)."
             .into(),
         approver: "phase-gate-owner".into(),
         expires_at: WAIVER_REVIEW_DEADLINE,

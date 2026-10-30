@@ -59,6 +59,23 @@ impl InMemoryStore {
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }
+
+    /// Export every object for a system backup (PRD 17.3, DR-1): `(address, owning
+    /// tenant, bytes)` for all tenants, in a stable (address-sorted) order.
+    ///
+    /// This is a privileged operator operation and is deliberately distinct from
+    /// [`BlobStore::get`], which never lets possession of a hash substitute for
+    /// authority (PRD 17.2): a backup reads the whole store, but the owning tenant
+    /// travels with every object so a restore can re-establish that authorization.
+    pub fn export(&self) -> Vec<(ArtifactId, String, Vec<u8>)> {
+        let mut out: Vec<(ArtifactId, String, Vec<u8>)> = self
+            .objects
+            .iter()
+            .map(|(id, (tenant, bytes))| (id.clone(), tenant.clone(), bytes.clone()))
+            .collect();
+        out.sort_by_key(|a| a.0.to_string());
+        out
+    }
 }
 
 impl BlobStore for InMemoryStore {

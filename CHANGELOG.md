@@ -11,6 +11,31 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Backup → restore → verify disaster-recovery drill (PRD §17.3, DR-1).** A new
+  `entelechy-artifacts::backup` module mechanizes DR-1 — "backup and restore
+  preserve hashes, lineage and authorization metadata." A `BackupPacket` captures
+  the durable state (every content-addressed object with its owning tenant, the
+  append-only metadata/event log, the lineage edge graph and the erasure ledger)
+  and serializes to cold-storage bytes; `run_restore_drill` restores it *through*
+  those bytes and verifies each DR-1 invariant: every object is re-hashed to the
+  address it was filed under (a tampered backup fails closed with
+  `RestoreError::IntegrityFailure` rather than loading), each restored object keeps
+  its owning tenant so the owner can read it and every other tenant is refused
+  (authorization re-enforced — PRD §17.2), and the lineage graph and event log
+  round-trip unchanged. The restored erasure ledger is replayed so crypto-shredded
+  data can never reappear (DR-2). Privileged `InMemoryStore::export` and
+  `InMemoryMetadataStore::export`/`import` back the whole-store read a backup needs,
+  deliberately distinct from `BlobStore::get` (possession of a hash is never
+  authority). A new `entelechy drill [--out <dir>]` operator command builds a
+  realistic slice of durable state across two security domains (a signed objective,
+  a design, a semantics-preserving migration and a promoted release under `local`;
+  an isolated design plus a crypto-shredded subject under `tenant-b`), runs the
+  drill, prints the per-invariant `RestoreReport`, proves the fail-closed property
+  by rejecting a tampered backup, and with `--out` persists the backup packet and
+  the restore report as an auditable verification record. Five new tests cover the
+  happy path, corruption rejection, the re-enforced tenant firewall, erasure
+  survival and determinism. This **retires the DR-1 TR-1 waiver**: the phase gate
+  now carries a DR-1 verification record instead (two waivers remain — PV-2, DP-1).
 - **Closed operate → re-study → release loop (PRD §14.3, §21, OP-5).** The online
   loop's opened `ReStudy` is no longer inert: a new `entelechy-cli::restudy` module
   turns the drift re-study into a real re-optimization and drives it to a governed
@@ -87,10 +112,11 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   builds the authoritative phase-gate evidence (`entelechy_contracts::phase_gate_evidence`)
   and fails non-zero if any requirement first enforced at or before the current
   gate phase (P1) has no verification record and no active waiver. A new
-  `traceability` CI job runs it on every push/PR. Ten P0/P1 requirements are linked
-  to their verifying tests; the three study/drill/approval requirements not yet
-  mechanized (PV-2, DR-1, DP-1) carry scoped, expiring waivers with compensating
-  controls. Adds a runtime test that a Human node fails closed and never implies
+  `traceability` CI job runs it on every push/PR. Eleven P0/P1 requirements are
+  linked to their verifying tests (DR-1 since the backup/restore drill above); the
+  two study/approval requirements not yet mechanized (PV-2, DP-1) carry scoped,
+  expiring waivers with compensating controls. Adds a runtime test that a Human
+  node fails closed and never implies
   approval (RS-2), and contracts tests asserting full phase coverage and that no
   StaticProof requirement is waived (TR-1).
 - **1.0 contract freeze (Phase-1 exit, PRD §21).** A normative freeze of the
