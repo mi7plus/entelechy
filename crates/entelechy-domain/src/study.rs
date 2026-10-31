@@ -3,8 +3,10 @@
 //! [`real_study`] runs the whole thing end to end on the resettable
 //! [`crate::world::HelpdeskWorld`]:
 //!
-//! 1. a **comparator** (baseline vs a repaired design) scored by programmatic
-//!    state checkers, not design structure;
+//! 1. a **comparator** (baseline vs the *discovered* searched repair —
+//!    [`crate::searched::discovered_repair`], proven equivalent to the retired
+//!    hand-authored [`repaired_design`]) scored by programmatic state checkers, not
+//!    design structure;
 //! 2. a **holdout gate** (EV-14) over the same real executor;
 //! 3. **no silent pooling across material drift** (PV-2): evidence is kept in
 //!    per-[`ModelFingerprint`] epochs and the release reads only the current one;
@@ -84,9 +86,16 @@ pub fn baseline_design() -> Program {
     )
 }
 
-/// The repaired design: adds a verification step that grounds the reply (fixes the
-/// reply class) and a parallel committee of workers that resolves every part
-/// (fixes the decomposition class).
+/// The hand-authored repaired design: adds a verification step that grounds the
+/// reply (fixes the reply class) and a parallel committee of workers that resolves
+/// every part (fixes the decomposition class).
+///
+/// This is now a **reference oracle**, not the study's live repair: [`real_study`]
+/// consumes the design the repair loop *discovers* by execution
+/// ([`crate::searched::discovered_repair`]) and uses this only to prove that the
+/// discovered design resolves every suite ticket identically (PRD §11.3). It is
+/// retained because that equivalence check, and the executor unit tests, need a
+/// known-good hand-authored repair to compare against.
 pub fn repaired_design() -> Program {
     Program::new(
         authority(),
@@ -442,10 +451,16 @@ fn content_id<T: Serialize>(value: &T) -> String {
 /// The full real-study report: one boolean per invariant plus the sub-reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RealStudyReport {
-    /// Baseline vs repaired comparison on the real domain (tune + validation).
+    /// Baseline vs the discovered (searched) repair on the real domain (tune +
+    /// validation).
     pub comparison: ComparisonReport,
-    /// Whether the repaired design strictly improves with no regression.
+    /// Whether the discovered design strictly improves with no regression.
     pub candidate_improves: bool,
+    /// Whether the discovered (searched) repair resolves every suite ticket exactly
+    /// as the retired hand-authored [`repaired_design`] did — the convergence
+    /// invariant that lets the study consume the searched design as a drop-in
+    /// replacement (PRD §11.3).
+    pub discovered_matches_handauthored: bool,
     /// Whether the refund negative goal held across every task.
     pub negative_goal_held: bool,
     /// The holdout gate verdict (`pass`/`fail`/`refused`).
@@ -481,13 +496,35 @@ pub struct RealStudyReport {
 }
 
 /// Run the Phase-0 real-domain study end to end (PRD §21, 21.1).
+///
+/// The candidate design it evaluates is the one the unified repair loop
+/// *discovers* by execution ([`crate::searched::discovered_repair`]), not a
+/// hand-authored repair. It additionally proves (`discovered_matches_handauthored`)
+/// that the searched design resolves every suite ticket exactly as the retired
+/// hand-authored [`repaired_design`] did, so the convergence is a drop-in
+/// replacement (PRD §11.3).
 pub fn real_study() -> RealStudyReport {
     let suite = helpdesk_suite();
     let baseline = baseline_design();
-    let repaired = repaired_design();
+    // The live repair is no longer hand-authored: the unified repair loop
+    // *discovers* an equivalent design by execution (a `Verify`, a `Retrieval` and a
+    // `resolve_all` tool — PRD §11.3). This study consumes that searched design.
+    let repaired = crate::searched::discovered_repair();
+    // The retired hand-authored repair, kept only as a reference oracle to prove the
+    // searched design is a drop-in replacement (see `discovered_matches_handauthored`).
+    let handauthored = repaired_design();
     // The calibrated gateway: the mock's revision (`mock-r1`) is what the
     // verification step is grounded against.
     let calibrated = MockModel::new();
+
+    // Convergence invariant (PRD §11.3): the searched design is a drop-in for the
+    // retired committee — over every ticket in the suite it resolves exactly what the
+    // hand-authored repair did. This is what lets `real_study` retire the
+    // hand-authored path while demonstrating no hand-authored repair is needed.
+    let discovered_matches_handauthored = suite
+        .tasks
+        .iter()
+        .all(|t| resolves(&repaired, t, &calibrated) == resolves(&handauthored, t, &calibrated));
 
     // 1. Real-domain comparator over the non-holdout tasks.
     let working: Vec<&Task> = suite
@@ -566,11 +603,13 @@ pub fn real_study() -> RealStudyReport {
         && drift_detected
         && no_silent_pooling
         && single_profile_approved
-        && reproduced;
+        && reproduced
+        && discovered_matches_handauthored;
 
     RealStudyReport {
         comparison,
         candidate_improves,
+        discovered_matches_handauthored,
         negative_goal_held,
         holdout_result,
         holdout_passed,
@@ -675,7 +714,54 @@ mod tests {
             "the deployment profile is approved"
         );
         assert!(r.reproduced, "the study reproduced to the sealed counts");
+        assert!(
+            r.discovered_matches_handauthored,
+            "the searched repair resolves every suite ticket like the hand-authored oracle"
+        );
         assert!(r.ok, "every invariant held");
+    }
+
+    #[test]
+    fn the_live_repair_is_the_searched_design_not_the_hand_authored_one() {
+        // `real_study` consumes the discovered design; prove it is genuinely the
+        // searched one (it carries the `Retrieval` the hand-authored repair never
+        // had) yet resolves the two-class suite identically to the hand-authored
+        // oracle (the `Retrieval` is inert where no ticket needs it).
+        let discovered = crate::searched::discovered_repair();
+        let handauthored = repaired_design();
+        let has_retrieval = |p: &Program| {
+            fn walk(n: &Node) -> bool {
+                if matches!(n.kind, NodeKind::Retrieval(_)) {
+                    return true;
+                }
+                match &n.kind {
+                    NodeKind::Seq(c) | NodeKind::Par(c) => c.iter().any(walk),
+                    NodeKind::Map { body, .. }
+                    | NodeKind::Loop { body, .. }
+                    | NodeKind::Delegate { body, .. } => walk(body),
+                    NodeKind::Branch { then, els, .. } => walk(then) || walk(els),
+                    _ => false,
+                }
+            }
+            walk(&p.root)
+        };
+        assert!(
+            has_retrieval(&discovered),
+            "the discovered design carries a searched Retrieval step"
+        );
+        assert!(
+            !has_retrieval(&handauthored),
+            "the hand-authored oracle has no Retrieval step"
+        );
+        let gw = MockModel::new();
+        for t in &helpdesk_suite().tasks {
+            assert_eq!(
+                resolves(&discovered, t, &gw),
+                resolves(&handauthored, t, &gw),
+                "discovered and hand-authored diverge on {}",
+                t.id
+            );
+        }
     }
 
     #[test]

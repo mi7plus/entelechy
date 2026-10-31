@@ -281,6 +281,31 @@ pub fn searched_study() -> SearchedStudyReport {
     }
 }
 
+/// The design the unified repair loop discovers (baseline plus the accepted
+/// repairs), exposed on its own so other drivers can consume the *searched* repair
+/// instead of a hand-authored one (PRD §11.3, §21.1).
+///
+/// This runs the exact loop [`searched_study`] runs — diagnose, propose, apply,
+/// confirm on rolling validation, scored by [`resolves`] — over the three-class
+/// `searched_suite` and [`baseline_design`], and returns its converged best design: the baseline
+/// with the three repairs the executor confirmed (a `Verify` at level 3, a
+/// `Retrieval` at level 2, and a `resolve_all` `Tool` at level 5). It is
+/// deterministic, so it returns the same design every call.
+///
+/// [`crate::study::real_study`] consumes this to retire its hand-authored
+/// [`crate::study::repaired_design`]: on the two-class [`crate::study::helpdesk_suite`]
+/// the discovered design resolves every ticket identically to that committee (the
+/// `Retrieval` is inert where no ticket needs it), so it is a drop-in replacement
+/// discovered by execution rather than hand-authored.
+pub fn discovered_repair() -> Program {
+    let gw = MockModel::new();
+    let suite = searched_suite();
+    let baseline = baseline_design();
+    let tune: Vec<&Task> = suite.split(Split::Tune).collect();
+    let val: Vec<&Task> = suite.split(Split::Validation).collect();
+    run_repair_loop(&baseline, &tune, &val, &gw).best
+}
+
 /// Drive the design-repair loop over the baseline, scoring each candidate by
 /// executing it against the world (PRD 11.3). This is the exact proposer loop the
 /// simulated study uses — diagnose, propose, apply, confirm on rolling validation —
@@ -714,5 +739,18 @@ mod tests {
     #[test]
     fn searched_study_is_deterministic() {
         assert_eq!(searched_study(), searched_study());
+    }
+
+    #[test]
+    fn discovered_repair_is_the_design_the_study_converges_on() {
+        // The exposed repair is exactly the loop's converged best — the same design
+        // `searched_study` reports — so a consumer that retires a hand-authored repair
+        // for the searched one gets what the study verified.
+        let repair = discovered_repair();
+        assert_eq!(repair, searched_study().discovered_design);
+        // And it carries the three repairs the executor confirmed.
+        assert!(has_verify(&repair.root));
+        assert!(has_retrieval(&repair.root));
+        assert!(has_tool(&repair.root, "resolve_all"));
     }
 }

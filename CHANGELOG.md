@@ -11,6 +11,35 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **`real_study` converges onto the searched repair — the last hand-authored repair
+  leaves the live path (PRD §11.3, §21.1).** The real-domain study
+  (`entelechy study --real`) previously evaluated a hand-authored
+  `repaired_design()` (a `Verify` plus a `resolve_part` committee). Now that the
+  unified loop *discovers* an equivalent design by execution, the study consumes the
+  searched design instead:
+  - `entelechy_domain::searched::discovered_repair()` (re-exported from the crate
+    root) exposes the loop's converged best design — the baseline plus the three
+    executor-confirmed repairs (a `Verify` at level 3, a `Retrieval` at level 2, and
+    a `resolve_all` `Tool` at level 5) — as a standalone, deterministic `Program`;
+  - `real_study()` now sets its candidate to `discovered_repair()` and adds a
+    `discovered_matches_handauthored` invariant: for every ticket in the shared
+    two-class `helpdesk_suite`, the searched design resolves exactly what the retired
+    hand-authored `repaired_design()` did (its `Retrieval` step is inert where no
+    ticket needs it), proving a drop-in replacement. The invariant folds into `ok`;
+  - `repaired_design()` is retained only as a reference oracle for that equivalence
+    check and the executor unit tests;
+  - the CLI `study --real` narrative gains a *Searched-repair convergence* section,
+    and `--out` now persists the discovered design as `discovered-design.json` (whose
+    content address is the reproduction packet's sealed `candidate_id`) in place of
+    the hand-authored `repaired-design.json`.
+  Because the discovered design resolves the two-class suite identically, every
+  count-asserting invariant is unchanged (comparator 0/18 → 18/18; PV-2 release 3/6
+  vs pooled 9/12; reproduction b=0 c=30; holdout `pass`), and the PV-2 drift
+  narrative is preserved (the discovered design still grounds via a `Verify`). Adds
+  three unit tests (`discovered_repair_is_the_design_the_study_converges_on`,
+  `the_live_repair_is_the_searched_design_not_the_hand_authored_one`, and a
+  `real_study_is_green` assertion). The one Phase-0 loop now *discovers* every repair
+  the study relies on; no hand-authored repair remains on a live study path.
 - **Level-2 retrieval repair discovered end to end — the searched loop now unlocks
   retrieval, and the levels are a prior, not a ladder (PRD §12, §11.4, §11.3, §21.1).**
   The level-2 vocabulary already existed (the `AddRetrieval` operator, the proposer's

@@ -53,6 +53,13 @@
 //! and the executor confirms it works; a parallel committee that the structural
 //! scorer would credit is rejected because running it resolves nothing. See that
 //! module's docs for why that divergence is the whole point.
+//!
+//! That unification closes the loop back onto [`study::real_study`]:
+//! [`searched::discovered_repair`] exposes the design the loop converges on, and
+//! `real_study` now consumes *that* searched design as its candidate — proving it
+//! resolves every suite ticket exactly as the retired hand-authored
+//! [`study::repaired_design`] oracle did (PRD §11.3). No hand-authored repair
+//! remains on a live study path.
 #![forbid(unsafe_code)]
 
 pub mod epoch;
@@ -68,7 +75,7 @@ pub use promotion::{
     assess_drift, auto_promote, drift_drill, promotion_proceeds, AutoPromotionDecision,
     DriftAssessment, DriftDrillReport, DriftTolerance,
 };
-pub use searched::{searched_study, SearchedStudyReport};
+pub use searched::{discovered_repair, searched_study, SearchedStudyReport};
 pub use study::{
     baseline_design, helpdesk_suite, real_study, refund_attempting_design, repaired_design,
     DeploymentDeclaration, RealStudyReport, ReproductionError, ReproductionPacket,

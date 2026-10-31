@@ -631,8 +631,13 @@ fn maybe_synthesize_tasks(_suite: &Suite) {}
 /// resettable [`entelechy_domain::HelpdeskWorld`] and decides success with a
 /// programmatic state checker, then produces the evidence the TR-1 gate still
 /// waived: no-silent-pooling across a model drift (PV-2), a single-deployment-
-/// profile approval (DP-1) and a content-addressed reproduction packet. When
-/// `out` is set, the report and the two designs are persisted.
+/// profile approval (DP-1) and a content-addressed reproduction packet.
+///
+/// The repaired design it evaluates is the one the unified repair loop *discovers*
+/// by execution ([`entelechy_domain::discovered_repair`]), not a hand-authored one;
+/// the report also proves that searched design resolves every suite ticket exactly
+/// as the retired hand-authored repair did (PRD §11.3). When `out` is set, the
+/// report, the baseline and the discovered design are persisted.
 fn run_real(out: Option<&str>) -> anyhow::Result<()> {
     let report = entelechy_domain::real_study();
     print_real_study(&report);
@@ -641,21 +646,24 @@ fn run_real(out: Option<&str>) -> anyhow::Result<()> {
         let base = std::path::Path::new(dir);
         let report_path = base.join("real-study-report.json");
         let baseline_path = base.join("baseline-design.json");
-        let repaired_path = base.join("repaired-design.json");
+        // Persist the *discovered* (searched) design — the one the study now
+        // evaluates — not the retired hand-authored repair. Its content address is
+        // the `candidate_id` sealed in the report's reproduction packet.
+        let discovered_path = base.join("discovered-design.json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
         std::fs::write(
             &baseline_path,
             serde_json::to_string_pretty(&entelechy_domain::baseline_design())?,
         )?;
         std::fs::write(
-            &repaired_path,
-            serde_json::to_string_pretty(&entelechy_domain::repaired_design())?,
+            &discovered_path,
+            serde_json::to_string_pretty(&entelechy_domain::discovered_repair())?,
         )?;
         println!(
             "\nPersisted: {}, {} and {}.",
             report_path.display(),
             baseline_path.display(),
-            repaired_path.display()
+            discovered_path.display()
         );
     }
     if !report.ok {
@@ -689,6 +697,14 @@ fn print_real_study(report: &entelechy_domain::RealStudyReport) {
     println!(
         "  refund negative goal held:  {} (a refund-attempting design never issues one)",
         yn(report.negative_goal_held)
+    );
+    println!("Searched-repair convergence (PRD §11.3, §21.1):");
+    println!(
+        "  candidate is the searched design (discovered by execution — a verify, a retrieval and a resolve_all tool — not hand-authored)"
+    );
+    println!(
+        "  drop-in for hand-authored:  {} (it resolves every suite ticket exactly as the retired committee did)",
+        yn(report.discovered_matches_handauthored)
     );
     println!("Holdout gate (EV-14):");
     println!(
@@ -741,7 +757,7 @@ fn print_real_study(report: &entelechy_domain::RealStudyReport) {
     println!(
         "\n  => Phase-0 real-domain study {}.",
         if report.ok {
-            "SATISFIED — a real resettable domain scores designs by executed state, retires PV-2 (no silent pooling) and DP-1 (single declared profile), and reproduces deterministically"
+            "SATISFIED — a real resettable domain scores the searched (not hand-authored) repair by executed state, retires PV-2 (no silent pooling) and DP-1 (single declared profile), and reproduces deterministically"
         } else {
             "VIOLATED — an invariant did not hold (see above)"
         }
