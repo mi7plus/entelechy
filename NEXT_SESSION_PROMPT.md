@@ -12,6 +12,14 @@ Follow-on #1 ("finish unifying the studies — the searched loop should discover
 `dfb4e86` and pushed to `main`** (this handoff refresh sits on top). The full gate was
 re-run green before the commit (numbers below).
 
+**Handoff re-verification (HEAD `2b51b02`, clean tree, in sync with `origin/main`):**
+`cargo fmt --all --check` clean · `cargo clippy --workspace --all-targets -- -D warnings`
+clean · tests on the changed crates (`entelechy-{design,search,domain,cli}`) pass with
+0 failures (full workspace suite is **347 passed** as of the commit) ·
+`study --searched` prints **SATISFIED** (`accepted levels: [3, 5]`, resolver discovered,
+parts resolved, honest divergence held) · `requirements --check --phase p4` **PASS**.
+No background processes are running (no servers/watchers/builds were started).
+
 ### What was built
 
 The searched study (`entelechy study --searched`) used to discover only the
