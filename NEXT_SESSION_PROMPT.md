@@ -5,83 +5,71 @@ Continue implementing the Entelechy PRD v11 (`Entelechy_PRD_v11_FINAL.docx` in
 to `main` after each self-contained unit, **only when the user asks** (handoff docs
 are the exception — see CLAUDE.md).
 
-## DONE (this session) — advanced the TR-1 gate P1 → P4, COMMITTED & PUSHED
+## Last unit (committed + pushed) — the two Phase-0 studies are unified
 
-The whole "advance the phase gate from P1 to P4" unit is **complete, verified, and
-committed to `main` as `2ac6002` (pushed to `origin`)**. The repo builds, the full
-gate is green, and `requirements --check` now passes at **P4**. Nothing is pending
-on this unit; pick up from "After the gate reaches P4" below.
-
-### Verified state (run this session, all green)
-
-HEAD `main` is `2ac6002` ("Advance TR-1 phase gate P1→P4 …"). At that commit:
+The "unify the two studies / drive repair through the real proposer loop" follow-on
+is **committed as `c05b097` and pushed to `main`** (this handoff refresh sits on top).
+The full gate was re-run green before the commit:
 
 - `cargo fmt --all --check` — clean
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean
 - `cargo clippy -p entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings` — clean
-- `cargo test --workspace -j 2` — **340 passed, 0 failed** (was 337; +3 DX-1 quickstart tests)
+- `cargo test --workspace -j 2` — **344 passed, 0 failed**
 - `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` — clean
 - `cargo run -p entelechy-cli -- requirements --check --phase p4` — **PASS**
+- `cargo run -p entelechy-cli -- study --searched` — prints **SATISFIED**
 
-Build with `-j 2` (a cold `--workspace` build OOM-kills, exit 137).
+### What it did
 
-`git status` is clean of stray 0-byte files (4 were created and removed this session
-from git-bash quoting — unquoted `()<>` in grep/find args; **inspect `git status`
-before every commit**).
+A new `entelechy-domain::searched` module (`searched_study()`), surfaced as
+`entelechy study --searched [--out]`. It drives the **same** design-repair proposer
+loop the simulated `entelechy study` uses — `entelechy_failure::analyze` →
+`entelechy_search::propose` → `entelechy_design::apply` →
+`rolling_validation_decision` — but scores every candidate by **executing** it against
+the resettable helpdesk world (`exec::resolves`) instead of by reading its structure.
 
-Modified (16): `CHANGELOG.md`, `Cargo.lock`, `NEXT_SESSION_PROMPT.md`,
-`crates/entelechy-artifacts/src/{backup.rs,lib.rs,platform.rs}`,
-`crates/entelechy-cli/src/{drill.rs,main.rs,release.rs}`,
-`crates/entelechy-contracts/src/traceability.rs`,
-`crates/entelechy-domain/src/lib.rs`, `crates/entelechy-integration/Cargo.toml`,
-`crates/entelechy-ops/src/lib.rs`,
-`crates/entelechy-release/src/{drill.rs,lib.rs,slo.rs}`.
-New (4): `crates/entelechy-cli/src/quickstart.rs`,
-`crates/entelechy-domain/src/promotion.rs`,
-`crates/entelechy-ops/src/degraded.rs`,
-`crates/entelechy-integration/tests/recovery.rs`.
+The honest unification of the two Phase-0 studies:
 
-### What the P4 gate required, and how it is met
+- the loop **discovers** (does not hand-author) the verification repair for the reply
+  class, accepts it at level 3, and the executor confirms it resolves the reply
+  tickets the baseline failed;
+- the level-4 parallel committee it proposes for the decomposition class is
+  **rejected by execution** (running it resolves nothing — the committee's `Llm`
+  sub-agents carry no part-resolving effect in this world), **even though the
+  structure-reading scorer would have credited it** (it "has a `Par`"). Same search,
+  two scorers, and execution is the honest one.
 
-The P4 gate needs records for 7 requirements beyond P1 (`requirements --check
---phase p4`): PV-3, EL-1, PC-2, DR-2, DR-3, OL-2, DX-1. All are backed by real
-executed code with tests/drills and recorded in
-`entelechy_contracts::phase_gate_evidence()`; **no waivers remain**.
+Files in that commit: new `crates/entelechy-domain/src/searched.rs`; modified
+`crates/entelechy-domain/Cargo.toml` (adds `entelechy-{failure,design,search}` deps —
+no cycle; the CLI already used all three), `crates/entelechy-domain/src/lib.rs`,
+`crates/entelechy-cli/src/main.rs` (`--searched` arg + dispatch),
+`crates/entelechy-cli/src/study.rs` (`run(out, real, searched)` + `run_searched` +
+`print_searched_study`), `CHANGELOG.md`, `Cargo.lock`.
 
-| Req | Mechanism | Verification artifact |
-|---|---|---|
-| **DX-1** | `entelechy-cli::quickstart` — declared new-user path (install→build→`init`→`study --real`), budgets sum < 30 min; drives `real_study()` in-process, confirms a green report | `quickstart_reaches_first_report_within_30_minutes` (+2); `entelechy quickstart` |
-| **PV-3** | `entelechy-domain::promotion::drift_drill` | `drift_drill_satisfies_pv3` (+3); `entelechy drill --kind drift` |
-| **OL-2** | `entelechy-ops::degraded::degraded_mode_drill` | `degraded_mode_drill_satisfies_ol2` (+3); `entelechy drill --kind degraded` |
-| **DR-2** | `entelechy-artifacts::backup` revocation + reconcile-first on `RestoreReport` | `revocation_survives_restore`, `post_restore_effects_are_reconciled_first`; `entelechy drill --kind restore` |
-| **DR-3** | `platform::assess_evidence_state` + `release::promote` `evidence_state` gate | cross-crate `entelechy-integration/tests/recovery.rs` |
-| **PC-2** | `entelechy-protocol::negotiate_secure` (pre-existing) | `no_silent_security_downgrade` |
-| **EL-1** | `entelechy-eval::HoldoutVault` (pre-existing) | `design_plane_is_refused` + 2 |
+## Housekeeping note (not part of any unit)
 
-CLI additions this unit: `entelechy drill --kind drift|degraded` (new printers), the
-`restore` drill now also shows the DR-2 revocation-survival / reconcile-first
-invariants (populated from a real revoked release id and an in-flight effect keyed
-by a genuine `entelechy_effects::OperationKey`), and a new `entelechy quickstart
-[--out]` command. `CURRENT_GATE_PHASE` is now `Phase::P4`; its doc comments and the
-`phase_gate_evidence()` doc are updated.
+`fuzz/Cargo.lock` is an untracked, un-ignored lockfile left over from an earlier
+fuzz build; it is **not** tracked and was deliberately kept out of the `c05b097`
+commit. Decide separately whether the cargo-fuzz sub-crate's lockfile should be
+committed or git-ignored (`fuzz/target/` is already ignored).
 
-### Commit — DONE
+## Follow-ons (next natural units)
 
-The user green-lit the commit, so the whole unit is committed as `2ac6002` and
-pushed to `origin/main` (one commit referencing the 7 requirement IDs). This handoff
-refresh is a follow-up doc-only commit (handoff docs are the CLAUDE.md commit
-exception). Nothing else is pending on this unit.
+The gate is at the project's furthest enforced phase (`CURRENT_GATE_PHASE = P4`,
+committed as `2ac6002`). Natural follow-ons:
 
-## After the gate reaches P4
-
-The gate is at the project's furthest enforced phase. Natural follow-ons (unchanged):
-
-1. **Unify the two studies / drive repair through the real proposer loop** — the
-   simulated `study` still scores by structure and the re-study repair is a
-   hand-authored typed patch; fold the real executor in as the scoring function
-   and/or point the re-study at the real `search`/`design` proposer.
+1. **Finish unifying the studies (last unit covered the reply class).** The
+   searched loop discovers the reply-class repair through execution, but the
+   decomposition class still resolves only via the hand-authored `resolve_part`
+   committee in `real_study` — the generic proposer's level-4 operator emits `Llm`
+   sub-agents, which have no part-resolving effect in this world. Closing the gap
+   needs a **part-resolving edit operator** in the `entelechy-design` vocabulary (e.g.
+   an `AddTool`/`resolve_all` operator) so the loop can *discover* the decomposition
+   repair by executing, not just the reply one. That is the remaining half of "drive
+   repair through the real proposer loop."
 2. **Exercise the level-2 retrieval path end to end** (add a retrieval-miss failure
-   class so a run visibly unlocks retrieval).
+   class so a run visibly unlocks retrieval; note the executor currently treats a
+   `Retrieval` node as inert, so this needs a retrieval effect in the world too).
 3. **Shadow/canary rollout, web console, SDKs (P4/P3)** — not implemented.
 4. **P5**: multi-tenancy, plugin registry (PC-3, the only unrecorded requirement —
    first enforced at P5), learned priors, distillation. Advancing the gate to P5
@@ -90,17 +78,24 @@ The gate is at the project's furthest enforced phase. Natural follow-ons (unchan
 ## How to work here (see CLAUDE.md for durable invariants)
 
 - Build/test with `-j 2` — a cold `--workspace` build OOM-kills (exit 137).
-- `gh` is NOT authenticated: push over the SSH remote; for PR/CI status use
-  unauthenticated `curl https://api.github.com/repos/mi7plus/entelechy/...`.
+- `gh` is NOT authenticated: push over the SSH remote
+  (`git@github.com:mi7plus/entelechy.git`); for PR/CI status use unauthenticated
+  `curl https://api.github.com/repos/mi7plus/entelechy/...`.
 - Windows + git-bash; `git status` and inspect before every commit (stray 0-byte
-  files recur from shell quoting — quote grep/command args containing `()><`).
+  files recur from shell quoting — quote grep/command args containing `()><`, and
+  prefer `git commit -F -` with a quoted heredoc over `-m` for long messages).
 - Conventions: each crate's `//!` cites its PRD section; commit messages reference
-  requirement IDs; heavy engines stay behind features (`wasm`, `openai`,
-  `openai-tls`).
+  requirement IDs / PRD sections; heavy engines stay behind features (`wasm`,
+  `openai`, `openai-tls`).
 - TR-1 phase gate is `entelechy requirements --check`; evidence lives in
   `entelechy_contracts::phase_gate_evidence()` with `CURRENT_GATE_PHASE`.
+- The three Phase-0 studies: `entelechy study` (simulated, structure-scored repair
+  loop), `entelechy study --real` (real-domain, executor-scored hand-authored repair),
+  and `entelechy study --searched` (the repair loop scored by execution — the
+  unification).
 
-The CLI surface: `init, objective, capability, eval, design, study [--real] [--out],
-trace, replay, counterfactual, diff, assure, release, serve, committee, audit, demo,
-ops, drill [--kind restore|rollback|audit|slo|drift|degraded|all], quickstart [--out],
-requirements [--check [--phase pN]]` (+ `infer` under `--features openai`).
+The CLI surface: `init, objective, capability, eval, design, study [--real]
+[--searched] [--out], trace, replay, counterfactual, diff, assure, release, serve,
+committee, audit, demo, ops, drill [--kind restore|rollback|audit|slo|drift|degraded|all],
+quickstart [--out], requirements [--check [--phase pN]]` (+ `infer` under
+`--features openai`).
