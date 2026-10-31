@@ -753,11 +753,13 @@ fn print_real_study(report: &entelechy_domain::RealStudyReport) {
 /// This drives the *same* design-repair proposer loop as the simulated study
 /// above, but scores each candidate by **executing** it against the resettable
 /// helpdesk world ([`entelechy_domain::searched_study`]). It demonstrates that the
-/// loop discovers both repairs the executor confirms work — a verification step
-/// (reply class) and a part-resolving `resolve_all` tool (decomposition class) —
-/// while rejecting a reasoning committee the structure-reading scorer would have
-/// credited: the two studies unified, with execution as the honest scorer. When
-/// `out` is set, the report and the discovered design are persisted.
+/// loop discovers three repairs the executor confirms work — a verification step
+/// (reply class, level 3), a retrieval read (knowledge class, level 2) and a
+/// part-resolving `resolve_all` tool (decomposition class, level 5) — at levels that
+/// are deliberately *not* in order, while rejecting a reasoning committee the
+/// structure-reading scorer would have credited: the two studies unified, with
+/// execution as the honest scorer. When `out` is set, the report and the discovered
+/// design are persisted.
 fn run_searched(out: Option<&str>) -> anyhow::Result<()> {
     let report = entelechy_domain::searched_study();
     print_searched_study(&report);
@@ -800,15 +802,19 @@ fn print_searched_study(report: &entelechy_domain::SearchedStudyReport) {
         yn(report.baseline_decomposition_unresolved)
     );
     println!(
+        "  knowledge unresolved:       {} (it drafts a guess without retrieving the fact)",
+        yn(report.baseline_knowledge_unresolved)
+    );
+    println!(
         "Design-repair loop (same proposer as `study`; {} candidate(s) evaluated):",
         report.rounds
     );
     println!(
-        "  repairs accepted at levels: {:?} (confirmed by execution + rolling validation)",
+        "  repairs accepted at levels: {:?} (confirmed by execution; note: not level-ordered — the levels are a prior, not a ladder)",
         report.accepted_levels
     );
     println!(
-        "  discovered a verify step:   {} (searched, not hand-authored)",
+        "  discovered a verify step:   {} (reply class, level 3; searched, not hand-authored)",
         yn(report.discovered_verify)
     );
     println!(
@@ -816,7 +822,15 @@ fn print_searched_study(report: &entelechy_domain::SearchedStudyReport) {
         yn(report.discovered_resolves_reply)
     );
     println!(
-        "  discovered a resolver:      {} (a searched `resolve_all` tool, not hand-authored)",
+        "  discovered a retrieval read:{} (knowledge class, level 2 — found *below* the verify level)",
+        yn(report.discovered_retrieval)
+    );
+    println!(
+        "  executor resolves knowledge:{} (the discovered design retrieves the fact the reply needs)",
+        yn(report.discovered_resolves_knowledge)
+    );
+    println!(
+        "  discovered a resolver:      {} (decomposition class, level 5; a searched `resolve_all` tool)",
         yn(report.discovered_part_resolver)
     );
     println!(
@@ -849,7 +863,7 @@ fn print_searched_study(report: &entelechy_domain::SearchedStudyReport) {
     println!(
         "\n  => Unified Phase-0 study {}.",
         if report.ok {
-            "SATISFIED — the real repair loop discovers BOTH fixes by executing designs (a verification step and a part-resolving tool), and rejects a reasoning committee that structure-scoring would have falsely credited"
+            "SATISFIED — the real repair loop discovers ALL THREE fixes by executing designs (a verification step at level 3, a retrieval read at level 2, and a part-resolving tool at level 5 — not in level order), and rejects a reasoning committee that structure-scoring would have falsely credited"
         } else {
             "VIOLATED — an invariant did not hold (see above)"
         }

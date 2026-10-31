@@ -11,6 +11,33 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Level-2 retrieval repair discovered end to end — the searched loop now unlocks
+  retrieval, and the levels are a prior, not a ladder (PRD §12, §11.4, §11.3, §21.1).**
+  The level-2 vocabulary already existed (the `AddRetrieval` operator, the proposer's
+  level-2 emission, and the `knowledge.retrieval_miss` class eligible at `[2]`), but no
+  run exercised it: the executor treated a `Retrieval` node as inert, the world had no
+  knowledge-dependent ticket, and the repair loop's single monotonic complexity cursor
+  made a level-2 fix unreachable once a higher-level fix had been accepted. This closes
+  all three gaps, mirroring what `AddTool`/`resolve_all` did for decomposition:
+  - the helpdesk world gains a `Knowledge` ticket (`needs_retrieval`) resolved only once
+    a reply is drafted **and** the needed durable fact has been retrieved, plus a
+    `retrieve(tier, top_k)` effect that surfaces the fact only from the *semantic* tier
+    with a positive budget — a misconfigured retrieval finds nothing (`entelechy-domain::world`);
+  - the Design-IR executor now honors a `Retrieval` node by applying that effect — a read
+    that adds no authority (`entelechy-domain::exec`);
+  - the repair loop (`searched_study`) now tracks the complexity level **per failure
+    class** instead of with one global cursor, so each class escalates its own ladder.
+    A level-2 retrieval miss is therefore discovered *after* a level-3 verify, and a
+    stuck class no longer strands the others.
+  The unified study gets its own three-class suite (reply/knowledge/decomposition),
+  leaving `real_study`'s PV-2 drift narrative on the shared `helpdesk_suite` untouched.
+  The loop now discovers **three** repairs by execution — a `Verify` (level 3), a
+  `Retrieval` (level 2) and a `resolve_all` `Tool` (level 5) — with `accepted_levels`
+  `[3, 2, 5]`, deliberately not level-ordered. `searched_study()` gains
+  `baseline_knowledge_unresolved`, `discovered_retrieval` and
+  `discovered_resolves_knowledge` invariants; the CLI narrative reports them. Adds three
+  unit tests (two world, one executor), updates the searched-study tests, and keeps the
+  full suite green (350 tests).
 - **Part-resolving edit operator — the searched loop now discovers the
   *decomposition* repair too (PRD §11.5, §11.3, §21.1).** The unified study
   (`study --searched`) previously discovered only the reply-class fix by execution;

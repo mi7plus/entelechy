@@ -20,47 +20,60 @@
 //!
 //! [`searched_study`] unifies them: it drives the **same** proposer loop the
 //! simulated study uses, but swaps the scoring function for the **real executor**
-//! ([`crate::exec::resolves`]). The result is not a cosmetic merge — it has teeth:
+//! ([`crate::exec::resolves`]). The result is not a cosmetic merge — it has teeth.
+//! The suite carries three failure classes, and the loop discovers a repair for
+//! each, each confirmed by *executing* the design, not by reading its structure:
 //!
 //! 1. the loop **discovers** (does not hand-author) the verification repair for
-//!    the reply class, and the executor confirms it genuinely resolves the reply
-//!    tickets the baseline failed;
-//! 2. when the loop proposes the level-4 parallel *committee* for the
+//!    the reply class (a `Verify` step at **level 3**), and the executor confirms
+//!    it genuinely resolves the reply tickets the baseline failed;
+//! 2. it then **discovers** the retrieval repair for the knowledge class (a
+//!    `Retrieval` read at **level 2**, [`entelechy_design::EditOp::AddRetrieval`]) —
+//!    *below* the level it just applied, because the complexity levels are a prior,
+//!    not a strict ladder (PRD 11.4): each failure class escalates its own ladder,
+//!    so the loop drops to level 2 for a retrieval miss even after accepting a
+//!    level-3 fix. The executor confirms the retrieved fact resolves the knowledge
+//!    tickets; a `Retrieval` adds no authority;
+//! 3. when the loop proposes the level-4 parallel *committee* for the
 //!    decomposition class, the executor **rejects** it — running it resolves
 //!    nothing, because the committee's `Llm` sub-agents carry no part-resolving
 //!    effect in this world — even though the structure-reading scorer would have
 //!    *credited* that very committee (it "has a `Par`"); and
-//! 3. the loop then escalates and **discovers** the decomposition repair too: a
+//! 4. the loop then escalates and **discovers** the decomposition repair too: a
 //!    part-resolving `resolve_all` tool ([`entelechy_design::EditOp::AddTool`]),
-//!    added at level 5, that the executor confirms resolves every part. It invokes
-//!    a capability the agent already holds, so it widens no authority.
+//!    added at **level 5**, that the executor confirms resolves every part. It
+//!    invokes a capability the agent already holds, so it widens no authority.
 //!
-//! Point 2 is the honesty contrast: the same search, scored two ways, and execution
-//! is the honest scorer — a structural scorer silently credits a repair that does
-//! nothing when run; the executor does not. Point 3 closes what used to be the gap:
-//! the decomposition class no longer depends on the hand-authored `resolve_part`
-//! committee in [`crate::study::real_study`] — the loop *discovers* its own
-//! part-resolving fix by execution, exactly as it discovers the reply fix. The two
-//! lessons land in one run: more reasoning agents (the committee) resolve nothing
-//! here, while a humble acting step the agent was already authorized for does.
+//! So the repairs land at levels 3, 2, 5 — *not* in level order — which is the
+//! non-ladder point made concrete. Point 3 is the honesty contrast: the same
+//! search, scored two ways, and execution is the honest scorer — a structural
+//! scorer silently credits a repair that does nothing when run; the executor does
+//! not. Point 4 closes what used to be the gap: the decomposition class no longer
+//! depends on the hand-authored `resolve_part` committee in
+//! [`crate::study::real_study`] — the loop *discovers* its own part-resolving fix by
+//! execution, exactly as it discovers the reply and retrieval fixes. The lessons
+//! land in one run: more reasoning agents (the committee) resolve nothing here,
+//! while a humble read, or an acting step the agent was already authorized for, does.
 //!
 //! The returned [`SearchedStudyReport`] carries one boolean per invariant plus the
 //! discovered design, exactly like the operational drills and the other studies,
 //! so the CLI and the TR-1 phase gate can both consume it.
 
+use std::collections::BTreeMap;
+
 use entelechy_design::{apply, EditOp};
 use entelechy_eval::{
-    CallerIdentity, ConstraintClass, EvalContract, GateResponse, HoldoutVault, NegativeGoal, Plane,
-    ReleaseRule, RiskClass, Split, SplitPolicy, Suite, Task,
+    CallerIdentity, ConstraintClass, Difficulty, EvalContract, GateResponse, HoldoutVault,
+    NegativeGoal, Plane, Provenance, ReleaseRule, RiskClass, Split, SplitPolicy, Suite, Task,
 };
 use entelechy_failure::{analyze, FailureObservation, Symptom};
 use entelechy_gateway::{MockModel, ModelGateway};
 use entelechy_ir::{Node, NodeKind, Program};
-use entelechy_search::{propose, rolling_validation_decision, Decision};
+use entelechy_search::{propose, rolling_validation_decision, Decision, Proposal};
 use serde::{Deserialize, Serialize};
 
 use crate::exec::resolves;
-use crate::study::{baseline_design, helpdesk_suite};
+use crate::study::baseline_design;
 
 /// The `Llm` node in the baseline the proposer transforms (the draft agent).
 const DRAFT_NODE: &str = "draft";
@@ -95,7 +108,12 @@ pub struct SearchedStudyReport {
     /// Whether the executor shows the baseline leaves every decomposition ticket
     /// unresolved (it resolves only the first part).
     pub baseline_decomposition_unresolved: bool,
-    /// Complexity levels of the repairs the loop accepted, in order.
+    /// Whether the executor shows the baseline leaves every knowledge ticket
+    /// unresolved (it drafts an ungrounded guess without retrieving the fact).
+    pub baseline_knowledge_unresolved: bool,
+    /// Complexity levels of the repairs the loop accepted, in order of discovery
+    /// (here `[3, 2, 5]` — deliberately not level-ordered: the levels are a prior,
+    /// not a ladder, so a level-2 retrieval repair is found after a level-3 one).
     pub accepted_levels: Vec<u8>,
     /// Candidates the loop evaluated (budget consumed).
     pub rounds: u32,
@@ -111,6 +129,12 @@ pub struct SearchedStudyReport {
     /// Whether the executor confirms the discovered design resolves every
     /// decomposition ticket (tune + validation) the baseline failed.
     pub discovered_resolves_decomposition: bool,
+    /// Whether the loop *discovered* a `Retrieval` read not present in the baseline
+    /// — the knowledge repair at level 2, searched not hand-authored.
+    pub discovered_retrieval: bool,
+    /// Whether the executor confirms the discovered design resolves every knowledge
+    /// ticket (tune + validation) the baseline failed.
+    pub discovered_resolves_knowledge: bool,
     /// Whether the loop proposed the level-4 parallel committee for the
     /// decomposition class.
     pub committee_proposed: bool,
@@ -142,13 +166,13 @@ pub struct SearchedStudyReport {
 /// execution/structure divergence is the point.
 pub fn searched_study() -> SearchedStudyReport {
     let gw = MockModel::new();
-    let suite = helpdesk_suite();
+    let suite = searched_suite();
     let baseline = baseline_design();
 
     let tune: Vec<&Task> = suite.split(Split::Tune).collect();
     let val: Vec<&Task> = suite.split(Split::Validation).collect();
 
-    // Sanity (executor-scored): the baseline leaves both failure classes open.
+    // Sanity (executor-scored): the baseline leaves all three failure classes open.
     let baseline_reply_unresolved = tune
         .iter()
         .filter(|t| t.has_tag("needs_reply"))
@@ -156,6 +180,10 @@ pub fn searched_study() -> SearchedStudyReport {
     let baseline_decomposition_unresolved = tune
         .iter()
         .filter(|t| t.has_tag("needs_decomposition"))
+        .all(|t| !resolves(&baseline, t, &gw));
+    let baseline_knowledge_unresolved = tune
+        .iter()
+        .filter(|t| t.has_tag("needs_retrieval"))
         .all(|t| !resolves(&baseline, t, &gw));
 
     // Drive the proposer loop, scored by the real executor.
@@ -180,6 +208,16 @@ pub fn searched_study() -> SearchedStudyReport {
         .iter()
         .chain(val.iter())
         .filter(|t| t.has_tag("needs_decomposition"))
+        .all(|t| resolves(&discovered, t, &gw));
+
+    // The loop also discovered a retrieval read the baseline lacked (at level 2,
+    // below the verify it already applied), and the executor confirms it resolves
+    // the knowledge class.
+    let discovered_retrieval = has_retrieval(&discovered.root) && !has_retrieval(&baseline.root);
+    let discovered_resolves_knowledge = tune
+        .iter()
+        .chain(val.iter())
+        .filter(|t| t.has_tag("needs_retrieval"))
         .all(|t| resolves(&discovered, t, &gw));
 
     // The committee the loop proposed for decomposition: the executor rejected it,
@@ -210,22 +248,28 @@ pub fn searched_study() -> SearchedStudyReport {
 
     let ok = baseline_reply_unresolved
         && baseline_decomposition_unresolved
+        && baseline_knowledge_unresolved
         && discovered_verify
         && discovered_resolves_reply
         && discovered_part_resolver
         && discovered_resolves_decomposition
+        && discovered_retrieval
+        && discovered_resolves_knowledge
         && honest_divergence
         && holdout_passed;
 
     SearchedStudyReport {
         baseline_reply_unresolved,
         baseline_decomposition_unresolved,
+        baseline_knowledge_unresolved,
         accepted_levels: outcome.accepted_levels,
         rounds: outcome.rounds,
         discovered_verify,
         discovered_resolves_reply,
         discovered_part_resolver,
         discovered_resolves_decomposition,
+        discovered_retrieval,
+        discovered_resolves_knowledge,
         committee_proposed,
         committee_rejected_by_execution,
         structure_would_credit_committee,
@@ -248,42 +292,52 @@ fn run_repair_loop(
     gw: &dyn ModelGateway,
 ) -> LoopOutcome {
     let mut best = baseline.clone();
-    let mut level: u8 = 0;
+    // Each failure class escalates its *own* complexity ladder (PRD 11.4: the levels
+    // are a prior, not a strict ladder). A single monotonic cursor would make a
+    // level-2 retrieval repair unreachable once a level-3 verify repair had been
+    // accepted — and worse, abandon the whole loop when the dominant class could
+    // only propose a lower level. Tracking the level per class lets the loop
+    // discover repairs in whatever level order the classes demand (here 3, 2, 5).
+    let mut class_level: BTreeMap<String, u8> = BTreeMap::new();
     let mut rounds: u32 = 0;
     let mut accepted_levels = Vec::new();
     let mut committee_candidate: Option<Program> = None;
     let mut committee_rejected = false;
 
     while rounds < CANDIDATE_BUDGET {
-        // Diagnose the current best design's executed failures on tune (PRD 10.2).
+        // Diagnose the current best design's executed failures on tune (PRD 10.2),
+        // then pick the largest actionable cluster whose class can still escalate.
+        // Classes that are exhausted (no higher eligible level) or gated behind
+        // approval are skipped, so one stuck class never strands the others.
         let clusters = analyze(&observe_executed_failures(&best, tune, gw));
-        let Some((class_id, eligible)) = clusters
-            .iter()
-            .find(|c| !c.is_evaluation_failure)
-            .and_then(|c| {
-                c.top()
-                    .map(|t| (t.class_id.clone(), t.eligible_levels.clone()))
-            })
-        else {
-            // Converged: no actionable failure remains in the best design.
+        let mut chosen: Option<(String, Proposal)> = None;
+        for cluster in clusters.iter().filter(|c| !c.is_evaluation_failure) {
+            let Some(top) = cluster.top() else { continue };
+            let class_id = top.class_id.clone();
+            let current = class_level.get(&class_id).copied().unwrap_or(0);
+            match propose(
+                current,
+                &class_id,
+                &top.eligible_levels,
+                DRAFT_NODE,
+                &best.authority,
+                COMPLEXITY_CEILING,
+                true,
+            ) {
+                // Above the ceiling or would add authority: cannot auto-apply, so
+                // leave it for a human and try the next class (PRD 11.4, Q4).
+                Some(p) if p.needs_approval => continue,
+                Some(p) => {
+                    chosen = Some((class_id, p));
+                    break;
+                }
+                // This class cannot escalate further; try the next cluster.
+                None => continue,
+            }
+        }
+        let Some((class_id, proposal)) = chosen else {
+            // No actionable class can escalate: converged.
             break;
-        };
-
-        // Propose the next mutation, escalating from the current level (PRD 11.4).
-        let proposal = match propose(
-            level,
-            &class_id,
-            &eligible,
-            DRAFT_NODE,
-            &best.authority,
-            COMPLEXITY_CEILING,
-            true,
-        ) {
-            // An above-ceiling unlock needs human approval; stop rather than apply.
-            Some(p) if p.needs_approval => break,
-            Some(p) => p,
-            // No higher level is justified: converged.
-            None => break,
         };
         rounds += 1;
 
@@ -300,7 +354,7 @@ fn run_repair_loop(
             }
         }
         if !applied {
-            level = proposal.level;
+            class_level.insert(class_id, proposal.level);
             continue;
         }
 
@@ -329,15 +383,15 @@ fn run_repair_loop(
         match decision {
             Decision::Accepted => {
                 best = candidate;
-                level = proposal.level;
+                class_level.insert(class_id, proposal.level);
                 accepted_levels.push(proposal.level);
             }
             Decision::Rejected | Decision::Inconclusive => {
                 if is_committee {
                     committee_rejected = true;
                 }
-                // Escalate past this level next round.
-                level = proposal.level;
+                // Escalate this class past the rejected level next round.
+                class_level.insert(class_id, proposal.level);
             }
         }
     }
@@ -353,9 +407,10 @@ fn run_repair_loop(
 
 /// Turn a design's executed tune failures into failure observations (PRD 10.2).
 /// Failure is decided by the executor ([`resolves`]); the symptom follows the
-/// ticket class so the analyzer separates the two classes (an unresolved reply is
+/// ticket class so the analyzer separates the three classes (an unresolved reply is
 /// an unsupported claim → `reasoning.verification`; an unresolved multi-part ticket
-/// is incomplete decomposition → `reasoning.decomposition`).
+/// is incomplete decomposition → `reasoning.decomposition`; an unresolved knowledge
+/// ticket is a retrieval miss → `knowledge.retrieval_miss`).
 fn observe_executed_failures(
     program: &Program,
     tasks: &[&Task],
@@ -367,6 +422,8 @@ fn observe_executed_failures(
         .map(|t| {
             let (signature, symptom) = if t.has_tag("needs_reply") {
                 ("reply:unverified", Symptom::UnsupportedClaim)
+            } else if t.has_tag("needs_retrieval") {
+                ("knowledge:unretrieved", Symptom::RetrievalMiss)
             } else if t.has_tag("needs_decomposition") {
                 ("task:fragmented", Symptom::IncompleteDecomposition)
             } else {
@@ -416,6 +473,11 @@ fn has_tool(node: &Node, capability: &str) -> bool {
         node,
         |k| matches!(k, NodeKind::Tool(t) if t.capability == capability),
     )
+}
+
+/// Whether any node in the design is a `Retrieval` read.
+fn has_retrieval(node: &Node) -> bool {
+    has_kind(node, |k| matches!(k, NodeKind::Retrieval(_)))
 }
 
 /// Whether any node in the design satisfies `pred` (depth-first).
@@ -469,7 +531,66 @@ fn run_holdout_gate(baseline: &Program, discovered: &Program, suite: &Suite) -> 
     }
 }
 
+/// The suite for the unified study. Unlike the shared [`crate::study::helpdesk_suite`]
+/// (two classes), this carries a third: knowledge tickets (`needs_retrieval`) that a
+/// durable fact answers, so the loop has a level-2 retrieval repair to discover.
+/// Keeping it separate leaves [`crate::study::real_study`]'s PV-2 drift narrative
+/// untouched.
+///
+/// Tune counts order discovery by cluster size — reply 7 > knowledge 6 >
+/// decomposition 5 — so the loop fixes verification (level 3) first, then retrieval
+/// (level 2), then decomposition (committee rejected, resolve_all accepted at level
+/// 5). Each class gets an equal validation share (4 each) so every repair clears the
+/// rolling-validation bar independently (EV-13): a repair that newly resolves 4 of
+/// 12 validation tasks has a paired-bootstrap lower bound above zero, while 3 of 12
+/// would sit on the 2.5% boundary.
+fn searched_suite() -> Suite {
+    let mut tasks = Vec::new();
+    let mut push = |split: Split, n: usize, tag: &str, base: &str, parts: Option<u64>| {
+        for i in 0..n {
+            let mut input = serde_json::json!({ "ticket": format!("{base}{i}") });
+            if let Some(p) = parts {
+                input["parts"] = serde_json::json!(p);
+            }
+            tasks.push(Task {
+                id: format!("{base}{i}"),
+                input,
+                environment: "helpdesk".into(),
+                checkers: vec!["helpdesk.resolved".into()],
+                tags: vec![tag.to_string()],
+                difficulty: Difficulty::Medium,
+                provenance: Provenance::HumanSeed,
+                split,
+                source_task: None,
+            });
+        }
+    };
+    push(Split::Tune, 7, "needs_reply", "tune-reply", None);
+    push(Split::Tune, 6, "needs_retrieval", "tune-know", None);
+    push(Split::Tune, 5, "needs_decomposition", "tune-dec", Some(3));
+    push(Split::Validation, 4, "needs_reply", "val-reply", None);
+    push(Split::Validation, 4, "needs_retrieval", "val-know", None);
+    push(
+        Split::Validation,
+        4,
+        "needs_decomposition",
+        "val-dec",
+        Some(3),
+    );
+    push(Split::Holdout, 7, "needs_reply", "hold-reply", None);
+    push(Split::Holdout, 6, "needs_retrieval", "hold-know", None);
+    push(
+        Split::Holdout,
+        5,
+        "needs_decomposition",
+        "hold-dec",
+        Some(3),
+    );
+    Suite::new(tasks)
+}
+
 /// The eval contract for the unified study (mirrors [`crate::study`], PRD 9, 21.1).
+/// The split sizes track [`searched_suite`] (tune 18, validation 12, holdout 18).
 fn contract() -> EvalContract {
     EvalContract {
         version: 1,
@@ -482,9 +603,9 @@ fn contract() -> EvalContract {
             delta: 0.05,
         }],
         splits: SplitPolicy {
-            tune: 12,
-            validation: 6,
-            holdout: 12,
+            tune: 18,
+            validation: 12,
+            holdout: 18,
         },
         release: ReleaseRule {
             primary_metric: "task_success".into(),
@@ -510,12 +631,24 @@ mod tests {
             "baseline leaves decomposition tickets unresolved"
         );
         assert!(
+            r.baseline_knowledge_unresolved,
+            "baseline leaves knowledge tickets unresolved"
+        );
+        assert!(
             r.discovered_verify,
             "the loop discovered a verification step not in the baseline"
         );
         assert!(
             r.discovered_resolves_reply,
             "the executor confirms the discovered design resolves the reply class"
+        );
+        assert!(
+            r.discovered_retrieval,
+            "the loop discovered a retrieval read not in the baseline"
+        );
+        assert!(
+            r.discovered_resolves_knowledge,
+            "the executor confirms the discovered design resolves the knowledge class"
         );
         assert!(
             r.discovered_part_resolver,
@@ -550,18 +683,21 @@ mod tests {
     }
 
     #[test]
-    fn the_discovered_design_is_the_baseline_plus_a_verify_and_a_resolver() {
+    fn the_discovered_design_adds_a_verify_a_retrieval_and_a_resolver() {
         let r = searched_study();
-        // The loop accepted two repairs by execution: the verification step (level 3,
-        // reply class) and the part-resolving tool (level 5, decomposition class). The
-        // level-4 reasoning committee was proposed in between and rejected — it never
-        // stuck — so the accepted levels are exactly [3, 5].
+        // The loop accepted three repairs by execution, in discovery order: the
+        // verification step (level 3, reply class), then — dropping *below* it — the
+        // retrieval read (level 2, knowledge class), then the part-resolving tool
+        // (level 5, decomposition class). The level-4 reasoning committee was proposed
+        // between the last two and rejected — it never stuck. So the accepted levels
+        // are exactly [3, 2, 5]: deliberately not level-ordered, which is the point.
         assert_eq!(
             r.accepted_levels,
-            vec![3, 5],
-            "the verify and the part-resolver repairs both stuck; the committee did not"
+            vec![3, 2, 5],
+            "verify (3), then retrieval (2) below it, then the part-resolver (5); the committee did not stick"
         );
         assert!(has_verify(&r.discovered_design.root));
+        assert!(has_retrieval(&r.discovered_design.root));
         assert!(has_tool(&r.discovered_design.root, "resolve_all"));
     }
 

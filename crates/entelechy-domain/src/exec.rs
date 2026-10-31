@@ -3,10 +3,10 @@
 //! [`execute`] walks a [`Program`] and applies each node's *effect* to a fresh
 //! [`HelpdeskWorld`]: an `Llm` node drafts an ungrounded reply (through a real
 //! [`ModelGateway`] call, so the provider identity is captured — PV-1), a `Verify`
-//! node grounds it, a `resolve_part` tool resolves one part, a `Par` committee of
-//! workers resolves every part, and a forbidden `refund` tool is refused. Success
-//! is then read by the [`HelpdeskWorld::resolved`] checker — from world state, not
-//! from the program.
+//! node grounds it, a `Retrieval` node reads durable knowledge into the world, a
+//! `resolve_part` tool resolves one part, a `Par` committee of workers resolves
+//! every part, and a forbidden `refund` tool is refused. Success is then read by
+//! the [`HelpdeskWorld::resolved`] checker — from world state, not from the program.
 
 use entelechy_eval::Task;
 use entelechy_gateway::{ModelGateway, ModelRequest, ProviderIdentity};
@@ -76,6 +76,13 @@ fn apply(
         }
         NodeKind::Verify(_) => {
             world.verify_reply();
+        }
+        // Retrieval reads durable knowledge into the world (PRD 12, 11.4 level 2).
+        // It is a read, not a capability invocation — it adds no authority — so it
+        // is applied unconditionally; the world decides whether the configured tier
+        // and budget actually surface the needed fact.
+        NodeKind::Retrieval(r) => {
+            world.retrieve(r.tier, r.top_k);
         }
         NodeKind::Tool(tool) => {
             apply_tool(&tool.capability, &tool.args, authority, world);
@@ -252,6 +259,49 @@ mod tests {
         // Repaired: verification grounds the reply; the committee resolves all parts.
         assert!(resolves(&repaired_design(), &reply, &gw));
         assert!(resolves(&repaired_design(), &dec, &gw));
+    }
+
+    #[test]
+    fn a_knowledge_ticket_needs_a_retrieval_step() {
+        use entelechy_ir::{
+            AuthorityEnvelope, LlmNode, MemoryTier, Node, NodeKind, Program, RetrievalNode,
+        };
+        let gw = MockModel::new();
+        let know = task("k", "needs_retrieval", None);
+
+        // Baseline drafts a reply but never retrieves the needed fact -> unresolved.
+        assert!(!resolves(&baseline_design(), &know, &gw));
+
+        // Prepending a semantic retrieval before the draft surfaces the fact, and
+        // the knowledge ticket resolves. The retrieval adds no authority.
+        let mut auth = AuthorityEnvelope::empty();
+        auth.capabilities.insert("draft_reply".into());
+        auth.forbidden_capabilities.insert("refund".into());
+        let retrieving = Program::new(
+            auth,
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "fetch",
+                        NodeKind::Retrieval(RetrievalNode {
+                            query_template: "{input}".into(),
+                            tier: MemoryTier::Semantic,
+                            top_k: 4,
+                        }),
+                    ),
+                    Node::new(
+                        "draft",
+                        NodeKind::Llm(LlmNode {
+                            model: "mock-small".into(),
+                            prompt_template: "resolve ticket: {input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                ]),
+            ),
+        );
+        assert!(resolves(&retrieving, &know, &gw));
     }
 
     #[test]

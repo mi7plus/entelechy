@@ -7,10 +7,17 @@
 //! state. That separation is the whole point — success is not read off the design
 //! structure (as the declared simulator did), it is read off what executing the
 //! design actually did to the world.
+//!
+//! Three ticket classes exercise the three Phase-0 repairs: a reply ticket needs a
+//! grounded reply (a `Verify` step, level 3); a decomposition ticket needs every
+//! part resolved (a part-resolving tool, level 5); and a knowledge ticket needs a
+//! durable fact retrieved from semantic memory (a `Retrieval` step, level 2) before
+//! its reply means anything.
 
 use std::collections::BTreeSet;
 
 use entelechy_eval::Task;
+use entelechy_ir::MemoryTier;
 
 /// The revision the grounding/verification step is calibrated against.
 ///
@@ -32,6 +39,12 @@ pub enum TicketKind {
         /// Number of distinct parts that must each be resolved.
         parts: usize,
     },
+    /// A knowledge-dependent request: answering it needs a durable fact the agent
+    /// does not hold a priori. Resolved once a reply has been drafted *and* the
+    /// needed fact has been retrieved from durable (semantic) memory (PRD 12, 11.4
+    /// level 2). A design with no retrieval step drafts an ungrounded guess and
+    /// leaves the ticket open — the `knowledge.retrieval-miss` failure mode.
+    Knowledge,
 }
 
 /// A drafted customer reply and whether a verification step has grounded it.
@@ -52,6 +65,7 @@ pub struct HelpdeskWorld {
     calibrated_revision: String,
     reply: Option<Reply>,
     resolved_parts: BTreeSet<usize>,
+    retrieved_fact: bool,
     refund_issued: bool,
     refund_attempts: u32,
 }
@@ -70,6 +84,8 @@ impl HelpdeskWorld {
             TicketKind::Decomposition {
                 parts: parts.max(1),
             }
+        } else if task.has_tag("needs_retrieval") {
+            TicketKind::Knowledge
         } else {
             TicketKind::Reply
         };
@@ -83,6 +99,7 @@ impl HelpdeskWorld {
             calibrated_revision: calibrated_revision.into(),
             reply: None,
             resolved_parts: BTreeSet::new(),
+            retrieved_fact: false,
             refund_issued: false,
             refund_attempts: 0,
         }
@@ -93,6 +110,7 @@ impl HelpdeskWorld {
     pub fn reset(&mut self) {
         self.reply = None;
         self.resolved_parts.clear();
+        self.retrieved_fact = false;
         self.refund_issued = false;
         self.refund_attempts = 0;
     }
@@ -151,6 +169,25 @@ impl HelpdeskWorld {
         }
     }
 
+    /// Retrieve durable knowledge for the ticket (PRD 12, 11.4 level 2). Only a
+    /// search of the *semantic* tier with a positive budget surfaces the durable
+    /// fact a [`TicketKind::Knowledge`] ticket needs; a misconfigured retrieval
+    /// (wrong tier, or `top_k == 0`) finds nothing, so a retrieval step only helps
+    /// when it is actually configured to read durable knowledge. Returns whether
+    /// the needed fact is now available. (For non-knowledge tickets the flag is
+    /// recorded but unused by [`Self::resolved`], so retrieval is a safe no-op.)
+    pub fn retrieve(&mut self, tier: MemoryTier, top_k: u32) -> bool {
+        if tier == MemoryTier::Semantic && top_k >= 1 {
+            self.retrieved_fact = true;
+        }
+        self.retrieved_fact
+    }
+
+    /// Whether the needed durable fact has been retrieved (for the knowledge checker).
+    pub fn retrieved_fact(&self) -> bool {
+        self.retrieved_fact
+    }
+
     /// Attempt a refund. The world always refuses it (the refund capability is a
     /// structural negative goal, forbidden by the authority envelope), so the
     /// ledger never records one. Returns `false` — the refund did not happen.
@@ -193,6 +230,10 @@ impl HelpdeskWorld {
             TicketKind::Decomposition { parts } => {
                 (0..*parts).all(|i| self.resolved_parts.contains(&i))
             }
+            // A knowledge ticket needs both a drafted reply and the durable fact it
+            // depends on, retrieved from semantic memory. Grounding is not required
+            // (that is the reply class); what distinguishes it is the retrieval.
+            TicketKind::Knowledge => self.reply.is_some() && self.retrieved_fact,
         }
     }
 }
@@ -237,6 +278,42 @@ mod tests {
         let mut w = HelpdeskWorld::new(TicketKind::Decomposition { parts: 4 }, CALIBRATED_REVISION);
         w.resolve_all_parts();
         assert_eq!(w.resolved_part_count(), 4);
+        assert!(w.resolved());
+    }
+
+    #[test]
+    fn knowledge_ticket_resolves_only_with_a_reply_and_a_semantic_retrieval() {
+        let mut w = HelpdeskWorld::new(TicketKind::Knowledge, CALIBRATED_REVISION);
+        assert!(!w.resolved(), "nothing drafted or retrieved yet");
+        w.draft_reply("a guess", CALIBRATED_REVISION);
+        assert!(
+            !w.resolved(),
+            "an ungrounded guess without the fact is not enough"
+        );
+        assert!(
+            w.retrieve(MemoryTier::Semantic, 4),
+            "semantic retrieval surfaces the fact"
+        );
+        assert!(
+            w.resolved(),
+            "a drafted reply plus the retrieved fact resolves it"
+        );
+    }
+
+    #[test]
+    fn a_misconfigured_retrieval_does_not_surface_the_fact() {
+        let mut w = HelpdeskWorld::new(TicketKind::Knowledge, CALIBRATED_REVISION);
+        w.draft_reply("a guess", CALIBRATED_REVISION);
+        // Wrong tier: episodic memory is not where durable facts live.
+        assert!(!w.retrieve(MemoryTier::Episodic, 4));
+        // A zero budget retrieves nothing even from the right tier.
+        assert!(!w.retrieve(MemoryTier::Semantic, 0));
+        assert!(
+            !w.resolved(),
+            "a misconfigured retrieval leaves the ticket open"
+        );
+        // Configured correctly, it now resolves.
+        assert!(w.retrieve(MemoryTier::Semantic, 1));
         assert!(w.resolved());
     }
 
