@@ -36,6 +36,7 @@ entelechy-capability = { workspace = true }
 entelechy-server = { workspace = true }
 entelechy-protocol = { workspace = true }
 entelechy-contracts = { workspace = true }
+entelechy-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }

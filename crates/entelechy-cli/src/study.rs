@@ -38,7 +38,14 @@ const COMPLEXITY_CEILING: u8 = 5;
 /// Run the Phase 0 study demo, printing a narrative of each governed step. When
 /// `out` is set, the final best design IR and a study report are written there
 /// (durable, content-addressed artifacts — PRD principle 6).
-pub fn run(out: Option<&str>) -> anyhow::Result<()> {
+///
+/// With `real`, run the Phase-0 *real-domain* study instead (PRD §21, Q1): execute
+/// designs against a resettable helpdesk world with programmatic state checkers
+/// (see [`crate::study::run_real`]).
+pub fn run(out: Option<&str>, real: bool) -> anyhow::Result<()> {
+    if real {
+        return run_real(out);
+    }
     // --- 1. Baseline design (PRD 11.1: mandatory single-agent baseline) ---
     let mut authority = AuthorityEnvelope::empty();
     authority.capabilities.insert("draft_reply".into());
@@ -610,3 +617,126 @@ fn maybe_synthesize_tasks(suite: &Suite) {
 /// No-op unless built with `--features openai` (keeps the default study identical).
 #[cfg(not(feature = "openai"))]
 fn maybe_synthesize_tasks(_suite: &Suite) {}
+
+/// Run the Phase-0 real-domain study (PRD §21, Q1; `entelechy study --real`).
+///
+/// Unlike the declared simulator above, this *executes* each design against a
+/// resettable [`entelechy_domain::HelpdeskWorld`] and decides success with a
+/// programmatic state checker, then produces the evidence the TR-1 gate still
+/// waived: no-silent-pooling across a model drift (PV-2), a single-deployment-
+/// profile approval (DP-1) and a content-addressed reproduction packet. When
+/// `out` is set, the report and the two designs are persisted.
+fn run_real(out: Option<&str>) -> anyhow::Result<()> {
+    let report = entelechy_domain::real_study();
+    print_real_study(&report);
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let base = std::path::Path::new(dir);
+        let report_path = base.join("real-study-report.json");
+        let baseline_path = base.join("baseline-design.json");
+        let repaired_path = base.join("repaired-design.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        std::fs::write(
+            &baseline_path,
+            serde_json::to_string_pretty(&entelechy_domain::baseline_design())?,
+        )?;
+        std::fs::write(
+            &repaired_path,
+            serde_json::to_string_pretty(&entelechy_domain::repaired_design())?,
+        )?;
+        println!(
+            "\nPersisted: {}, {} and {}.",
+            report_path.display(),
+            baseline_path.display(),
+            repaired_path.display()
+        );
+    }
+    if !report.ok {
+        anyhow::bail!("Phase-0 real-domain study failed: an invariant did not hold");
+    }
+    Ok(())
+}
+
+/// Print a `RealStudyReport` as a narrative of its invariants (mirrors the drill
+/// printers in [`crate::drill`]).
+fn print_real_study(report: &entelechy_domain::RealStudyReport) {
+    let yn = |b: bool| if b { "yes" } else { "NO" };
+    let c = &report.comparison;
+    println!(
+        "Phase-0 real-domain study (PRD §21, Q1) — designs executed against a resettable helpdesk; success read from world state, not design structure."
+    );
+    println!("Real-domain comparator (baseline → repaired, tune + validation):");
+    println!(
+        "  resolved tickets:           {}/{} → {}/{} ({} newly resolved, {} regressed)",
+        c.baseline_resolved,
+        c.total,
+        c.candidate_resolved,
+        c.total,
+        c.improved(),
+        c.regressed()
+    );
+    println!(
+        "  candidate improves:         {} (strict improvement, no regression)",
+        yn(report.candidate_improves)
+    );
+    println!(
+        "  refund negative goal held:  {} (a refund-attempting design never issues one)",
+        yn(report.negative_goal_held)
+    );
+    println!("Holdout gate (EV-14):");
+    println!(
+        "  verdict:                    {} ({})",
+        report.holdout_result,
+        yn(report.holdout_passed)
+    );
+    println!("No silent pooling across material drift (PV-2):");
+    println!(
+        "  material drift observed:    {} ({} evidence epoch(s))",
+        yn(report.drift_detected),
+        report.epochs.len()
+    );
+    println!(
+        "  release evidence:           {}/{} (current epoch only) vs pooled {}/{} (forbidden)",
+        report.release_successes,
+        report.release_total,
+        report.pooled_successes,
+        report.pooled_total
+    );
+    println!(
+        "  no silent pooling:          {} (a drift opens a new epoch; the release reads only it)",
+        yn(report.no_silent_pooling)
+    );
+    println!(
+        "  pooling would mask drop:    {} (pooling pre-drift success with post-drift failure hides the regression)",
+        yn(report.pooling_would_mask_regression)
+    );
+    println!("Single deployment profile (DP-1):");
+    println!(
+        "  declared profile:           {:?} ({})",
+        report.deployment.profile, report.deployment.guarantee_boundary
+    );
+    println!(
+        "  profile approval valid:     {} (a signed approval bound to exactly one profile)",
+        yn(report.single_profile_approved)
+    );
+    println!("Reproduction (PRD principle 6):");
+    println!(
+        "  packet:                     {} (fingerprint {})",
+        report.reproduction.packet_id,
+        report.reproduction.fingerprint.as_str()
+    );
+    println!(
+        "  reproduced to sealed counts:{} (re-run matches b={} c={})",
+        yn(report.reproduced),
+        report.reproduction.baseline_resolved,
+        report.reproduction.candidate_resolved
+    );
+    println!(
+        "\n  => Phase-0 real-domain study {}.",
+        if report.ok {
+            "SATISFIED — a real resettable domain scores designs by executed state, retires PV-2 (no silent pooling) and DP-1 (single declared profile), and reproduces deterministically"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+}

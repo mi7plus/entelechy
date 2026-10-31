@@ -22,6 +22,7 @@ members = [
     "crates/entelechy-bench",
     "crates/entelechy-protocol",
     "crates/entelechy-contracts",
+    "crates/entelechy-domain",
     "crates/entelechy-integration",
 ]
 
@@ -71,6 +72,7 @@ entelechy-effects = { path = "crates/entelechy-effects" }
 entelechy-bench = { path = "crates/entelechy-bench" }
 entelechy-protocol = { path = "crates/entelechy-protocol" }
 entelechy-contracts = { path = "crates/entelechy-contracts" }
+entelechy-domain = { path = "crates/entelechy-domain" }
 
 # Third-party
 serde = { version = "1", features = ["derive"] }

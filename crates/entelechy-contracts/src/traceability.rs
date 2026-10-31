@@ -163,15 +163,19 @@ impl TraceabilityIndex {
 /// to cover the newly required requirements and bumping this.
 pub const CURRENT_GATE_PHASE: Phase = Phase::P1;
 
-/// Review deadline for the pre-maturity waivers in [`phase_gate_evidence`]:
-/// 2027-07-01T00:00:00Z. Past this instant the waivers expire and the TR-1 gate
-/// reports them as gaps, forcing a re-review (PRD 17.5 — waivers are expiring).
+/// Default review horizon for a pre-maturity waiver (2027-07-01T00:00:00Z): past
+/// this instant such a waiver expires and the TR-1 gate reports it as a gap,
+/// forcing a re-review (PRD 17.5 — waivers are expiring). The current evidence set
+/// has no active waivers — every requirement through the current gate is verified —
+/// but the constant is retained for any future scoped waiver and by the gate tests.
 pub const WAIVER_REVIEW_DEADLINE: u64 = 1_814_400_000;
 
 /// The authoritative phase-gate evidence for [`CURRENT_GATE_PHASE`] (PRD 17.5,
-/// TR-1): a verification record for every requirement that has automated evidence,
-/// and a scoped, expiring waiver — with a compensating control — for the
-/// study/drill/approval requirements not yet mechanized in this pre-maturity build.
+/// TR-1): a verification record for every cross-cutting requirement enforced
+/// through the current gate. Every such requirement now has automated evidence —
+/// the Phase-0 real-domain study (entelechy-domain) mechanized the last two that
+/// were previously waived (PV-2, DP-1) — so no waivers remain, though the waiver
+/// mechanism stays available for future scoped, expiring gaps.
 ///
 /// `entelechy requirements --check` and the `traceability` CI job consume this. A
 /// requirement first enforced at or before [`CURRENT_GATE_PHASE`] that is neither
@@ -291,32 +295,26 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
         V,
     );
 
-    // Study/approval requirements not yet mechanized: scoped, expiring waivers with
-    // compensating controls (PRD 17.5). These are honest gaps, not proofs — none is
-    // a StaticProof requirement, so all are permissibly waivable.
-    index.waive(Waiver {
-        requirement_id: "PV-2".into(),
-        rationale: "No-silent-pooling across material drift is study evidence from a \
-                    real-domain run; the Phase-0 study on a real domain is not yet run."
-            .into(),
-        compensating_control: "Provider identity and the returned revision are recorded on \
-                               every model call (PV-1); the deterministic mock pins a fixed \
-                               revision so fingerprints are stable."
-            .into(),
-        approver: "phase-gate-owner".into(),
-        expires_at: WAIVER_REVIEW_DEADLINE,
-    });
-    index.waive(Waiver {
-        requirement_id: "DP-1".into(),
-        rationale: "Formal single-deployment-profile approval is an operator step taken at \
-                    deployment, not in this library build."
-            .into(),
-        compensating_control: "The DeploymentProfile type models exactly one declared profile \
-                               in code (entelechy-artifacts: platform.rs)."
-            .into(),
-        approver: "phase-gate-owner".into(),
-        expires_at: WAIVER_REVIEW_DEADLINE,
-    });
+    // PV-2 and DP-1 are mechanized by the Phase-0 real-domain study
+    // (entelechy-domain): designs are executed against a resettable helpdesk world
+    // and scored by programmatic state checkers, so these are real verification
+    // records, not waivers. No waivers remain in the current evidence set.
+    index.verify(
+        "PV-2",
+        "entelechy-domain: study::real_study_is_green + release_evidence_is_the_post_drift_epoch_not_the_pool \
+         + epoch::a_new_fingerprint_opens_a_new_epoch_never_pooling (every model call's ModelFingerprint keys an \
+         EvidenceEpoch; a material revision drift opens a new epoch and the release reads only the current one, so \
+         pre-drift evidence is never silently pooled); real-domain study `entelechy study --real`",
+        V,
+    );
+    index.verify(
+        "DP-1",
+        "entelechy-domain: study::real_study_is_green + declaration_is_stale_if_the_profile_changes (a \
+         DeploymentDeclaration names exactly one DeploymentProfile and carries a signed approval bound to it — \
+         the single-deployment-profile approval step, revalidated like any approval); real-domain study \
+         `entelechy study --real`",
+        V,
+    );
 
     index
 }

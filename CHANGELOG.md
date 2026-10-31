@@ -11,6 +11,42 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Phase-0 real-domain study (PRD §21, Q1; retires the PV-2 and DP-1 waivers).**
+  A new `entelechy-domain` crate replaces the *declared simulator* — which decided a
+  task's success by inspecting the design *structure* — with a genuine resettable
+  domain. `HelpdeskWorld` is mutable state (a drafted reply with its grounding
+  status, a set of resolved ticket parts, a refund ledger); `execute` is an IR
+  interpreter that applies each node's *effect* to the world (an `Llm` node drafts an
+  ungrounded reply through a real `ModelGateway` call, a `Verify` node grounds it, a
+  `Par` committee resolves every part, a forbidden `refund` tool is refused); and
+  `resolves` decides success with a programmatic state checker that inspects only the
+  final world, never the program — so scoring is no longer circular. On top of that
+  domain, `real_study()` produces the two pieces of Phase-0 evidence the TR-1 gate
+  still waived:
+  - **PV-2 (no silent pooling across material drift).** Every model call's
+    `ModelFingerprint` (a content address over the drift-relevant provider-identity
+    fields) keys an `EvidenceEpoch`. A material revision drift (a `RevisionModel`
+    stamping a new revision behind the same advertised model) opens a *new* epoch
+    instead of extending the old one, and `EvidenceLedger::release_evidence()` reads
+    only the current epoch. The study shows the drifted model regress (verification
+    calibrated to the old revision stops grounding the reply) and proves that pooling
+    pre-drift success with post-drift failure would mask the regression — which the
+    epoch separation structurally prevents.
+  - **DP-1 (one declared deployment profile).** `DeploymentDeclaration` names exactly
+    one `DeploymentProfile` and carries a signed `Approval` bound to it — the formal
+    single-deployment-profile approval step — revalidated like any approval (a
+    declaration whose profile changes reads as stale).
+
+  The run also re-gates the repaired candidate against the baseline on the sealed
+  holdout (EV-14) using the real executor, and seals a content-addressed
+  `ReproductionPacket` that re-runs to the same resolved counts bit-for-bit.
+  `entelechy study --real [--out]` runs it and (with `--out`) persists
+  `real-study-report.json` and the two designs. The PV-2 (StudyEvidence, P0) and DP-1
+  (HumanApproval, P1) waivers in `phase_gate_evidence()` are replaced with real
+  verification records citing the new crate's tests — **no waivers remain** in the
+  current evidence set. `requirements --check` still passes the P1 gate; P0 now
+  passes with PV-2 verified; and the P4 gap list no longer includes PV-2 or DP-1.
+  21 new tests.
 - **SLO / error-budget operational drill (PRD §18.1, SL-1).** A new
   `entelechy-release::slo` module mechanizes both halves of SL-1. A
   `ServiceLevelObjective` carries the four things SL-1 requires an L5 SLO to state —

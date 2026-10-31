@@ -622,6 +622,7 @@ dependencies = [
  "entelechy-capability",
  "entelechy-contracts",
  "entelechy-design",
+ "entelechy-domain",
  "entelechy-effects",
  "entelechy-eval",
  "entelechy-failure",
@@ -652,6 +653,20 @@ dependencies = [
 name = "entelechy-design"
 version = "0.0.0"
 dependencies = [
+ "entelechy-ir",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "entelechy-domain"
+version = "0.0.0"
+dependencies = [
+ "entelechy-artifacts",
+ "entelechy-eval",
+ "entelechy-gateway",
+ "entelechy-identity",
  "entelechy-ir",
  "serde",
  "serde_json",

@@ -1,0 +1,25 @@
+[package]
+name = "entelechy-domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Resettable helpdesk domain, executor and Phase-0 real-domain study"
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[dependencies]
+entelechy-ir = { workspace = true }
+entelechy-eval = { workspace = true }
+entelechy-artifacts = { workspace = true }
+entelechy-gateway = { workspace = true }
+entelechy-identity = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

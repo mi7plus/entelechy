@@ -44,6 +44,12 @@ enum Command {
         /// Directory to write the final design IR and a study report into.
         #[arg(long)]
         out: Option<String>,
+        /// Run the Phase-0 real-domain study: execute designs against a resettable
+        /// helpdesk world with programmatic state checkers, compare baseline vs
+        /// repaired, prove no-silent-pooling across a model drift (PV-2), declare a
+        /// single deployment profile (DP-1) and seal a reproduction packet.
+        #[arg(long)]
+        real: bool,
     },
     /// Explore a run's trace (Phase 1+).
     Trace,
@@ -229,7 +235,7 @@ fn main() -> anyhow::Result<()> {
         Command::Objective => cmd_objective(),
         Command::Capability => cmd_capability(),
         Command::Eval => cmd_eval(),
-        Command::Study { out } => study::run(out.as_deref()),
+        Command::Study { out, real } => study::run(out.as_deref(), real),
         Command::Trace => cmd_trace(),
         Command::Diff { old, new } => cmd_diff(old, new),
         Command::Assure => release::cmd_assure(),
