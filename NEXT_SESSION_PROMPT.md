@@ -5,16 +5,16 @@ Continue implementing the Entelechy PRD v11 (`Entelechy_PRD_v11_FINAL.docx` in
 to `main` after each self-contained unit, **only when the user asks** (handoff docs
 are the exception — see CLAUDE.md).
 
-## DONE (this session), VERIFIED, but UNCOMMITTED — advanced the TR-1 gate P1 → P4
+## DONE (this session) — advanced the TR-1 gate P1 → P4, COMMITTED & PUSHED
 
-The whole "advance the phase gate from P1 to P4" unit is **complete and fully
-verified in the working tree**, but **nothing is committed** (per CLAUDE.md the
-commit to `main` waits for the user's explicit go-ahead). The repo builds, the full
-gate is green, and `requirements --check` now passes at **P4**.
+The whole "advance the phase gate from P1 to P4" unit is **complete, verified, and
+committed to `main` as `2ac6002` (pushed to `origin`)**. The repo builds, the full
+gate is green, and `requirements --check` now passes at **P4**. Nothing is pending
+on this unit; pick up from "After the gate reaches P4" below.
 
 ### Verified state (run this session, all green)
 
-HEAD `main` is `aa5d2ce` (unchanged — the unit is uncommitted). On the current tree:
+HEAD `main` is `2ac6002` ("Advance TR-1 phase gate P1→P4 …"). At that commit:
 
 - `cargo fmt --all --check` — clean
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean
@@ -65,21 +65,12 @@ by a genuine `entelechy_effects::OperationKey`), and a new `entelechy quickstart
 [--out]` command. `CURRENT_GATE_PHASE` is now `Phase::P4`; its doc comments and the
 `phase_gate_evidence()` doc are updated.
 
-### The one remaining step: commit (needs the user's go-ahead)
+### Commit — DONE
 
-Per CLAUDE.md, the commit to `main` was **not** made autonomously. To finish the
-unit, commit the whole working tree as **one** commit referencing the requirement
-IDs, e.g.:
-
-```
-Advance TR-1 phase gate P1→P4: mechanize DX-1 + record PV-3/EL-1/PC-2/DR-2/DR-3/OL-2
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
-```
-
-Run `git status` first (stray 0-byte-file check), then `git add -A && git commit`.
-Push only if the user asks. (If the user already green-lit the commit, it may
-already be done — check `git log`.)
+The user green-lit the commit, so the whole unit is committed as `2ac6002` and
+pushed to `origin/main` (one commit referencing the 7 requirement IDs). This handoff
+refresh is a follow-up doc-only commit (handoff docs are the CLAUDE.md commit
+exception). Nothing else is pending on this unit.
 
 ## After the gate reaches P4
 
