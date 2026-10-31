@@ -6,11 +6,11 @@ to `main` after each self-contained unit, only when asked.
 
 ## Current state (verified)
 
-- **The Phase-0 real-domain study is complete and the full gate is green.** It is
-  in the working tree pending commit (HEAD `main` is still the SLO drill commit
-  `76313c7`, on top of the AU drill `e891f94`, the RB rollback drill `9ea4712`, the
-  DR-1 restore drill `7395d68`, and the closed operate → re-study → release loop
-  `4014620`). Once committed this becomes the new HEAD.
+- **The Phase-0 real-domain study is complete, committed and pushed.** HEAD `main`
+  is `f0b0d7a` ("Add the Phase-0 real-domain study and retire the PV-2/DP-1
+  waivers"), on top of the SLO drill `76313c7`, the AU drill `e891f94`, the RB
+  rollback drill `9ea4712`, the DR-1 restore drill `7395d68`, and the closed
+  operate → re-study → release loop `4014620`. Working tree clean.
 - Verified on the current tree: `cargo fmt --all --check` clean; `cargo clippy
   --workspace --all-targets -- -D warnings` clean; `cargo clippy -p
   entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings` clean;
@@ -30,7 +30,7 @@ to `main` after each self-contained unit, only when asked.
   online-eval loop closes end to end through a governed human-gated re-study, and
   the Phase-0 study now runs on a **real resettable domain**.
 
-## Done this run (built + verified, pending commit)
+## Done this run (committed `f0b0d7a` + pushed)
 
 - **Phase-0 real-domain study — new `entelechy-domain` crate (PRD §21, Q1).**
   Replaces the *declared simulator* (which scored a task by inspecting the design
