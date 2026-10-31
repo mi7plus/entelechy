@@ -2,11 +2,12 @@
 /entelechy-demo
 *.pdb
 
-# cargo-fuzz build output and generated corpora/crashes
+# cargo-fuzz build output, generated corpora/crashes, and the sub-crate lockfile
 /fuzz/target
 /fuzz/corpus
 /fuzz/artifacts
 /fuzz/coverage
+/fuzz/Cargo.lock
 
 # gstack/forge session artifacts
 .forge/
