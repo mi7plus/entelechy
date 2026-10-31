@@ -5,7 +5,8 @@
 use serde::{Deserialize, Serialize};
 
 use entelechy_ir::{
-    AuthorityEnvelope, LlmNode, MemoryTier, Node, NodeKind, Program, RetrievalNode, VerifyNode,
+    AuthorityEnvelope, LlmNode, MemoryTier, Node, NodeKind, Program, RetrievalNode, ToolNode,
+    VerifyNode,
 };
 
 /// One agent in a parallel decomposition (PRD 11.4 level 4 / 11.5).
@@ -58,6 +59,22 @@ pub enum EditOp {
     DeleteNode {
         /// Target node id.
         node: String,
+    },
+    /// Append a `Tool` node to the end of the root `Seq`: invoke a capability the
+    /// agent already holds (PRD 11.5; the smallest level-1 tool-use change). Unlike
+    /// [`EditOp::SplitParallel`], which adds reasoning sub-agents, this adds an
+    /// *acting* step — the operator the search uses to realize a repair whose fix is
+    /// a capability call rather than more reasoning (e.g. a part-resolving
+    /// `resolve_all` call for the decomposition class). The capability must be
+    /// granted by the authority (IR-I2); that is checked at validation/execution
+    /// time, not here, so the operator never *adds* authority.
+    AddTool {
+        /// New node id.
+        id: String,
+        /// Capability to invoke (must be granted by the authority — IR-I2).
+        capability: String,
+        /// Static arguments for the capability invocation.
+        args: serde_json::Value,
     },
     /// Level 2 (retrieval): prepend a `Retrieval` node to the root `Seq`, so the
     /// agent reasons over retrieved context (PRD 11.4 level 2). This is the
@@ -182,6 +199,21 @@ pub fn apply(program: &Program, op: &EditOp) -> Result<Program, PatchError> {
                 return Err(PatchError::NotFound(node.clone()));
             }
         }
+        EditOp::AddTool {
+            id,
+            capability,
+            args,
+        } => match &mut next.root.kind {
+            // Append: the acting step runs after the agent has produced its answer.
+            NodeKind::Seq(children) => children.push(Node::new(
+                id.clone(),
+                NodeKind::Tool(ToolNode {
+                    capability: capability.clone(),
+                    args: args.clone(),
+                }),
+            )),
+            _ => return Err(PatchError::Structural("AddTool requires a Seq root".into())),
+        },
         EditOp::SplitParallel {
             node,
             agents,
@@ -538,6 +570,68 @@ mod tests {
             ),
             Err(PatchError::NotFound("ghost".into()))
         );
+    }
+
+    #[test]
+    fn add_tool_appends_a_tool_to_the_seq_root() {
+        let p = base();
+        let q = apply(
+            &p,
+            &EditOp::AddTool {
+                id: "resolve".into(),
+                capability: "resolve_all".into(),
+                args: serde_json::json!({ "part": 0 }),
+            },
+        )
+        .unwrap();
+        match &q.root.kind {
+            NodeKind::Seq(c) => {
+                // Appended at the end: the acting step runs last.
+                assert_eq!(c.len(), 3);
+                assert_eq!(c[2].id, "resolve");
+                match &c[2].kind {
+                    NodeKind::Tool(t) => {
+                        assert_eq!(t.capability, "resolve_all");
+                        assert_eq!(t.args, serde_json::json!({ "part": 0 }));
+                    }
+                    other => panic!("expected Tool, got {other:?}"),
+                }
+                // The original agent still precedes it (and the original is unchanged).
+                assert_eq!(c[0].id, "llm");
+            }
+            other => panic!("expected Seq root, got {other:?}"),
+        }
+        // Immutability: the source program is untouched.
+        if let NodeKind::Seq(c) = &p.root.kind {
+            assert_eq!(c.len(), 2);
+        }
+    }
+
+    #[test]
+    fn add_tool_requires_a_seq_root() {
+        // A bare Llm root is not a Seq: the operator fails closed.
+        let p = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "solo",
+                NodeKind::Llm(LlmNode {
+                    model: "m".into(),
+                    prompt_template: "{input}".into(),
+                    temperature: 0.0,
+                }),
+            ),
+        );
+        assert!(matches!(
+            apply(
+                &p,
+                &EditOp::AddTool {
+                    id: "t".into(),
+                    capability: "resolve_all".into(),
+                    args: serde_json::Value::Null,
+                }
+            ),
+            Err(PatchError::Structural(_))
+        ));
     }
 
     fn reducer(id: &str) -> AgentSpec {

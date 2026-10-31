@@ -11,6 +11,29 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Part-resolving edit operator — the searched loop now discovers the
+  *decomposition* repair too (PRD §11.5, §11.3, §21.1).** The unified study
+  (`study --searched`) previously discovered only the reply-class fix by execution;
+  the decomposition class still relied on the hand-authored `resolve_part` committee
+  in `real_study`, because the generic proposer's level-4 operator emits a reasoning
+  committee of `Llm` sub-agents that resolve nothing when run. This closes that gap.
+  A new typed edit operator `entelechy_design::EditOp::AddTool { id, capability, args }`
+  appends an *acting* step (a `Tool` invocation) to the root `Seq` — the smallest
+  level-1 change for a repair whose fix is a capability call rather than more
+  reasoning. The proposer (`entelechy_search`) now realizes the coordination tier
+  (level 5) for the `reasoning.decomposition` class as an `AddTool` of the
+  `resolve_all` capability the agent already holds (so it widens no authority, IR-I2),
+  rather than a bare delegate. The study authority grants `resolve_all` (granted but
+  unused by the baseline, which resolves only the first part). The result: the loop
+  proposes the level-4 reasoning committee and the executor **rejects** it (the
+  honest-divergence contrast is intact — a structural scorer would credit its `Par`),
+  then escalates and **discovers** the `resolve_all` tool at level 5, which the
+  executor confirms resolves every part. Both Phase-0 repairs are now searched, not
+  hand-authored, and `accepted_levels` is `[3, 5]`. `searched_study()` gains
+  `discovered_part_resolver` and `discovered_resolves_decomposition` invariants; the
+  CLI narrative and `study --searched` output report them. Adds three unit tests
+  (two for `AddTool`, one for the proposer), updates the searched-study tests, and
+  keeps the full suite green.
 - **Unified Phase-0 study — the real repair loop, scored by execution (PRD §11.3,
   §21.1).** Entelechy had two Phase-0 study drivers that each told half the story:
   the simulated `entelechy study` ran the real design-repair proposer loop but scored

@@ -753,10 +753,11 @@ fn print_real_study(report: &entelechy_domain::RealStudyReport) {
 /// This drives the *same* design-repair proposer loop as the simulated study
 /// above, but scores each candidate by **executing** it against the resettable
 /// helpdesk world ([`entelechy_domain::searched_study`]). It demonstrates that the
-/// loop discovers the verification repair the executor confirms works, and rejects
-/// a parallel committee the structure-reading scorer would have credited — the two
-/// studies unified, with execution as the honest scorer. When `out` is set, the
-/// report and the discovered design are persisted.
+/// loop discovers both repairs the executor confirms work — a verification step
+/// (reply class) and a part-resolving `resolve_all` tool (decomposition class) —
+/// while rejecting a reasoning committee the structure-reading scorer would have
+/// credited: the two studies unified, with execution as the honest scorer. When
+/// `out` is set, the report and the discovered design are persisted.
 fn run_searched(out: Option<&str>) -> anyhow::Result<()> {
     let report = entelechy_domain::searched_study();
     print_searched_study(&report);
@@ -814,6 +815,14 @@ fn print_searched_study(report: &entelechy_domain::SearchedStudyReport) {
         "  executor resolves reply:    {} (the discovered design grounds the reply class)",
         yn(report.discovered_resolves_reply)
     );
+    println!(
+        "  discovered a resolver:      {} (a searched `resolve_all` tool, not hand-authored)",
+        yn(report.discovered_part_resolver)
+    );
+    println!(
+        "  executor resolves parts:    {} (the discovered design closes the decomposition class)",
+        yn(report.discovered_resolves_decomposition)
+    );
     println!("Execution vs structure (the two studies unified):");
     println!(
         "  committee proposed:         {} (level-4 parallel committee for decomposition)",
@@ -840,7 +849,7 @@ fn print_searched_study(report: &entelechy_domain::SearchedStudyReport) {
     println!(
         "\n  => Unified Phase-0 study {}.",
         if report.ok {
-            "SATISFIED — the real repair loop discovers the verification fix by executing designs, and rejects a committee that structure-scoring would have falsely credited"
+            "SATISFIED — the real repair loop discovers BOTH fixes by executing designs (a verification step and a part-resolving tool), and rejects a reasoning committee that structure-scoring would have falsely credited"
         } else {
             "VIOLATED — an invariant did not hold (see above)"
         }

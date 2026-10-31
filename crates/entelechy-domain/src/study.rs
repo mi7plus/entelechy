@@ -37,12 +37,20 @@ use crate::exec::{compare, execute, resolves, ComparisonReport};
 /// The logical model this study drives.
 const STUDY_MODEL: &str = "mock-small";
 
-/// The common authority envelope: the agent may draft and resolve, and `refund`
-/// is a structural negative goal (forbidden) it can never exercise.
+/// The common authority envelope: the agent may draft and resolve — one part
+/// (`resolve_part`) or every part at once (`resolve_all`) — and `refund` is a
+/// structural negative goal (forbidden) it can never exercise.
+///
+/// `resolve_all` is granted but *unused* by the baseline (which resolves only the
+/// first part): the capability is authorized, the design simply does not exercise
+/// it. That is what lets the searched repair loop *discover* a part-resolving
+/// `resolve_all` tool for the decomposition class — adding a call to a capability
+/// already in the envelope, never widening authority (IR-I2, A2).
 fn authority() -> AuthorityEnvelope {
     let mut authority = AuthorityEnvelope::empty();
     authority.capabilities.insert("draft_reply".into());
     authority.capabilities.insert("resolve_part".into());
+    authority.capabilities.insert("resolve_all".into());
     authority.forbidden_capabilities.insert("refund".into());
     authority
 }

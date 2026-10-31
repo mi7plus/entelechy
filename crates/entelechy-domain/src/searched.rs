@@ -24,20 +24,25 @@
 //!
 //! 1. the loop **discovers** (does not hand-author) the verification repair for
 //!    the reply class, and the executor confirms it genuinely resolves the reply
-//!    tickets the baseline failed; and
+//!    tickets the baseline failed;
 //! 2. when the loop proposes the level-4 parallel *committee* for the
 //!    decomposition class, the executor **rejects** it — running it resolves
 //!    nothing, because the committee's `Llm` sub-agents carry no part-resolving
 //!    effect in this world — even though the structure-reading scorer would have
-//!    *credited* that very committee (it "has a `Par`").
+//!    *credited* that very committee (it "has a `Par`"); and
+//! 3. the loop then escalates and **discovers** the decomposition repair too: a
+//!    part-resolving `resolve_all` tool ([`entelechy_design::EditOp::AddTool`]),
+//!    added at level 5, that the executor confirms resolves every part. It invokes
+//!    a capability the agent already holds, so it widens no authority.
 //!
-//! That divergence is the point: the same search, scored two ways, and execution
-//! is the honest scorer. A structural scorer silently credits a repair that does
-//! nothing when run; the executor does not. The decomposition class therefore
-//! remains resolved only by the hand-authored `resolve_part` committee in
-//! [`crate::study::real_study`] — closing that gap needs a part-resolving edit
-//! operator in the proposer's vocabulary, which is a named next step, not a gap
-//! this module papers over.
+//! Point 2 is the honesty contrast: the same search, scored two ways, and execution
+//! is the honest scorer — a structural scorer silently credits a repair that does
+//! nothing when run; the executor does not. Point 3 closes what used to be the gap:
+//! the decomposition class no longer depends on the hand-authored `resolve_part`
+//! committee in [`crate::study::real_study`] — the loop *discovers* its own
+//! part-resolving fix by execution, exactly as it discovers the reply fix. The two
+//! lessons land in one run: more reasoning agents (the committee) resolve nothing
+//! here, while a humble acting step the agent was already authorized for does.
 //!
 //! The returned [`SearchedStudyReport`] carries one boolean per invariant plus the
 //! discovered design, exactly like the operational drills and the other studies,
@@ -100,6 +105,12 @@ pub struct SearchedStudyReport {
     /// Whether the executor confirms the discovered design resolves every reply
     /// ticket (tune + validation) the baseline failed.
     pub discovered_resolves_reply: bool,
+    /// Whether the loop *discovered* a part-resolving tool (`resolve_all`) not
+    /// present in the baseline — the decomposition repair, searched not hand-authored.
+    pub discovered_part_resolver: bool,
+    /// Whether the executor confirms the discovered design resolves every
+    /// decomposition ticket (tune + validation) the baseline failed.
+    pub discovered_resolves_decomposition: bool,
     /// Whether the loop proposed the level-4 parallel committee for the
     /// decomposition class.
     pub committee_proposed: bool,
@@ -161,6 +172,16 @@ pub fn searched_study() -> SearchedStudyReport {
         .filter(|t| t.has_tag("needs_reply"))
         .all(|t| resolves(&discovered, t, &gw));
 
+    // The loop also discovered a part-resolving tool the baseline lacked, and the
+    // executor confirms it resolves the decomposition class.
+    let discovered_part_resolver =
+        has_tool(&discovered.root, "resolve_all") && !has_tool(&baseline.root, "resolve_all");
+    let discovered_resolves_decomposition = tune
+        .iter()
+        .chain(val.iter())
+        .filter(|t| t.has_tag("needs_decomposition"))
+        .all(|t| resolves(&discovered, t, &gw));
+
     // The committee the loop proposed for decomposition: the executor rejected it,
     // yet the structure-reading scorer would have credited that very candidate.
     let committee_proposed = outcome.committee_candidate.is_some();
@@ -191,6 +212,8 @@ pub fn searched_study() -> SearchedStudyReport {
         && baseline_decomposition_unresolved
         && discovered_verify
         && discovered_resolves_reply
+        && discovered_part_resolver
+        && discovered_resolves_decomposition
         && honest_divergence
         && holdout_passed;
 
@@ -201,6 +224,8 @@ pub fn searched_study() -> SearchedStudyReport {
         rounds: outcome.rounds,
         discovered_verify,
         discovered_resolves_reply,
+        discovered_part_resolver,
+        discovered_resolves_decomposition,
         committee_proposed,
         committee_rejected_by_execution,
         structure_would_credit_committee,
@@ -385,6 +410,14 @@ fn has_verify(node: &Node) -> bool {
     has_kind(node, |k| matches!(k, NodeKind::Verify(_)))
 }
 
+/// Whether any node in the design is a `Tool` invoking the given capability.
+fn has_tool(node: &Node, capability: &str) -> bool {
+    has_kind(
+        node,
+        |k| matches!(k, NodeKind::Tool(t) if t.capability == capability),
+    )
+}
+
 /// Whether any node in the design satisfies `pred` (depth-first).
 fn has_kind(node: &Node, pred: impl Fn(&NodeKind) -> bool + Copy) -> bool {
     if pred(&node.kind) {
@@ -485,6 +518,14 @@ mod tests {
             "the executor confirms the discovered design resolves the reply class"
         );
         assert!(
+            r.discovered_part_resolver,
+            "the loop discovered a part-resolving tool not in the baseline"
+        );
+        assert!(
+            r.discovered_resolves_decomposition,
+            "the executor confirms the discovered design resolves the decomposition class"
+        );
+        assert!(
             r.committee_proposed,
             "the loop proposed the parallel committee for decomposition"
         );
@@ -509,12 +550,19 @@ mod tests {
     }
 
     #[test]
-    fn the_discovered_design_is_the_baseline_plus_a_verify() {
+    fn the_discovered_design_is_the_baseline_plus_a_verify_and_a_resolver() {
         let r = searched_study();
-        // The loop accepted exactly the verification repair (level 3); the
-        // committee (4) and delegate (5) were tried and rejected by the executor.
-        assert_eq!(r.accepted_levels, vec![3], "only the verify repair stuck");
+        // The loop accepted two repairs by execution: the verification step (level 3,
+        // reply class) and the part-resolving tool (level 5, decomposition class). The
+        // level-4 reasoning committee was proposed in between and rejected — it never
+        // stuck — so the accepted levels are exactly [3, 5].
+        assert_eq!(
+            r.accepted_levels,
+            vec![3, 5],
+            "the verify and the part-resolver repairs both stuck; the committee did not"
+        );
         assert!(has_verify(&r.discovered_design.root));
+        assert!(has_tool(&r.discovered_design.root, "resolve_all"));
     }
 
     #[test]

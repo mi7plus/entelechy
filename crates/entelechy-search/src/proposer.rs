@@ -66,7 +66,7 @@ pub fn propose(
         UnlockDecision::NeedsApproval { level, .. } => (level, true),
         UnlockDecision::NoUnlock { .. } => return None,
     };
-    let ops = ops_for_level(level, target_node, parent_authority)?;
+    let ops = ops_for_level(level, class_id, target_node, parent_authority)?;
     Some(Proposal {
         level,
         rationale: format!(
@@ -79,10 +79,13 @@ pub fn propose(
     })
 }
 
-/// The operator family that realizes a complexity level (PRD 11.4/11.5). Levels
-/// with no design operator in this slice return `None`.
+/// The operator family that realizes a complexity level for a given failure class
+/// (PRD 11.4/11.5). Most levels realize the same way regardless of class; level 5
+/// is class-sensitive (see below). Levels with no design operator in this slice
+/// return `None`.
 fn ops_for_level(
     level: u8,
+    class_id: &str,
     target: &str,
     parent_authority: &AuthorityEnvelope,
 ) -> Option<Vec<EditOp>> {
@@ -119,6 +122,22 @@ fn ops_for_level(
                     .to_string(),
             },
         }],
+        // Level 5 is the coordination tier. It is realized two ways by class:
+        5 if class_id == "reasoning.decomposition" => {
+            // A decomposition failure that survived the reasoning committee (level 4)
+            // is not fixed by *more* reasoning: the sub-tasks need an acting step that
+            // closes them. Realize the tier as invoking a part-resolving capability the
+            // agent already holds (`resolve_all`) — the smallest change that actually
+            // resolves every part. Because the capability is already granted, this adds
+            // no authority (IR-I2). This is the operator whose effect the executor can
+            // confirm, which a structure-reading scorer cannot distinguish from the
+            // inert reasoning committee.
+            vec![EditOp::AddTool {
+                id: format!("{target}_resolve_all"),
+                capability: "resolve_all".to_string(),
+                args: serde_json::json!({}),
+            }]
+        }
         5 => vec![EditOp::AddDelegate {
             node: target.to_string(),
             wrapper_id: format!("{target}_agent"),
@@ -228,6 +247,40 @@ mod tests {
                 assert_eq!(reducer.id, "agent_reduce");
             }
             other => panic!("expected SplitParallel, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decomposition_class_proposes_a_part_resolver_at_level_5() {
+        // After the level-4 reasoning committee is rejected, the decomposition class
+        // escalates to level 5. For this class the coordination tier is realized as a
+        // part-resolving `resolve_all` tool call (an acting step), not a delegate —
+        // and it adds no authority (the capability is already granted).
+        let mut par = parent();
+        par.capabilities.insert("resolve_all".into());
+        let p = propose(
+            4,
+            "reasoning.decomposition",
+            &[4, 5],
+            "agent",
+            &par,
+            6,
+            true,
+        )
+        .unwrap();
+        assert_eq!(p.level, 5);
+        assert!(!p.needs_approval);
+        match &p.ops[0] {
+            EditOp::AddTool {
+                id,
+                capability,
+                args,
+            } => {
+                assert_eq!(id, "agent_resolve_all");
+                assert_eq!(capability, "resolve_all");
+                assert_eq!(*args, serde_json::json!({}));
+            }
+            other => panic!("expected AddTool, got {other:?}"),
         }
     }
 
