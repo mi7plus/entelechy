@@ -5,71 +5,85 @@ Continue implementing the Entelechy PRD v11 (`Entelechy_PRD_v11_FINAL.docx` in
 to `main` after each self-contained unit, **only when the user asks** (handoff docs
 are the exception — see CLAUDE.md).
 
-## Last unit (committed + pushed) — the two Phase-0 studies are unified
+## Last unit (committed + pushed) — the searched loop discovers the decomposition repair
 
-The "unify the two studies / drive repair through the real proposer loop" follow-on
-is **committed as `c05b097` and pushed to `main`** (this handoff refresh sits on top).
-The full gate was re-run green before the commit:
+Follow-on #1 ("finish unifying the studies — the searched loop should discover the
+**decomposition** repair by execution, not just the reply one") is **committed as
+`dfb4e86` and pushed to `main`** (this handoff refresh sits on top). The full gate was
+re-run green before the commit (numbers below).
+
+### What was built
+
+The searched study (`entelechy study --searched`) used to discover only the
+reply-class fix; the decomposition class still leaned on the hand-authored
+`resolve_part` committee in `real_study`, because the proposer's level-4 operator
+emits a reasoning committee of `Llm` sub-agents that resolve nothing when executed.
+This closes that gap, so **both** Phase-0 repairs are now searched, not hand-authored:
+
+- **New edit operator** `entelechy_design::EditOp::AddTool { id, capability, args }`
+  (`crates/entelechy-design/src/edit.rs`) — appends a `Tool` (acting) node to the
+  root `Seq`, the smallest level-1 change for a repair whose fix is a capability call
+  rather than more reasoning. Fails closed if the root is not a `Seq`.
+- **Proposer wiring** (`crates/entelechy-search/src/proposer.rs`) — `ops_for_level`
+  is now class-aware: for `reasoning.decomposition`, level 5 (the coordination tier)
+  is realized as `AddTool { capability: "resolve_all" }` instead of a bare delegate.
+  It invokes a capability the agent already holds, so it widens no authority (IR-I2);
+  `propose`'s signature is unchanged (it already took `class_id`).
+- **Authority** (`crates/entelechy-domain/src/study.rs`) — `authority()` now grants
+  `resolve_all` (granted but unused by the baseline, which resolves only the first
+  part), so the discovered `resolve_all` tool actually resolves when executed.
+- **Searched study** (`crates/entelechy-domain/src/searched.rs`) — `searched_study()`
+  gains two invariants, `discovered_part_resolver` and
+  `discovered_resolves_decomposition`, folded into `ok`. The loop now proposes the
+  level-4 reasoning committee (executor **rejects** it — the honest-divergence
+  contrast is intact: a structural scorer would credit its `Par`), then escalates and
+  **discovers** the `resolve_all` tool at level 5, which the executor confirms
+  resolves every part. `accepted_levels` is now `[3, 5]`.
+
+The two lessons land in one run: more reasoning agents (the committee) resolve
+nothing here, while a humble acting step the agent was already authorized for does.
+
+### Files in that commit (`dfb4e86`)
+
+- `crates/entelechy-design/src/edit.rs` (`AddTool` op + 2 tests),
+  `crates/entelechy-search/src/proposer.rs` (class-aware level 5 + 1 test),
+  `crates/entelechy-domain/src/study.rs` (grant `resolve_all`),
+  `crates/entelechy-domain/src/searched.rs` (2 new invariants + docs + updated tests),
+  `crates/entelechy-cli/src/study.rs` (`print_searched_study` lines + doc),
+  `CHANGELOG.md`. (This handoff refresh is a separate commit.)
+- Note: three stray 0-byte files (`1`, `AuthorityEnvelope`,
+  `self.reply.as_ref().is_some_and(`) recurred from git-bash grep/awk args with
+  unquoted `()` and were deleted before the commit — quote such args, and prefer
+  `git commit -F -` with a quoted heredoc over `-m`.
+
+### Verified state (this session, all green)
 
 - `cargo fmt --all --check` — clean
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean
 - `cargo clippy -p entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings` — clean
-- `cargo test --workspace -j 2` — **344 passed, 0 failed**
+- `cargo test --workspace -j 2` — **347 passed, 0 failed** (was 344; +3 tests)
 - `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` — clean
-- `cargo run -p entelechy-cli -- requirements --check --phase p4` — **PASS**
-- `cargo run -p entelechy-cli -- study --searched` — prints **SATISFIED**
+- `cargo run -p entelechy-cli -- requirements --check --phase p4` — **PASS** (gate untouched)
+- `cargo run -p entelechy-cli -- study --searched` — prints `SATISFIED`; shows
+  `accepted levels: [3, 5]`, `discovered a resolver: yes`, `executor resolves parts: yes`
+- `cargo run -p entelechy-cli -- study` (simulated) and `study --real` — still pass
 
-### What it did
-
-A new `entelechy-domain::searched` module (`searched_study()`), surfaced as
-`entelechy study --searched [--out]`. It drives the **same** design-repair proposer
-loop the simulated `entelechy study` uses — `entelechy_failure::analyze` →
-`entelechy_search::propose` → `entelechy_design::apply` →
-`rolling_validation_decision` — but scores every candidate by **executing** it against
-the resettable helpdesk world (`exec::resolves`) instead of by reading its structure.
-
-The honest unification of the two Phase-0 studies:
-
-- the loop **discovers** (does not hand-author) the verification repair for the reply
-  class, accepts it at level 3, and the executor confirms it resolves the reply
-  tickets the baseline failed;
-- the level-4 parallel committee it proposes for the decomposition class is
-  **rejected by execution** (running it resolves nothing — the committee's `Llm`
-  sub-agents carry no part-resolving effect in this world), **even though the
-  structure-reading scorer would have credited it** (it "has a `Par`"). Same search,
-  two scorers, and execution is the honest one.
-
-Files in that commit: new `crates/entelechy-domain/src/searched.rs`; modified
-`crates/entelechy-domain/Cargo.toml` (adds `entelechy-{failure,design,search}` deps —
-no cycle; the CLI already used all three), `crates/entelechy-domain/src/lib.rs`,
-`crates/entelechy-cli/src/main.rs` (`--searched` arg + dispatch),
-`crates/entelechy-cli/src/study.rs` (`run(out, real, searched)` + `run_searched` +
-`print_searched_study`), `CHANGELOG.md`, `Cargo.lock`.
-
-## Housekeeping note (not part of any unit)
-
-`fuzz/Cargo.lock` is an untracked, un-ignored lockfile left over from an earlier
-fuzz build; it is **not** tracked and was deliberately kept out of the `c05b097`
-commit. Decide separately whether the cargo-fuzz sub-crate's lockfile should be
-committed or git-ignored (`fuzz/target/` is already ignored).
+Build with `-j 2` (a cold `--workspace` build OOM-kills, exit 137).
 
 ## Follow-ons (next natural units)
 
 The gate is at the project's furthest enforced phase (`CURRENT_GATE_PHASE = P4`,
 committed as `2ac6002`). Natural follow-ons:
 
-1. **Finish unifying the studies (last unit covered the reply class).** The
-   searched loop discovers the reply-class repair through execution, but the
-   decomposition class still resolves only via the hand-authored `resolve_part`
-   committee in `real_study` — the generic proposer's level-4 operator emits `Llm`
-   sub-agents, which have no part-resolving effect in this world. Closing the gap
-   needs a **part-resolving edit operator** in the `entelechy-design` vocabulary (e.g.
-   an `AddTool`/`resolve_all` operator) so the loop can *discover* the decomposition
-   repair by executing, not just the reply one. That is the remaining half of "drive
-   repair through the real proposer loop."
-2. **Exercise the level-2 retrieval path end to end** (add a retrieval-miss failure
-   class so a run visibly unlocks retrieval; note the executor currently treats a
-   `Retrieval` node as inert, so this needs a retrieval effect in the world too).
+1. **Exercise the level-2 retrieval path end to end** (add a retrieval-miss failure
+   class so a run visibly unlocks retrieval at level 2; note the executor currently
+   treats a `Retrieval` node as inert, so this needs a retrieval effect in the world
+   too — mirror of what `AddTool`/`resolve_all` just did for decomposition).
+2. **Optional: converge `real_study` onto the searched repair.** `real_study` still
+   hand-authors `repaired_design` (the `resolve_part` committee + verify). Now that
+   the loop discovers an equivalent design by execution, `real_study` could consume
+   the discovered design instead of the hand-authored one (or assert they resolve the
+   same tickets) to retire the last hand-authored repair.
 3. **Shadow/canary rollout, web console, SDKs (P4/P3)** — not implemented.
 4. **P5**: multi-tenancy, plugin registry (PC-3, the only unrecorded requirement —
    first enforced at P5), learned priors, distillation. Advancing the gate to P5
@@ -92,7 +106,7 @@ committed as `2ac6002`). Natural follow-ons:
 - The three Phase-0 studies: `entelechy study` (simulated, structure-scored repair
   loop), `entelechy study --real` (real-domain, executor-scored hand-authored repair),
   and `entelechy study --searched` (the repair loop scored by execution — the
-  unification).
+  unification; now discovers **both** the reply and decomposition repairs).
 
 The CLI surface: `init, objective, capability, eval, design, study [--real]
 [--searched] [--out], trace, replay, counterfactual, diff, assure, release, serve,
