@@ -2,13 +2,14 @@
 //!
 //! Command surface from PRD 16.1: init, objective, capability, eval, design,
 //! study, trace, replay, diff, assure, release, serve (plus demo, ops, drill,
-//! requirements, committee, audit, counterfactual, and, under the `openai`
-//! feature, infer).
+//! quickstart, requirements, committee, audit, counterfactual, and, under the
+//! `openai` feature, infer).
 #![forbid(unsafe_code)]
 
 mod demo;
 mod drill;
 mod ops;
+mod quickstart;
 mod release;
 mod restudy;
 mod study;
@@ -206,6 +207,16 @@ enum Command {
         #[arg(long)]
         out: Option<String>,
     },
+    /// Run the DX-1 quickstart (PRD 16.5): declare the ordered new-user path to the
+    /// first study report — each step budgeted so the end-to-end onboarding fits
+    /// under 30 minutes — then drive its final report-producing step (the Phase-0
+    /// real-domain study) in-process and confirm it yields a green report within
+    /// budget. Exits non-zero if the path does not reach a report in time.
+    Quickstart {
+        /// Directory to write the quickstart report into.
+        #[arg(long)]
+        out: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -224,6 +235,7 @@ fn main() -> anyhow::Result<()> {
         Command::Demo { out } => cmd_demo(&out),
         Command::Ops { out } => cmd_ops(out.as_deref()),
         Command::Drill { kind, out } => drill::run(kind, out.as_deref()),
+        Command::Quickstart { out } => quickstart::run(out.as_deref()),
         Command::Replay { design, journal } => cmd_replay(&design, &journal),
         Command::Counterfactual {
             design,

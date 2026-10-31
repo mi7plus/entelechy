@@ -2,14 +2,22 @@
 //!
 //! PRD v11 references: section 15 (operations & evolution, OP-1..OP-7), EV-12
 //! (incidents become regression coverage), 14.3/21 (re-study outputs wait at the
-//! release gate; no auto-promotion), 17.4 (quotas enforced outside model output).
+//! release gate; no auto-promotion), 17.4 (quotas enforced outside model output;
+//! OL-2 fallbacks independently authorized, degraded mode journaled and excluded
+//! from registered evidence).
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub mod degraded;
 pub mod online;
+pub use degraded::{
+    authorize_fallback, degraded_mode_drill, excluded_from_registered, registered_evidence,
+    Authorization, ConfidentialityTier, DegradedEntry, DegradedJournal, DegradedModeDrillReport,
+    FallbackRefused, Observation,
+};
 pub use online::{OnlineEvalLoop, OpsEvent, OpsPolicy, RunObservation};
 
 /// Deterministically decide whether a run is sampled for online evaluation at the

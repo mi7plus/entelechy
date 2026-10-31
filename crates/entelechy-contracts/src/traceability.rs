@@ -158,10 +158,12 @@ impl TraceabilityIndex {
     }
 }
 
-/// The lifecycle phase whose gate CI currently enforces (PRD §21). The project is
-/// at the Phase-1 exit; advancing the gate means extending [`phase_gate_evidence`]
-/// to cover the newly required requirements and bumping this.
-pub const CURRENT_GATE_PHASE: Phase = Phase::P1;
+/// The lifecycle phase whose gate CI currently enforces (PRD §21). The gate is at
+/// the Phase-4 exit: every cross-cutting requirement first enforced at or before P4
+/// has an automated verification record in [`phase_gate_evidence`]. Advancing the
+/// gate further (P5) means recording P5 requirements — PC-3 (plugin manifests) — and
+/// bumping this.
+pub const CURRENT_GATE_PHASE: Phase = Phase::P4;
 
 /// Default review horizon for a pre-maturity waiver (2027-07-01T00:00:00Z): past
 /// this instant such a waiver expires and the TR-1 gate reports it as a gap,
@@ -172,10 +174,13 @@ pub const WAIVER_REVIEW_DEADLINE: u64 = 1_814_400_000;
 
 /// The authoritative phase-gate evidence for [`CURRENT_GATE_PHASE`] (PRD 17.5,
 /// TR-1): a verification record for every cross-cutting requirement enforced
-/// through the current gate. Every such requirement now has automated evidence —
-/// the Phase-0 real-domain study (entelechy-domain) mechanized the last two that
-/// were previously waived (PV-2, DP-1) — so no waivers remain, though the waiver
-/// mechanism stays available for future scoped, expiring gaps.
+/// through the current gate (now P4). Every such requirement has automated evidence
+/// — real executed code with its own tests, operational drills and cross-crate
+/// integration tests — so no waivers remain, though the waiver mechanism stays
+/// available for future scoped, expiring gaps. The P4 advance added records for the
+/// seven P2/P4 requirements PV-3, EL-1, PC-2, DR-2, DR-3, OL-2 and DX-1 (RB-1/RB-2,
+/// AU-1/AU-2/AU-3 and SL-1, also P4, were recorded earlier). PC-3 is first enforced
+/// at P5 and is out of scope for this gate.
 ///
 /// `entelechy requirements --check` and the `traceability` CI job consume this. A
 /// requirement first enforced at or before [`CURRENT_GATE_PHASE`] that is neither
@@ -313,6 +318,64 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
          DeploymentDeclaration names exactly one DeploymentProfile and carries a signed approval bound to it — \
          the single-deployment-profile approval step, revalidated like any approval); real-domain study \
          `entelechy study --real`",
+        V,
+    );
+
+    // PV-3, EL-1, PC-2, DR-2, DR-3, OL-2 and DX-1 are first enforced at P2/P4. Each
+    // is backed by real executed code with its own tests/drills, so the P4 gate is
+    // covered with no waivers.
+    index.verify(
+        "PV-3",
+        "entelechy-domain: promotion::drift_drill_satisfies_pv3 + regression_is_the_validation_drop \
+         + within_tolerance_drift_is_allowed (a drift regressing behavior beyond a declared tolerance \
+         blocks automatic promotion; a within-tolerance material drift and a recorded human override do \
+         not); operator drill `entelechy drill --kind drift`",
+        V,
+    );
+    index.verify(
+        "EL-1",
+        "entelechy-eval: holdout::{design_plane_is_refused, clear_improvement_passes_and_consumes_budget, \
+         budget_exhaustion_refuses} (the holdout gate returns only coarse pass/fail, audits every query, \
+         and enforces the query budget — a design/search plane is refused and budget exhaustion fails closed)",
+        V,
+    );
+    index.verify(
+        "PC-2",
+        "entelechy-protocol: negotiate_secure + no_silent_security_downgrade (a negotiated session never \
+         silently drops a required security guarantee; an unsatisfiable security requirement fails closed \
+         with a machine-readable error)",
+        V,
+    );
+    index.verify(
+        "DR-2",
+        "entelechy-artifacts: backup::{revocation_survives_restore, post_restore_effects_are_reconciled_first} \
+         (erasures and revocations survive a restore — never resurrected — and an in-flight effect whose commit \
+         was unknown at backup time is reconciled before the restored state is ready for new work); operator \
+         drill `entelechy drill --kind restore`",
+        V,
+    );
+    index.verify(
+        "DR-3",
+        "entelechy-artifacts: platform::partial_loss_marks_evidence_incomplete + entelechy-release promote() \
+         evidence_state gate (PromotionError::EvidenceIncomplete, not override-able) + cross-crate \
+         entelechy-integration/tests/recovery.rs::partial_loss_marks_incomplete_and_blocks_promotion (a \
+         partial-loss restore marks the evidence incomplete and blocks new promotion even with a recorded \
+         override, until the evidence is regenerated)",
+        V,
+    );
+    index.verify(
+        "OL-2",
+        "entelechy-ops: degraded::{degraded_mode_drill_satisfies_ol2, fallback_does_not_inherit_primary_authority, \
+         degraded_observations_never_register} (a fallback is authorized on its own capabilities and \
+         confidentiality tier — never inherited; entering degraded mode is journaled with a reason; degraded-mode \
+         observations are excluded from registered evidence); operator drill `entelechy drill --kind degraded`",
+        V,
+    );
+    index.verify(
+        "DX-1",
+        "entelechy-cli: quickstart::{quickstart_reaches_first_report_within_30_minutes, \
+         the_last_step_produces_the_report} (the declared new-user path drives the Phase-0 real-domain study \
+         to a green first study report with a total step budget under 30 minutes); `entelechy quickstart`",
         V,
     );
 

@@ -2,117 +2,114 @@
 
 Continue implementing the Entelechy PRD v11 (`Entelechy_PRD_v11_FINAL.docx` in
 `~/Downloads`, outside the repo). Dependency-light Rust workspace; commit and push
-to `main` after each self-contained unit, only when asked.
+to `main` after each self-contained unit, **only when the user asks** (handoff docs
+are the exception — see CLAUDE.md).
 
-## Current state (verified)
+## DONE (this session), VERIFIED, but UNCOMMITTED — advanced the TR-1 gate P1 → P4
 
-- **The Phase-0 real-domain study is complete, committed and pushed.** HEAD `main`
-  is `f0b0d7a` ("Add the Phase-0 real-domain study and retire the PV-2/DP-1
-  waivers"), on top of the SLO drill `76313c7`, the AU drill `e891f94`, the RB
-  rollback drill `9ea4712`, the DR-1 restore drill `7395d68`, and the closed
-  operate → re-study → release loop `4014620`. Working tree clean.
-- Verified on the current tree: `cargo fmt --all --check` clean; `cargo clippy
-  --workspace --all-targets -- -D warnings` clean; `cargo clippy -p
-  entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings` clean;
-  `cargo test --workspace -j 2` = **323 passed, 0 failed** (302 + 21 new);
-  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` clean. `entelechy
-  study --real` prints `SATISFIED`; `entelechy requirements --check` passes the P1
-  gate, P0 passes with PV-2 verified, and the P4 gap list no longer includes PV-2 or
-  DP-1. Build under memory pressure with `-j 2` (a cold `--workspace` build
-  OOM-kills, exit 137).
-- **No TR-1 waivers remain.** Every cross-cutting requirement enforced through the
-  current P1 gate now has a real verification record. The waiver *mechanism* stays
-  in `phase_gate_evidence()` for future scoped gaps, but the current evidence set
-  uses none.
-- **Phase 1 is complete.** Phase 0 mechanisms + Phase 1–3 primitives are built;
-  Phase 4–5 are mostly library primitives, now being operationalized. All four
-  operational drills are mechanized (DR-1, RB-1/RB-2, AU-1/AU-2/AU-3, SL-1), the
-  online-eval loop closes end to end through a governed human-gated re-study, and
-  the Phase-0 study now runs on a **real resettable domain**.
+The whole "advance the phase gate from P1 to P4" unit is **complete and fully
+verified in the working tree**, but **nothing is committed** (per CLAUDE.md the
+commit to `main` waits for the user's explicit go-ahead). The repo builds, the full
+gate is green, and `requirements --check` now passes at **P4**.
 
-## Done this run (committed `f0b0d7a` + pushed)
+### Verified state (run this session, all green)
 
-- **Phase-0 real-domain study — new `entelechy-domain` crate (PRD §21, Q1).**
-  Replaces the *declared simulator* (which scored a task by inspecting the design
-  *structure*) with a genuine domain:
-  - `world.rs` — `HelpdeskWorld`: resettable mutable state (a drafted `Reply` with a
-    `grounded` flag, resolved ticket parts, a refund ledger) with programmatic state
-    checkers (`resolved()`, `negative_goal_held()`). Grounding is calibrated to a
-    model revision (`CALIBRATED_REVISION = "mock-r1"`), which is what makes a silent
-    drift break it.
-  - `exec.rs` — `execute`/`resolves`/`compare`: an IR interpreter that applies each
-    node's *effect* (an `Llm` node drafts an ungrounded reply through a real
-    `ModelGateway` call; `Verify` grounds it; a `Par` committee of `resolve_part`
-    workers resolves every part; a forbidden `refund` tool is refused by the
-    authority envelope and the world). Success is read from world state, not the
-    program. `ComparisonReport` is the baseline-vs-candidate comparator.
-  - `epoch.rs` — `ModelFingerprint` (content address over the drift-relevant
-    provider-identity fields), `EvidenceEpoch`, `EvidenceLedger` (a new fingerprint
-    opens a new epoch; `release_evidence()` reads only the current one — PV-2), and
-    `RevisionModel` (a `MockModel` that stamps a chosen revision to model drift).
-  - `study.rs` — `real_study()` → `RealStudyReport` (one bool per invariant): the
-    comparator, a holdout gate (EV-14) over the real executor, the PV-2
-    no-silent-pooling proof across a material drift, a DP-1 `DeploymentDeclaration`
-    (exactly one `DeploymentProfile` + a signed approval bound to it), and a
-    content-addressed `ReproductionPacket` that re-runs to identical counts.
-  - CLI: `entelechy study --real [--out]` runs it, prints the invariant narrative,
-    and (with `--out`) persists `real-study-report.json` + the two designs.
-- **Retired the PV-2 and DP-1 waivers.** `entelechy_contracts::phase_gate_evidence()`
-  now records PV-2 (StudyEvidence, P0) and DP-1 (HumanApproval, P1) against the new
-  crate's tests instead of waiving them. The two waiver blocks are gone; no waivers
-  remain. Gate docs and `WAIVER_REVIEW_DEADLINE`'s doc updated accordingly.
+HEAD `main` is `aa5d2ce` (unchanged — the unit is uncommitted). On the current tree:
 
-## Recommended next item
+- `cargo fmt --all --check` — clean
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean
+- `cargo clippy -p entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings` — clean
+- `cargo test --workspace -j 2` — **340 passed, 0 failed** (was 337; +3 DX-1 quickstart tests)
+- `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` — clean
+- `cargo run -p entelechy-cli -- requirements --check --phase p4` — **PASS**
 
-The last two TR-1 waivers are gone and all four operational drills are mechanized.
-Natural follow-ons, roughly in order of leverage:
+Build with `-j 2` (a cold `--workspace` build OOM-kills, exit 137).
 
-1. **Advance the TR-1 gate toward P4.** `requirements --check --phase p4` lists 7
-   remaining gaps: PV-3, EL-1, PC-2, DR-2, DR-3, OL-2, DX-1. Several already have
-   real backing code — DR-2/DR-3 (erasure survival + `EvidenceState::Incomplete`
-   blocking promotion in `entelechy-artifacts`), PC-2 (no-silent-downgrade in
-   `entelechy-protocol`), OL-2 (fallback authorization / degraded-mode journaling).
-   Each mainly needs a `phase_gate_evidence()` record plus a matching test; once the
-   P2/P4 requirements are all covered, bump `CURRENT_GATE_PHASE`.
-2. **Unify the two studies / drive the repair through the real proposer loop.** The
-   simulated `study` still scores by structure and the re-study repair
-   (`entelechy-cli::restudy`) is a hand-authored typed patch. Fold the new real
-   executor in as the scoring function (so the proposer loop in `search`/`design`
-   optimizes against executed state), and/or point the re-study's repair at the real
-   `search`/`design` proposer instead of a pre-written patch.
-3. **Exercise the level-2 retrieval path end to end** by adding a retrieval-miss
-   failure class to the study/demo suite (today it escalates only through levels 3
-   and 4), so a run visibly unlocks retrieval.
-4. **Shadow/canary rollout, web console, SDKs (P4/P3)** — not implemented.
+`git status` is clean of stray 0-byte files (4 were created and removed this session
+from git-bash quoting — unquoted `()<>` in grep/find args; **inspect `git status`
+before every commit**).
 
-## Top remaining gaps (from the PRD §21 / §17.6 audit)
+Modified (16): `CHANGELOG.md`, `Cargo.lock`, `NEXT_SESSION_PROMPT.md`,
+`crates/entelechy-artifacts/src/{backup.rs,lib.rs,platform.rs}`,
+`crates/entelechy-cli/src/{drill.rs,main.rs,release.rs}`,
+`crates/entelechy-contracts/src/traceability.rs`,
+`crates/entelechy-domain/src/lib.rs`, `crates/entelechy-integration/Cargo.toml`,
+`crates/entelechy-ops/src/lib.rs`,
+`crates/entelechy-release/src/{drill.rs,lib.rs,slo.rs}`.
+New (4): `crates/entelechy-cli/src/quickstart.rs`,
+`crates/entelechy-domain/src/promotion.rs`,
+`crates/entelechy-ops/src/degraded.rs`,
+`crates/entelechy-integration/tests/recovery.rs`.
 
-| Gap | Phase | Note |
+### What the P4 gate required, and how it is met
+
+The P4 gate needs records for 7 requirements beyond P1 (`requirements --check
+--phase p4`): PV-3, EL-1, PC-2, DR-2, DR-3, OL-2, DX-1. All are backed by real
+executed code with tests/drills and recorded in
+`entelechy_contracts::phase_gate_evidence()`; **no waivers remain**.
+
+| Req | Mechanism | Verification artifact |
 |---|---|---|
-| Phase-0 study on a real domain | P0 | **done**: `entelechy-domain` executes designs against a resettable `HelpdeskWorld` with programmatic state checkers; comparator + reproduction packet; `entelechy study --real`. Retired the PV-2 and DP-1 waivers |
-| Online-eval / drift / incident loop | P4 | **done end to end**: loop driven by real `EvalContract` scores, output persisted + audited, opened drift re-study closed through a human-gated `HoldoutVault` release. Optional: drive the re-study repair through the real proposer loop (next-item §2) |
-| Operational drills | P4 | **all four done**: DR-1 restore, RB-1/RB-2 rollback, AU-1/AU-2/AU-3 audit, SL-1 SLO/error budget. All carry P4 `phase_gate_evidence()` records |
-| Remaining P4 requirements | P4 | PV-3, EL-1, PC-2, DR-2, DR-3, OL-2, DX-1 still unverified at P4 (the gate CI enforces is P1, which passes). Several have real backing code; need records + tests before the gate advances (next-item §1) |
-| Shadow/canary rollout, web console, SDKs | P4/P3 | not implemented |
-| Multi-tenancy, plugin registry, learned priors, distillation | P5 | mostly not implemented (cluster execution is done) |
+| **DX-1** | `entelechy-cli::quickstart` — declared new-user path (install→build→`init`→`study --real`), budgets sum < 30 min; drives `real_study()` in-process, confirms a green report | `quickstart_reaches_first_report_within_30_minutes` (+2); `entelechy quickstart` |
+| **PV-3** | `entelechy-domain::promotion::drift_drill` | `drift_drill_satisfies_pv3` (+3); `entelechy drill --kind drift` |
+| **OL-2** | `entelechy-ops::degraded::degraded_mode_drill` | `degraded_mode_drill_satisfies_ol2` (+3); `entelechy drill --kind degraded` |
+| **DR-2** | `entelechy-artifacts::backup` revocation + reconcile-first on `RestoreReport` | `revocation_survives_restore`, `post_restore_effects_are_reconciled_first`; `entelechy drill --kind restore` |
+| **DR-3** | `platform::assess_evidence_state` + `release::promote` `evidence_state` gate | cross-crate `entelechy-integration/tests/recovery.rs` |
+| **PC-2** | `entelechy-protocol::negotiate_secure` (pre-existing) | `no_silent_security_downgrade` |
+| **EL-1** | `entelechy-eval::HoldoutVault` (pre-existing) | `design_plane_is_refused` + 2 |
 
-## How to work here (see CLAUDE.md for the durable invariants)
+CLI additions this unit: `entelechy drill --kind drift|degraded` (new printers), the
+`restore` drill now also shows the DR-2 revocation-survival / reconcile-first
+invariants (populated from a real revoked release id and an in-flight effect keyed
+by a genuine `entelechy_effects::OperationKey`), and a new `entelechy quickstart
+[--out]` command. `CURRENT_GATE_PHASE` is now `Phase::P4`; its doc comments and the
+`phase_gate_evidence()` doc are updated.
 
-- Build under memory pressure with `-j 2` — a cold `--workspace` build OOM-kills
-  (exit 137) on this machine.
+### The one remaining step: commit (needs the user's go-ahead)
+
+Per CLAUDE.md, the commit to `main` was **not** made autonomously. To finish the
+unit, commit the whole working tree as **one** commit referencing the requirement
+IDs, e.g.:
+
+```
+Advance TR-1 phase gate P1→P4: mechanize DX-1 + record PV-3/EL-1/PC-2/DR-2/DR-3/OL-2
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+```
+
+Run `git status` first (stray 0-byte-file check), then `git add -A && git commit`.
+Push only if the user asks. (If the user already green-lit the commit, it may
+already be done — check `git log`.)
+
+## After the gate reaches P4
+
+The gate is at the project's furthest enforced phase. Natural follow-ons (unchanged):
+
+1. **Unify the two studies / drive repair through the real proposer loop** — the
+   simulated `study` still scores by structure and the re-study repair is a
+   hand-authored typed patch; fold the real executor in as the scoring function
+   and/or point the re-study at the real `search`/`design` proposer.
+2. **Exercise the level-2 retrieval path end to end** (add a retrieval-miss failure
+   class so a run visibly unlocks retrieval).
+3. **Shadow/canary rollout, web console, SDKs (P4/P3)** — not implemented.
+4. **P5**: multi-tenancy, plugin registry (PC-3, the only unrecorded requirement —
+   first enforced at P5), learned priors, distillation. Advancing the gate to P5
+   means recording PC-3 and bumping `CURRENT_GATE_PHASE`.
+
+## How to work here (see CLAUDE.md for durable invariants)
+
+- Build/test with `-j 2` — a cold `--workspace` build OOM-kills (exit 137).
 - `gh` is NOT authenticated: push over the SSH remote; for PR/CI status use
   unauthenticated `curl https://api.github.com/repos/mi7plus/entelechy/...`.
-- Windows + git-bash; watch for stray 0-byte files from shell quirks — run
-  `git status` before every commit (three stray 0-byte files appeared this run and
-  were removed).
+- Windows + git-bash; `git status` and inspect before every commit (stray 0-byte
+  files recur from shell quoting — quote grep/command args containing `()><`).
 - Conventions: each crate's `//!` cites its PRD section; commit messages reference
-  requirement IDs (OC-*, IR-I*, EV-*, RK-*, AC-*, PV-*, DP-*, AU-*, …); heavy
-  engines stay behind features (`wasm`, `openai`, `openai-tls`).
-- The TR-1 phase gate is `entelechy requirements --check`. A new requirement or a
-  phase advance needs matching evidence/waivers in
-  `entelechy_contracts::phase_gate_evidence()` (and bumping `CURRENT_GATE_PHASE`).
+  requirement IDs; heavy engines stay behind features (`wasm`, `openai`,
+  `openai-tls`).
+- TR-1 phase gate is `entelechy requirements --check`; evidence lives in
+  `entelechy_contracts::phase_gate_evidence()` with `CURRENT_GATE_PHASE`.
 
 The CLI surface: `init, objective, capability, eval, design, study [--real] [--out],
 trace, replay, counterfactual, diff, assure, release, serve, committee, audit, demo,
-ops, drill [--kind restore|rollback|audit|slo|all], requirements [--check]` (+ `infer`
-under `--features openai`).
+ops, drill [--kind restore|rollback|audit|slo|drift|degraded|all], quickstart [--out],
+requirements [--check [--phase pN]]` (+ `infer` under `--features openai`).

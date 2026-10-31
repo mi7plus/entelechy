@@ -11,6 +11,59 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **TR-1 phase gate advanced P1 → P4 (PRD §17.5, §21).** `CURRENT_GATE_PHASE` is now
+  `Phase::P4`: every cross-cutting requirement first enforced at or before P4 has an
+  automated verification record in `phase_gate_evidence()`, and `entelechy
+  requirements --check` (the `traceability` CI job) enforces the P4 gate. **No waivers
+  remain.** The advance backed the seven P2/P4 requirements that were not yet recorded
+  with real code, tests and records (RB-1/RB-2, AU-1/AU-2/AU-3 and SL-1, also P4, were
+  recorded in earlier entries):
+  - **DX-1 (PRD §16.5) — time to first report.** A new `entelechy-cli::quickstart`
+    module makes the new-user path concrete and self-checking: `quickstart_steps()`
+    declares the ordered commands a brand-new user runs to reach their first study
+    report (install toolchain → build CLI → `init` → `study --real`), each with a human
+    time budget summing to well under the 30-minute ceiling, and `run_quickstart()`
+    drives the final report-producing step — the Phase-0 real-domain study — in-process,
+    measuring wall-clock, and confirms it yields a green report inside budget. A new
+    `entelechy quickstart [--out]` command prints the path and the measured result and
+    (with `--out`) persists `quickstart-report.json`. Three new tests.
+  - **PV-3 (PRD §5.10) — drift blocks automatic promotion.** Recorded against
+    `entelechy-domain::promotion::drift_drill()` (built in the real-domain-study entry
+    below): a drift regressing behavior beyond a declared `DriftTolerance` blocks the
+    *automatic* promotion path, while a within-tolerance material drift and a recorded
+    human override do not.
+  - **OL-2 (PRD §17.4) — degraded mode.** A new `entelechy-ops::degraded` module:
+    `authorize_fallback` checks a fallback against its *own* capabilities and
+    confidentiality tier (authority is never inherited from the primary), a
+    `DegradedJournal` records entering/leaving degraded mode with a reason, and
+    `registered_evidence`/`excluded_from_registered` keep degraded-mode observations out
+    of the evidence a release rests on. `degraded_mode_drill()` returns a
+    `DegradedModeDrillReport` proving all three. Four new tests.
+  - **DR-2 (PRD §17.3) — erasure/revocation survival and reconcile-first.** The
+    `entelechy-artifacts::backup` module now also carries a revocation set and in-flight
+    `PendingEffect`s through the `BackupPacket`; `run_restore_drill`/`RestoreReport`
+    assert that revocations survive a restore (never resurrected, like erasures) and
+    that every in-flight effect whose commit was unknown at backup time is reconciled
+    before the restored state is `ready_for_new_work`. Two new tests.
+  - **DR-3 (PRD §17.3) — partial loss blocks promotion.**
+    `entelechy-artifacts::platform::assess_evidence_state` marks a run/release
+    `EvidenceState::Incomplete` when a required artifact did not survive a restore, and
+    `entelechy-release::promote` gains a non-override-able `evidence_state` gate
+    (`PromotionError::EvidenceIncomplete`). A new cross-crate integration test
+    (`entelechy-integration/tests/recovery.rs`) exercises the whole path — back up, lose
+    a block, restore the survivors, assess, and confirm the real promotion gate refuses
+    even with a recorded override, then passes once the evidence is whole again.
+  - **PC-2 / EL-1** are recorded against existing mechanisms (`negotiate_secure` +
+    `no_silent_security_downgrade`; the `HoldoutVault` coarse-response / per-query-audit
+    / budget tests).
+
+  The `entelechy drill` command now takes `--kind restore|rollback|audit|slo|drift|
+  degraded|all` (default `all`): `drift` runs the PV-3 drill and `degraded` the OL-2
+  drill, each printing a per-invariant report and (with `--out`) persisting
+  `drift-report.json` / `degraded-report.json`; and the `restore` drill now also shows
+  the DR-2 revocation-survival and reconcile-first invariants, populated from a real
+  revoked release id and an in-flight effect keyed by a genuine `OperationKey`.
+  `entelechy requirements --check --phase p4` now prints PASS. 14 new tests.
 - **Phase-0 real-domain study (PRD §21, Q1; retires the PV-2 and DP-1 waivers).**
   A new `entelechy-domain` crate replaces the *declared simulator* — which decided a
   task's success by inspecting the design *structure* — with a genuine resettable

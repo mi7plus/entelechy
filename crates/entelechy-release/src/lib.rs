@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use entelechy_artifacts::EvidenceState;
 use entelechy_assurance::{AssuranceReport, SafetyCase};
 use entelechy_identity::{Approval, ApprovalBinding, ApprovalStatus, KeyRing, TimeSource};
 
@@ -97,6 +98,10 @@ pub struct PromotionGate<'a> {
     pub holdout_passed: bool,
     /// Whether negative-goal suites are clean (PRD 14.3).
     pub negative_goal_clean: bool,
+    /// Whether the candidate's supporting evidence is complete (PRD 17.3, DR-3).
+    /// `Incomplete` — e.g. after a partial-loss restore — blocks new promotion and
+    /// is not override-able, because a promotion cannot rest on lost evidence.
+    pub evidence_state: EvidenceState,
 }
 
 /// Approval-revalidation inputs, checked immediately before promotion (PRD 14.5).
@@ -160,6 +165,10 @@ pub enum PromotionError {
     /// L4/L5 requires a rollback target or an approved no-rollback rationale.
     #[error("L4/L5 promotion requires a rollback target or approved rationale (RB-2)")]
     RollbackNotReady,
+    /// Supporting evidence is incomplete (partial loss) — new promotion is blocked
+    /// until the evidence is regenerated or waived (PRD 17.3, DR-3).
+    #[error("evidence incomplete after partial loss; new promotion blocked (DR-3)")]
+    EvidenceIncomplete,
 }
 
 /// A recorded promotion decision (PRD 14.3, 14.4 approval chain).
@@ -186,6 +195,14 @@ pub fn promote(
     override_: Option<PromotionOverride>,
 ) -> Result<Promotion, PromotionError> {
     let overridden = override_.is_some();
+
+    // Evidence completeness (PRD 17.3, DR-3): a partial loss marks the supporting
+    // evidence incomplete and blocks new promotion — not override-able, because a
+    // promotion decision cannot rest on evidence that no longer exists. Checked
+    // first so it applies at every maturity level.
+    if !gate.evidence_state.can_promote() {
+        return Err(PromotionError::EvidenceIncomplete);
+    }
 
     // Monotonicity (PRD 14.3): to must be exactly the next level unless overridden.
     if from.next() != Some(to) && !overridden {
@@ -404,6 +421,7 @@ mod tests {
             assurance: &eligible_report(),
             holdout_passed: true,
             negative_goal_clean: true,
+            evidence_state: EvidenceState::Complete,
         };
         let p = promote(
             &b,
@@ -431,6 +449,7 @@ mod tests {
             assurance: &eligible_report(),
             holdout_passed: false,
             negative_goal_clean: true,
+            evidence_state: EvidenceState::Complete,
         };
         let err = promote(
             &b,
@@ -461,6 +480,7 @@ mod tests {
             assurance: &eligible_report(),
             holdout_passed: true,
             negative_goal_clean: true,
+            evidence_state: EvidenceState::Complete,
         };
         let ov = PromotionOverride {
             failed_criterion: "x".into(),
@@ -494,6 +514,7 @@ mod tests {
             assurance: &eligible_report(),
             holdout_passed: true,
             negative_goal_clean: true,
+            evidence_state: EvidenceState::Complete,
         };
         let err = promote(
             &b,
@@ -505,6 +526,55 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, PromotionError::RollbackNotReady);
+    }
+
+    #[test]
+    fn evidence_incomplete_blocks_promotion_even_with_override() {
+        // After a partial-loss restore the candidate's evidence is incomplete.
+        // Promotion is blocked at every level and a recorded override does not
+        // excuse it — a promotion cannot rest on evidence that no longer exists.
+        let b = bundle(true);
+        let (ring, binding, appr) = approval_setup();
+        let check = ApprovalCheck {
+            approvals: &appr,
+            current_binding: &binding,
+            keyring: &ring,
+            clock: &FixedClock(Some(20)),
+        };
+        let gate = PromotionGate {
+            assurance: &eligible_report(),
+            holdout_passed: true,
+            negative_goal_clean: true,
+            evidence_state: EvidenceState::Incomplete,
+        };
+        // Plain promotion is refused.
+        let err = promote(
+            &b,
+            MaturityLevel::L1,
+            MaturityLevel::L2,
+            &gate,
+            &check,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err, PromotionError::EvidenceIncomplete);
+        // And an override cannot rescue it (not override-able, like RB-2).
+        let ov = PromotionOverride {
+            failed_criterion: "evidence".into(),
+            rationale: "trust me".into(),
+            approver: "z".into(),
+            expires_at: 9_999,
+        };
+        let err = promote(
+            &b,
+            MaturityLevel::L1,
+            MaturityLevel::L2,
+            &gate,
+            &check,
+            Some(ov),
+        )
+        .unwrap_err();
+        assert_eq!(err, PromotionError::EvidenceIncomplete);
     }
 
     #[test]

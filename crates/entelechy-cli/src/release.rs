@@ -103,6 +103,7 @@ pub fn cmd_release() -> anyhow::Result<()> {
         assurance: &report,
         holdout_passed: true,
         negative_goal_clean: true,
+        evidence_state: entelechy_artifacts::EvidenceState::Complete,
     };
 
     // A hash-bound approval over the design + authority (PRD 14.5).
@@ -152,6 +153,7 @@ pub fn cmd_release() -> anyhow::Result<()> {
         assurance: &report,
         holdout_passed: false,
         negative_goal_clean: true,
+        evidence_state: entelechy_artifacts::EvidenceState::Complete,
     };
     match promote(
         &bundle,

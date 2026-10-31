@@ -104,6 +104,58 @@ impl EvidenceState {
     }
 }
 
+/// Assess a run's/release's evidence state after a restore (PRD 17.3, DR-3).
+///
+/// `required` are the artifact ids the evidence depends on (designs, journals,
+/// holdout records) and `present` are the ids that survived the restore. If any
+/// required id is missing — a *partial loss* — the evidence is
+/// [`EvidenceState::Incomplete`] and new promotion is blocked until the evidence is
+/// regenerated or waived. Nothing missing means the evidence is intact.
+pub fn assess_evidence_state<I, P>(required: I, present: &P) -> EvidenceState
+where
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+    P: Contains,
+{
+    for id in required {
+        if !present.contains_id(id.as_ref()) {
+            return EvidenceState::Incomplete;
+        }
+    }
+    EvidenceState::Complete
+}
+
+/// A set of surviving artifact ids a restore can be checked against (DR-3). Blanket
+/// implementations cover the common id containers so a caller need not adapt.
+pub trait Contains {
+    /// Whether `id` is present.
+    fn contains_id(&self, id: &str) -> bool;
+}
+
+impl Contains for std::collections::BTreeSet<String> {
+    fn contains_id(&self, id: &str) -> bool {
+        self.contains(id)
+    }
+}
+
+impl Contains for std::collections::HashSet<String> {
+    fn contains_id(&self, id: &str) -> bool {
+        self.contains(id)
+    }
+}
+
+impl Contains for [String] {
+    fn contains_id(&self, id: &str) -> bool {
+        self.iter().any(|s| s == id)
+    }
+}
+
+impl Contains for Vec<String> {
+    fn contains_id(&self, id: &str) -> bool {
+        self.as_slice().contains_id(id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +194,26 @@ mod tests {
     fn evidence_incomplete_blocks_promotion() {
         assert!(EvidenceState::Complete.can_promote());
         assert!(!EvidenceState::Incomplete.can_promote());
+    }
+
+    #[test]
+    fn partial_loss_marks_evidence_incomplete() {
+        let required = [
+            "sha256:design".to_string(),
+            "sha256:journal".to_string(),
+            "sha256:holdout".to_string(),
+        ];
+        // All present → complete.
+        let present: std::collections::BTreeSet<String> = required.iter().cloned().collect();
+        assert_eq!(
+            assess_evidence_state(required.clone(), &present),
+            EvidenceState::Complete
+        );
+        // One lost in the restore → incomplete, promotion blocked (DR-3).
+        let mut lossy = present.clone();
+        lossy.remove("sha256:journal");
+        let state = assess_evidence_state(required, &lossy);
+        assert_eq!(state, EvidenceState::Incomplete);
+        assert!(!state.can_promote());
     }
 }

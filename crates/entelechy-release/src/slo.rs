@@ -315,6 +315,7 @@ pub fn slo_drill() -> SloDrillReport {
         assurance: &eligible,
         holdout_passed: true,
         negative_goal_clean: true,
+        evidence_state: entelechy_artifacts::EvidenceState::Complete,
     };
     // A failed *correctness* gate: a negative-goal violation (a hard correctness gate),
     // nothing to do with availability.
@@ -322,6 +323,7 @@ pub fn slo_drill() -> SloDrillReport {
         assurance: &eligible,
         holdout_passed: true,
         negative_goal_clean: false,
+        evidence_state: entelechy_artifacts::EvidenceState::Complete,
     };
 
     // Full budget remaining (no bad events observed) yet correctness failed → blocked.

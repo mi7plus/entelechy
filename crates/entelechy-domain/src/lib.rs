@@ -37,6 +37,11 @@
 //! - **DP-1** (one declared deployment profile): [`DeploymentDeclaration`] names
 //!   exactly one [`entelechy_artifacts::DeploymentProfile`] and carries a formal,
 //!   signed approval of it — the single-deployment-profile approval step.
+//! - **PV-3** (drift beyond tolerance blocks automatic promotion): [`drift_drill`]
+//!   reads the behavioral regression between the pre-drift and post-drift evidence
+//!   epochs and blocks the automatic promotion path when it exceeds a declared
+//!   [`DriftTolerance`]; a within-tolerance drift and a recorded human override do
+//!   not (PRD 5.10, §21).
 //!
 //! The whole run is captured in a content-addressed [`ReproductionPacket`] so a
 //! re-run reproduces the same resolved counts bit-for-bit (determinism).
@@ -44,11 +49,16 @@
 
 pub mod epoch;
 pub mod exec;
+pub mod promotion;
 pub mod study;
 pub mod world;
 
 pub use epoch::{EvidenceEpoch, EvidenceLedger, ModelFingerprint, RevisionModel};
 pub use exec::{compare, execute, resolves, ComparisonReport, Execution, TaskDelta};
+pub use promotion::{
+    assess_drift, auto_promote, drift_drill, promotion_proceeds, AutoPromotionDecision,
+    DriftAssessment, DriftDrillReport, DriftTolerance,
+};
 pub use study::{
     baseline_design, helpdesk_suite, real_study, refund_attempting_design, repaired_design,
     DeploymentDeclaration, RealStudyReport, ReproductionError, ReproductionPacket,

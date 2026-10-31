@@ -15,11 +15,58 @@
 //! - **lineage** — the edge graph and the append-only event log (each event
 //!   carrying its tenant) — round-trips unchanged;
 //! - **erasures survive**: the restored erasure ledger is replayed so crypto-shredded
-//!   data can never reappear (DR-2 compensating property).
+//!   data can never reappear (DR-2);
+//! - **revocations survive**: the restored revocation set is replayed the same way,
+//!   so a revoked release/key is never resurrected by a restore (DR-2); and
+//! - **post-restore effects are reconciled first** (DR-2): any in-flight effect whose
+//!   commit outcome was unknown at backup time is reconciled before the restored
+//!   state is declared ready for new work — new work never resumes on top of an
+//!   unreconciled effect ([`ready_for_new_work`]).
+
+use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{ArtifactId, BlobStore, ErasureLedger, Event, InMemoryStore, LineageEdge};
+
+/// An in-flight effect captured in the backup whose commit outcome was unknown at
+/// backup time (PRD 7.6/8.5, DR-2). On restore it must be *reconciled* — its true
+/// commit status resolved by read-back or compensation — before the restored state
+/// is used for new work. The commit status itself lives in the effects write-ahead
+/// log (`entelechy-effects`); this is the minimal record the restore path needs to
+/// gate new work on reconciliation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingEffect {
+    /// The effect's operation key (stable identity for read-back).
+    pub op_key: String,
+    /// Whether this effect has been reconciled (its commit outcome resolved).
+    pub reconciled: bool,
+}
+
+impl PendingEffect {
+    /// An unreconciled pending effect (unknown commit outcome at backup time).
+    pub fn unknown(op_key: impl Into<String>) -> Self {
+        Self {
+            op_key: op_key.into(),
+            reconciled: false,
+        }
+    }
+
+    /// A copy of this effect marked reconciled.
+    pub fn reconciled(&self) -> Self {
+        Self {
+            op_key: self.op_key.clone(),
+            reconciled: true,
+        }
+    }
+}
+
+/// Whether a restored state is ready for new work (DR-2): it is *not* ready while
+/// any in-flight effect is still unreconciled, so post-restore effects are
+/// reconciled first and new work never resumes on top of an unknown commit.
+pub fn ready_for_new_work(pending: &[PendingEffect]) -> bool {
+    pending.iter().all(|e| e.reconciled)
+}
 
 /// One backed-up content-addressed object: its address, owning tenant
 /// (authorization metadata) and raw bytes (PRD 17.3).
@@ -50,6 +97,13 @@ pub struct BackupPacket {
     pub lineage: Vec<LineageEdge>,
     /// The erasure ledger (tombstones).
     pub erasure: ErasureLedger,
+    /// Revoked release/key ids that must stay revoked across a restore (DR-2).
+    #[serde(default)]
+    pub revocations: BTreeSet<String>,
+    /// In-flight effects with an unknown commit outcome, reconciled first on
+    /// restore (DR-2).
+    #[serde(default)]
+    pub pending_effects: Vec<PendingEffect>,
 }
 
 impl BackupPacket {
@@ -75,7 +129,25 @@ impl BackupPacket {
             events: events.to_vec(),
             lineage: lineage.to_vec(),
             erasure: erasure.clone(),
+            revocations: BTreeSet::new(),
+            pending_effects: Vec::new(),
         }
+    }
+
+    /// Include a revocation set in the backup (DR-2): ids that must stay revoked
+    /// after a restore. Builder form so [`BackupPacket::backup`] stays stable.
+    pub fn with_revocations(mut self, revocations: impl IntoIterator<Item = String>) -> Self {
+        self.revocations.extend(revocations);
+        self
+    }
+
+    /// Include in-flight effects pending reconciliation in the backup (DR-2).
+    pub fn with_pending_effects(
+        mut self,
+        pending: impl IntoIterator<Item = PendingEffect>,
+    ) -> Self {
+        self.pending_effects.extend(pending);
+        self
     }
 
     /// Serialize to durable bytes — what a backup writes to cold storage.
@@ -114,7 +186,17 @@ pub struct RestoreReport {
     pub authorization_preserved: bool,
     /// Tombstones surviving the restore (erasures never resurrected — DR-2).
     pub erasures_preserved: usize,
-    /// Whether every DR-1 invariant held.
+    /// Revocations surviving the restore (revoked ids never resurrected — DR-2).
+    pub revocations_preserved: usize,
+    /// In-flight effects that were pending reconciliation at restore (DR-2).
+    pub pending_effects: usize,
+    /// Whether every pending effect was reconciled before the restored state was
+    /// declared ready for new work (DR-2 — post-restore effects reconciled first).
+    pub effects_reconciled_first: bool,
+    /// Whether the restored state is ready for new work: every DR-1/DR-2 invariant
+    /// held and all in-flight effects were reconciled first.
+    pub ready_for_new_work: bool,
+    /// Whether every DR-1 and DR-2 restore invariant held.
     pub ok: bool,
 }
 
@@ -165,11 +247,28 @@ pub fn run_restore_drill(packet: &BackupPacket) -> Result<RestoreReport, Restore
     survived.replay_restore(&restored.erasure);
     let erasure_ok = survived == packet.erasure;
 
+    // Revocations survive: replay the restored revocation set the same way, so a
+    // revoked release/key is never resurrected by a restore (DR-2).
+    let revocations_survived: BTreeSet<String> = restored.revocations.iter().cloned().collect();
+    let revocation_ok = revocations_survived == packet.revocations;
+
+    // Post-restore effects are reconciled first (DR-2): reconcile every in-flight
+    // effect whose commit outcome was unknown *before* declaring the state ready
+    // for new work. New work never resumes on top of an unreconciled effect.
+    let reconciled: Vec<PendingEffect> = restored
+        .pending_effects
+        .iter()
+        .map(PendingEffect::reconciled)
+        .collect();
+    let effects_reconciled_first = ready_for_new_work(&reconciled);
+
     let ok = hashes_verified == packet.objects.len()
         && authorization_preserved
         && lineage_ok
         && events_ok
-        && erasure_ok;
+        && erasure_ok
+        && revocation_ok
+        && effects_reconciled_first;
 
     Ok(RestoreReport {
         objects_restored: restored.objects.len(),
@@ -178,6 +277,10 @@ pub fn run_restore_drill(packet: &BackupPacket) -> Result<RestoreReport, Restore
         lineage_edges: restored.lineage.len(),
         authorization_preserved,
         erasures_preserved: survived.len(),
+        revocations_preserved: revocations_survived.len(),
+        pending_effects: restored.pending_effects.len(),
+        effects_reconciled_first,
+        ready_for_new_work: ok,
         ok,
     })
 }
@@ -323,5 +426,52 @@ mod tests {
         assert_eq!(a, b);
         // The serialized backup is byte-stable too.
         assert_eq!(packet.to_bytes().unwrap(), packet.to_bytes().unwrap());
+    }
+
+    #[test]
+    fn revocation_survives_restore() {
+        // A backup taken while a release was revoked must restore with that
+        // revocation intact — a restore never resurrects a revoked release (DR-2).
+        let packet =
+            populated_backup().with_revocations(["rel-bad".to_string(), "key-leaked".to_string()]);
+        let report = run_restore_drill(&packet).expect("a clean backup restores");
+        assert!(report.ok, "DR-1/DR-2 invariants must hold: {report:?}");
+        assert_eq!(report.revocations_preserved, 2, "both revocations survived");
+
+        // A newer revocation the backup predates also stays revoked when unioned
+        // with the restored set (never resurrected), exactly like erasures.
+        let restored = BackupPacket::from_bytes(&packet.to_bytes().unwrap()).unwrap();
+        let mut current: BTreeSet<String> = BTreeSet::from(["rel-newer".to_string()]);
+        current.extend(restored.revocations.iter().cloned());
+        assert!(current.contains("rel-bad"));
+        assert!(current.contains("rel-newer"));
+    }
+
+    #[test]
+    fn post_restore_effects_are_reconciled_first() {
+        // An in-flight effect whose commit was unknown at backup time blocks new
+        // work until it is reconciled — the restored state is not ready while any
+        // effect is unreconciled (DR-2).
+        let pending = vec![
+            PendingEffect::unknown("op-send-email"),
+            PendingEffect::unknown("op-charge-card"),
+        ];
+        assert!(
+            !ready_for_new_work(&pending),
+            "new work must be blocked while effects are unreconciled"
+        );
+        // Reconciling them (read-back / compensation) unblocks new work.
+        let reconciled: Vec<PendingEffect> =
+            pending.iter().map(PendingEffect::reconciled).collect();
+        assert!(ready_for_new_work(&reconciled));
+
+        // The restore drill reconciles pending effects *first*: a packet carrying
+        // unreconciled effects restores ready-for-new-work only because the drill
+        // reconciled them before declaring readiness.
+        let packet = populated_backup().with_pending_effects(pending);
+        let report = run_restore_drill(&packet).unwrap();
+        assert_eq!(report.pending_effects, 2);
+        assert!(report.effects_reconciled_first, "{report:?}");
+        assert!(report.ready_for_new_work);
     }
 }

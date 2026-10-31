@@ -29,16 +29,30 @@
 //!   intact, a budget breach with clean correctness is only an operational freeze,
 //!   and the real L5 promotion gate takes no budget input — only a recorded override
 //!   admits a failed correctness gate.
+//! - **drift** (PRD 5.10, PV-3): runs [`entelechy_domain::drift_drill`] — builds
+//!   real executed evidence under a calibrated model revision and a silently-drifted
+//!   one and proves that a drift regressing behavior beyond a declared tolerance
+//!   blocks the *automatic* promotion path, while a within-tolerance drift and a
+//!   recorded human override do not (PV-3 blocks automatic promotion, not every
+//!   promotion).
+//! - **degraded** (PRD 17.4, OL-2): runs [`entelechy_ops::degraded_mode_drill`] — a
+//!   fallback is authorized on its own capabilities and confidentiality tier (never
+//!   inherited from the primary), entering degraded mode is journaled with a reason,
+//!   and observations gathered while degraded are excluded from the registered
+//!   evidence a release rests on.
 //!
 //! `--out <dir>` persists each drill's artifacts into that directory so the
 //! verification record is auditable.
 
 use entelechy_artifacts::{
     run_restore_drill, Artifact, ArtifactHeader, BackupPacket, BlobStore, ErasureLedger,
-    InMemoryMetadataStore, InMemoryStore, LineageEdge, LineageKind, MetadataStore, RestoreError,
-    SchemaVersion, DEFAULT_TENANT,
+    InMemoryMetadataStore, InMemoryStore, LineageEdge, LineageKind, MetadataStore, PendingEffect,
+    RestoreError, SchemaVersion, DEFAULT_TENANT,
 };
+use entelechy_domain::{drift_drill, DriftDrillReport};
+use entelechy_effects::OperationKey;
 use entelechy_identity::{audit_drill, AuditDrillReport};
+use entelechy_ops::{degraded_mode_drill, DegradedModeDrillReport};
 use entelechy_release::{rollback_drill, slo_drill, RollbackDrillReport, SloDrillReport};
 
 /// Which disaster-recovery drill(s) to run.
@@ -52,6 +66,10 @@ pub enum DrillKind {
     Audit,
     /// The SL-1 SLO / error-budget drill (PRD §18.1).
     Slo,
+    /// The PV-3 drift / automatic-promotion drill (PRD §5.10).
+    Drift,
+    /// The OL-2 degraded-mode / fallback drill (PRD §17.4).
+    Degraded,
     /// Every drill.
     All,
 }
@@ -80,6 +98,18 @@ pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     if matches!(kind, DrillKind::Slo | DrillKind::All) {
         run_slo(out)?;
     }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Drift | DrillKind::All) {
+        run_drift(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Degraded | DrillKind::All) {
+        run_degraded(out)?;
+    }
     Ok(())
 }
 
@@ -91,15 +121,18 @@ fn run_restore(out: Option<&str>) -> anyhow::Result<()> {
     let tenants = distinct_tenants(&packet);
     let backup_bytes = packet.to_bytes()?;
     println!(
-        "Disaster-recovery drill (PRD §17.3, DR-1) — backing up durable state.\n\
+        "Disaster-recovery drill (PRD §17.3, DR-1/DR-2) — backing up durable state.\n\
          Backed up {} content-addressed object(s) across {} security domain(s), \
-         {} metadata event(s), {} lineage edge(s) and {} erasure tombstone(s) \
+         {} metadata event(s), {} lineage edge(s), {} erasure tombstone(s), \
+         {} revocation(s) and {} in-flight effect(s) pending reconciliation \
          into {} serialized byte(s).\n",
         packet.objects.len(),
         tenants.len(),
         packet.events.len(),
         packet.lineage.len(),
         packet.erasure.len(),
+        packet.revocations.len(),
+        packet.pending_effects.len(),
         backup_bytes.len(),
     );
 
@@ -123,15 +156,28 @@ fn run_restore(out: Option<&str>) -> anyhow::Result<()> {
         report.erasures_preserved
     );
     println!(
-        "\n  => DR-1 {}.",
+        "  revocations preserved:     {} revocation(s) survived the restore (DR-2 — a revoked release/key is never resurrected)",
+        report.revocations_preserved
+    );
+    println!(
+        "  effects reconciled first:  {} ({} in-flight effect(s) with an unknown commit reconciled before new work — DR-2)",
+        yes_no(report.effects_reconciled_first),
+        report.pending_effects
+    );
+    println!(
+        "  ready for new work:        {} (new work resumes only once every DR-1/DR-2 invariant holds)",
+        yes_no(report.ready_for_new_work)
+    );
+    println!(
+        "\n  => DR-1/DR-2 {}.",
         if report.ok {
-            "SATISFIED — backup and restore preserve hashes, lineage and authorization metadata"
+            "SATISFIED — backup and restore preserve hashes, lineage and authorization; erasures and revocations survive, and in-flight effects are reconciled before new work"
         } else {
             "VIOLATED — an invariant did not hold (see above)"
         }
     );
     if !report.ok {
-        anyhow::bail!("DR-1 restore drill failed: an invariant did not hold");
+        anyhow::bail!("DR-1/DR-2 restore drill failed: an invariant did not hold");
     }
 
     // 3. Prove the drill is fail-closed: a corrupt backup is rejected, not loaded.
@@ -375,6 +421,113 @@ fn run_slo(out: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Run the PV-3 drift drill (PRD §5.10). With `out`, persists the report.
+fn run_drift(out: Option<&str>) -> anyhow::Result<()> {
+    let report: DriftDrillReport = drift_drill();
+
+    println!(
+        "Drift / automatic-promotion drill (PRD §5.10, PV-3) — drift beyond tolerance blocks automatic promotion."
+    );
+    println!("Observed drift (real executed evidence):");
+    println!(
+        "  material drift observed:    {} (a silently-drifted model revision opened a new evidence epoch)",
+        yes_no(report.drift_detected)
+    );
+    println!(
+        "  behavioral regression:      {:.1}pp (tolerance {:.1}pp)",
+        report.regression_pp, report.tolerance_pp
+    );
+    println!("Automatic promotion gate (PV-3):");
+    println!(
+        "  beyond tolerance blocks:    {} (a drift that regresses beyond tolerance blocks the automatic path)",
+        yes_no(report.beyond_tolerance_blocks_auto)
+    );
+    println!(
+        "  within tolerance allows:    {} (a material drift that does not regress behavior still auto-promotes)",
+        yes_no(report.within_tolerance_allows_auto)
+    );
+    println!(
+        "  no drift allows:            {} (a single-epoch, no-drift history auto-promotes)",
+        yes_no(report.no_drift_allows_auto)
+    );
+    println!(
+        "  human override still goes:  {} (a recorded override promotes a drift-blocked release; the block stands without one)",
+        yes_no(report.human_override_still_promotes)
+    );
+    println!(
+        "\n  => PV-3 {}.",
+        if report.ok {
+            "SATISFIED — drift beyond tolerance blocks automatic promotion; within-tolerance drift and a recorded human override do not"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("PV-3 drift drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("drift-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
+/// Run the OL-2 degraded-mode drill (PRD §17.4). With `out`, persists the report.
+fn run_degraded(out: Option<&str>) -> anyhow::Result<()> {
+    let report: DegradedModeDrillReport = degraded_mode_drill();
+
+    println!(
+        "Degraded-mode / fallback drill (PRD §17.4, OL-2) — fallbacks independently authorized; degraded evidence excluded."
+    );
+    println!("Independently-authorized fallbacks (OL-2):");
+    println!(
+        "  independent fallback admitted: {} (a fallback holding the required capabilities at the required tier runs)",
+        yes_no(report.fallback_authorized_when_independent)
+    );
+    println!(
+        "  missing capability refused:    {} (a fallback does not inherit a capability from the primary)",
+        yes_no(report.fallback_refused_when_missing_capability)
+    );
+    println!(
+        "  weaker confidentiality refused:{} (a fallback that would weaken confidentiality is refused)",
+        yes_no(report.fallback_refused_when_weaker_confidentiality)
+    );
+    println!("Journaled degraded period (OL-2):");
+    println!(
+        "  entering degraded journaled:   {} (the period of reduced guarantees is recorded with a reason)",
+        yes_no(report.degraded_mode_journaled)
+    );
+    println!("Evidence firewall (OL-2):");
+    println!(
+        "  degraded evidence excluded:    {} ({} degraded observation(s) excluded; {} normal observation(s) registered)",
+        yes_no(report.degraded_evidence_excluded),
+        report.excluded_count,
+        report.registered_count
+    );
+    println!(
+        "\n  => OL-2 {}.",
+        if report.ok {
+            "SATISFIED — fallbacks are independently authorized, the degraded period is journaled, and degraded-mode observations never back a release"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("OL-2 degraded-mode drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("degraded-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
 /// Count the distinct owning tenants across the backed-up objects.
 fn distinct_tenants(packet: &BackupPacket) -> std::collections::BTreeSet<&str> {
     packet.objects.iter().map(|o| o.tenant.as_str()).collect()
@@ -474,12 +627,18 @@ fn populate_durable_state() -> anyhow::Result<BackupPacket> {
     let mut erasure = ErasureLedger::new();
     erasure.erase("tenant-b/subject-42");
 
-    Ok(BackupPacket::backup(
-        &store,
-        &meta.export(),
-        &lineage,
-        &erasure,
-    ))
+    // DR-2 state carried through the backup: a release revoked before the backup
+    // must stay revoked across a restore, and an in-flight effect whose commit
+    // outcome was unknown at backup time must be reconciled before the restored
+    // state resumes new work. The pending effect's operation key is the real key the
+    // effects write-ahead log records for that effect (PRD 7.6), tying the drill's
+    // reconcile-first display to the actual reconciliation model.
+    let pending_key = OperationKey::new("release-run-7", "root/deploy").as_string();
+    Ok(
+        BackupPacket::backup(&store, &meta.export(), &lineage, &erasure)
+            .with_revocations(["rel-L1-withdrawn".to_string()])
+            .with_pending_effects([PendingEffect::unknown(pending_key)]),
+    )
 }
 
 /// Build a canonical artifact for the given schema with the local default tenant.

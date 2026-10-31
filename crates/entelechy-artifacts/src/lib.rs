@@ -18,12 +18,15 @@ mod metadata;
 mod platform;
 mod store;
 
-pub use backup::{run_restore_drill, BackupObject, BackupPacket, RestoreError, RestoreReport};
+pub use backup::{
+    ready_for_new_work, run_restore_drill, BackupObject, BackupPacket, PendingEffect, RestoreError,
+    RestoreReport,
+};
 pub use canonical::{serialize_canonical, to_canonical_bytes};
 pub use erasure::ErasureLedger;
 pub use id::{ArtifactId, DigestAlgorithm, IdParseError};
 pub use metadata::{Event, InMemoryMetadataStore, MetadataStore};
-pub use platform::{DeploymentProfile, EvidenceState, RecoveryObjectives};
+pub use platform::{assess_evidence_state, DeploymentProfile, EvidenceState, RecoveryObjectives};
 pub use store::{BlobStore, InMemoryStore, StoreError};
 
 use serde::{Deserialize, Serialize};

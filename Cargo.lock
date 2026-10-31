@@ -731,10 +731,13 @@ name = "entelechy-integration"
 version = "0.0.0"
 dependencies = [
  "entelechy-artifacts",
+ "entelechy-assurance",
  "entelechy-design",
  "entelechy-eval",
  "entelechy-gateway",
+ "entelechy-identity",
  "entelechy-ir",
+ "entelechy-release",
  "entelechy-runtime",
  "serde_json",
 ]

@@ -68,6 +68,7 @@ pub fn rollback_drill() -> RollbackDrillReport {
         assurance: &report,
         holdout_passed: true,
         negative_goal_clean: true,
+        evidence_state: entelechy_artifacts::EvidenceState::Complete,
     };
     let check = ApprovalCheck {
         approvals: &approvals,
