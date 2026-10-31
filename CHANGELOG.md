@@ -11,6 +11,29 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Unified Phase-0 study — the real repair loop, scored by execution (PRD §11.3,
+  §21.1).** Entelechy had two Phase-0 study drivers that each told half the story:
+  the simulated `entelechy study` ran the real design-repair proposer loop but scored
+  candidates by reading their *structure* (circular — the thing optimized is the thing
+  scored), while the real-domain `study --real` scored by *executing* designs against
+  the world but used a single hand-authored repair instead of a searched one. A new
+  `entelechy-domain::searched` module (`searched_study()`, surfaced as `entelechy study
+  --searched [--out]`) unifies them: it drives the **same** proposer loop
+  (`entelechy_failure::analyze` → `entelechy_search::propose` →
+  `entelechy_design::apply` → `rolling_validation_decision`) but swaps the scoring
+  function for the real executor (`exec::resolves`). The demonstration has teeth — the
+  loop *discovers* (does not hand-author) the verification repair for the reply class
+  and the executor confirms it resolves the tickets, while the level-4 parallel
+  committee it proposes for the decomposition class is **rejected** by execution
+  (running it resolves nothing — its `Llm` sub-agents carry no part-resolving effect)
+  even though the structure-reading scorer would have *credited* it (it "has a `Par`").
+  That execution-vs-structure divergence is the point: same search, two scorers, and
+  execution is the honest one. The decomposition class therefore stays resolved only by
+  the hand-authored `resolve_part` committee in `real_study`; closing that gap needs a
+  part-resolving edit operator in the proposer vocabulary (a named next step). Adds
+  `entelechy-{failure,design,search}` as `entelechy-domain` dependencies (no cycle; the
+  CLI already used all three). Four new tests; `study --searched` prints SATISFIED and,
+  with `--out`, persists `searched-study-report.json` and the discovered design.
 - **TR-1 phase gate advanced P1 → P4 (PRD §17.5, §21).** `CURRENT_GATE_PHASE` is now
   `Phase::P4`: every cross-cutting requirement first enforced at or before P4 has an
   automated verification record in `phase_gate_evidence()`, and `entelechy

@@ -45,11 +45,20 @@
 //!
 //! The whole run is captured in a content-addressed [`ReproductionPacket`] so a
 //! re-run reproduces the same resolved counts bit-for-bit (determinism).
+//!
+//! Finally, [`searched::searched_study`] unifies this real-domain study with the
+//! simulated `entelechy study`: it drives the *same* design-repair proposer loop
+//! the simulated study uses, but scores each candidate by **executing** it here
+//! instead of by reading its structure. The loop discovers the verification repair
+//! and the executor confirms it works; a parallel committee that the structural
+//! scorer would credit is rejected because running it resolves nothing. See that
+//! module's docs for why that divergence is the whole point.
 #![forbid(unsafe_code)]
 
 pub mod epoch;
 pub mod exec;
 pub mod promotion;
+pub mod searched;
 pub mod study;
 pub mod world;
 
@@ -59,6 +68,7 @@ pub use promotion::{
     assess_drift, auto_promote, drift_drill, promotion_proceeds, AutoPromotionDecision,
     DriftAssessment, DriftDrillReport, DriftTolerance,
 };
+pub use searched::{searched_study, SearchedStudyReport};
 pub use study::{
     baseline_design, helpdesk_suite, real_study, refund_attempting_design, repaired_design,
     DeploymentDeclaration, RealStudyReport, ReproductionError, ReproductionPacket,

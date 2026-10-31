@@ -51,6 +51,13 @@ enum Command {
         /// single deployment profile (DP-1) and seal a reproduction packet.
         #[arg(long)]
         real: bool,
+        /// Run the unified Phase-0 study: drive the real design-repair proposer
+        /// loop scored by *executing* designs against the world, not by reading
+        /// their structure. Shows the loop discovers the verification repair the
+        /// executor confirms, and rejects a parallel committee the structure-reading
+        /// scorer would have credited. Takes precedence over `--real`.
+        #[arg(long)]
+        searched: bool,
     },
     /// Explore a run's trace (Phase 1+).
     Trace,
@@ -247,7 +254,11 @@ fn main() -> anyhow::Result<()> {
         Command::Objective => cmd_objective(),
         Command::Capability => cmd_capability(),
         Command::Eval => cmd_eval(),
-        Command::Study { out, real } => study::run(out.as_deref(), real),
+        Command::Study {
+            out,
+            real,
+            searched,
+        } => study::run(out.as_deref(), real, searched),
         Command::Trace => cmd_trace(),
         Command::Diff { old, new } => cmd_diff(old, new),
         Command::Assure => release::cmd_assure(),

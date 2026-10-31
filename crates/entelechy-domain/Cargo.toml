@@ -17,6 +17,9 @@ entelechy-eval = { workspace = true }
 entelechy-artifacts = { workspace = true }
 entelechy-gateway = { workspace = true }
 entelechy-identity = { workspace = true }
+entelechy-failure = { workspace = true }
+entelechy-design = { workspace = true }
+entelechy-search = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

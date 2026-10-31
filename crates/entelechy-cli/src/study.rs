@@ -41,8 +41,15 @@ const COMPLEXITY_CEILING: u8 = 5;
 ///
 /// With `real`, run the Phase-0 *real-domain* study instead (PRD §21, Q1): execute
 /// designs against a resettable helpdesk world with programmatic state checkers
-/// (see [`crate::study::run_real`]).
-pub fn run(out: Option<&str>, real: bool) -> anyhow::Result<()> {
+/// (see [`run_real`]).
+///
+/// With `searched` (which takes precedence over `real`), run the *unified* study:
+/// the real design-repair proposer loop scored by executing designs against the
+/// world (see [`run_searched`]).
+pub fn run(out: Option<&str>, real: bool, searched: bool) -> anyhow::Result<()> {
+    if searched {
+        return run_searched(out);
+    }
     if real {
         return run_real(out);
     }
@@ -735,6 +742,105 @@ fn print_real_study(report: &entelechy_domain::RealStudyReport) {
         "\n  => Phase-0 real-domain study {}.",
         if report.ok {
             "SATISFIED — a real resettable domain scores designs by executed state, retires PV-2 (no silent pooling) and DP-1 (single declared profile), and reproduces deterministically"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+}
+
+/// Run the unified Phase-0 study (`entelechy study --searched`; PRD §11.3, §21.1).
+///
+/// This drives the *same* design-repair proposer loop as the simulated study
+/// above, but scores each candidate by **executing** it against the resettable
+/// helpdesk world ([`entelechy_domain::searched_study`]). It demonstrates that the
+/// loop discovers the verification repair the executor confirms works, and rejects
+/// a parallel committee the structure-reading scorer would have credited — the two
+/// studies unified, with execution as the honest scorer. When `out` is set, the
+/// report and the discovered design are persisted.
+fn run_searched(out: Option<&str>) -> anyhow::Result<()> {
+    let report = entelechy_domain::searched_study();
+    print_searched_study(&report);
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let base = std::path::Path::new(dir);
+        let report_path = base.join("searched-study-report.json");
+        let design_path = base.join("discovered-design.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        std::fs::write(
+            &design_path,
+            serde_json::to_string_pretty(&report.discovered_design)?,
+        )?;
+        println!(
+            "\nPersisted: {} and {}.",
+            report_path.display(),
+            design_path.display()
+        );
+    }
+    if !report.ok {
+        anyhow::bail!("unified Phase-0 study failed: an invariant did not hold");
+    }
+    Ok(())
+}
+
+/// Print a `SearchedStudyReport` as a narrative of its invariants (mirrors
+/// [`print_real_study`] and the drill printers).
+fn print_searched_study(report: &entelechy_domain::SearchedStudyReport) {
+    let yn = |b: bool| if b { "yes" } else { "NO" };
+    println!(
+        "Unified Phase-0 study (PRD §11.3, §21.1) — the real design-repair loop, scored by executing designs against the world, not by reading their structure."
+    );
+    println!("Baseline (executor-scored):");
+    println!(
+        "  reply tickets unresolved:   {} (it drafts but never grounds)",
+        yn(report.baseline_reply_unresolved)
+    );
+    println!(
+        "  decomposition unresolved:   {} (it resolves only the first part)",
+        yn(report.baseline_decomposition_unresolved)
+    );
+    println!(
+        "Design-repair loop (same proposer as `study`; {} candidate(s) evaluated):",
+        report.rounds
+    );
+    println!(
+        "  repairs accepted at levels: {:?} (confirmed by execution + rolling validation)",
+        report.accepted_levels
+    );
+    println!(
+        "  discovered a verify step:   {} (searched, not hand-authored)",
+        yn(report.discovered_verify)
+    );
+    println!(
+        "  executor resolves reply:    {} (the discovered design grounds the reply class)",
+        yn(report.discovered_resolves_reply)
+    );
+    println!("Execution vs structure (the two studies unified):");
+    println!(
+        "  committee proposed:         {} (level-4 parallel committee for decomposition)",
+        yn(report.committee_proposed)
+    );
+    println!(
+        "  execution rejects it:       {} (running the committee resolves nothing)",
+        yn(report.committee_rejected_by_execution)
+    );
+    println!(
+        "  structure would credit it:  {} (the circular scorer sees a `Par` and passes it)",
+        yn(report.structure_would_credit_committee)
+    );
+    println!(
+        "  honest divergence:          {} (execution rejects what structure would credit)",
+        yn(report.honest_divergence)
+    );
+    println!("Holdout gate (EV-14, executor-scored):");
+    println!(
+        "  verdict:                    {} ({})",
+        report.holdout_result,
+        yn(report.holdout_passed)
+    );
+    println!(
+        "\n  => Unified Phase-0 study {}.",
+        if report.ok {
+            "SATISFIED — the real repair loop discovers the verification fix by executing designs, and rejects a committee that structure-scoring would have falsely credited"
         } else {
             "VIOLATED — an invariant did not hold (see above)"
         }
