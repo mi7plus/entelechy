@@ -61,6 +61,12 @@ impl VersionRange {
     pub fn contains(&self, v: ProtocolVersion) -> bool {
         self.min <= v && v <= self.max
     }
+    /// Whether the range actually declares a compatibility window: `min <= max`.
+    /// An inverted range admits no version, so a manifest carrying one has not
+    /// declared compatibility and must fail closed (PC-3).
+    pub fn is_well_formed(&self) -> bool {
+        self.min <= self.max
+    }
 }
 
 /// A security-relevant guarantee a protocol version may provide (PC-2).
@@ -181,6 +187,10 @@ pub struct HostEnvironment {
 /// Why a plugin failed to load (fails closed — PC-3).
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum LoadError {
+    /// The manifest does not declare a usable compatibility window (an inverted
+    /// version range admits no version), so compatibility cannot be established.
+    #[error("manifest '{0}' declares no usable compatibility window")]
+    UndeclaredCompatibility(String),
     /// The host API version is outside the plugin's supported range.
     #[error("host API {0} outside plugin range")]
     HostApiIncompatible(ProtocolVersion),
@@ -194,8 +204,14 @@ pub enum LoadError {
 
 impl PluginManifest {
     /// Attempt to load into a host, failing closed when compatibility cannot be
-    /// established (PC-3).
+    /// established (PC-3). A manifest must first *declare* a usable compatibility
+    /// window — a well-formed host-API and artifact-schema range — or it is
+    /// refused before any host comparison; an inverted range admits no version, so
+    /// treating it as a silent mismatch would hide a malformed declaration.
     pub fn check_load(&self, host: &HostEnvironment) -> Result<(), LoadError> {
+        if !self.host_api_range.is_well_formed() || !self.artifact_schema_range.is_well_formed() {
+            return Err(LoadError::UndeclaredCompatibility(self.name.clone()));
+        }
         if !self.host_api_range.contains(host.host_api) {
             return Err(LoadError::HostApiIncompatible(host.host_api));
         }
@@ -318,6 +334,73 @@ mod tests {
             manifest.check_load(&host),
             Err(LoadError::MissingCapability(_))
         ));
+    }
+
+    #[test]
+    fn plugin_manifest_declares_compatibility_and_loading_fails_closed() {
+        // PC-3 conformance (PRD 16.6): a manifest declares its compatibility window
+        // (host-API and artifact-schema ranges) plus required capabilities, and
+        // loading fails closed on every mismatch — never a silent accept.
+        let manifest = PluginManifest {
+            name: "retriever".into(),
+            host_api_range: VersionRange::new(v(1, 2), v(1, 4)),
+            artifact_schema_range: VersionRange::new(v(1, 0), v(1, 0)),
+            required_capabilities: vec!["read_kb".into()],
+        };
+        let ok_host = HostEnvironment {
+            host_api: v(1, 3),
+            artifact_schema: v(1, 0),
+            available_capabilities: BTreeSet::from(["read_kb".to_string()]),
+        };
+        // A compatible host loads.
+        assert!(manifest.check_load(&ok_host).is_ok());
+
+        // Host API below the declared minimum: fail closed.
+        let mut host = ok_host.clone();
+        host.host_api = v(1, 1);
+        assert_eq!(
+            manifest.check_load(&host),
+            Err(LoadError::HostApiIncompatible(v(1, 1)))
+        );
+        // Host API above the declared maximum: fail closed.
+        host.host_api = v(1, 5);
+        assert_eq!(
+            manifest.check_load(&host),
+            Err(LoadError::HostApiIncompatible(v(1, 5)))
+        );
+        // Artifact schema outside the declared range: fail closed.
+        host = ok_host.clone();
+        host.artifact_schema = v(1, 1);
+        assert_eq!(
+            manifest.check_load(&host),
+            Err(LoadError::SchemaIncompatible(v(1, 1)))
+        );
+        // A required capability the host does not offer: fail closed.
+        host = ok_host.clone();
+        host.available_capabilities.clear();
+        assert_eq!(
+            manifest.check_load(&host),
+            Err(LoadError::MissingCapability("read_kb".into()))
+        );
+
+        // A manifest that declares no usable window (an inverted range) is refused
+        // before any host comparison — a malformed declaration never loads.
+        let degenerate = PluginManifest {
+            name: "broken".into(),
+            host_api_range: VersionRange::new(v(1, 4), v(1, 2)),
+            artifact_schema_range: VersionRange::new(v(1, 0), v(1, 0)),
+            required_capabilities: vec![],
+        };
+        assert_eq!(
+            degenerate.check_load(&ok_host),
+            Err(LoadError::UndeclaredCompatibility("broken".into()))
+        );
+
+        // The manifest is a declared, serializable artifact: it round-trips so a
+        // loader reads back exactly the compatibility window its author declared.
+        let json = serde_json::to_string(&manifest).unwrap();
+        let back: PluginManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, manifest);
     }
 
     #[test]

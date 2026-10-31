@@ -11,6 +11,29 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Phase gate advanced to P5 — PC-3 (plugin-manifest compatibility) implemented,
+  wired into the real loader, and recorded (PRD §16.6, §17.5, §17.6).** P5 is the
+  only phase with a previously-unrecorded registry requirement, PC-3 ("plugin
+  manifests declare compatibility; loading fails closed"). The compatibility rule
+  existed as `entelechy_protocol::PluginManifest::check_load` but the real plugin
+  loader (`entelechy_gateway::sandbox::PluginHost::load`) enforced only the
+  no-ambient-authority capability grant and **never called it** — so PC-3 was a dead
+  function. This closes that gap and advances the gate:
+  - `check_load` now also fails closed on a manifest that declares no usable
+    compatibility window (an inverted `VersionRange`), via a new
+    `LoadError::UndeclaredCompatibility`, with a `VersionRange::is_well_formed`
+    helper; the wire shapes of `PluginManifest`/`HostEnvironment` are unchanged
+    (the frozen `entelechy.protocol` contract holds). A full fail-closed conformance
+    matrix + serde round-trip is added (`entelechy-protocol`);
+  - `PluginHost::load` now takes the `HostEnvironment` and enforces the manifest's
+    declared compatibility (PC-3) **before** the capability grant (16.3), surfacing
+    a `HostError::Incompatible`; a new test proves an incompatible host is refused
+    even when every capability is granted (`entelechy-gateway`);
+  - PC-3 is recorded in `entelechy_contracts::phase_gate_evidence()` citing both the
+    protocol conformance test and the gateway enforcement test, and
+    `CURRENT_GATE_PHASE` is bumped `P4 → P5`. The registry has exactly one P5
+    requirement, so the TR-1 gate now attests every normative requirement through
+    the final roadmap phase. `entelechy requirements --check` passes at P5 (and P4).
 - **`real_study` converges onto the searched repair — the last hand-authored repair
   leaves the live path (PRD §11.3, §21.1).** The real-domain study
   (`entelechy study --real`) previously evaluated a hand-authored

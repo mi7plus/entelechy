@@ -159,11 +159,13 @@ impl TraceabilityIndex {
 }
 
 /// The lifecycle phase whose gate CI currently enforces (PRD §21). The gate is at
-/// the Phase-4 exit: every cross-cutting requirement first enforced at or before P4
-/// has an automated verification record in [`phase_gate_evidence`]. Advancing the
-/// gate further (P5) means recording P5 requirements — PC-3 (plugin manifests) — and
-/// bumping this.
-pub const CURRENT_GATE_PHASE: Phase = Phase::P4;
+/// the Phase-5 exit: every cross-cutting requirement first enforced at or before P5
+/// has an automated verification record in [`phase_gate_evidence`]. P5 adds exactly
+/// one registry requirement, PC-3 (plugin-manifest compatibility), whose fail-closed
+/// loading is verified in `entelechy-protocol` and enforced on the real plugin
+/// loader in `entelechy-gateway`. P5 is the final roadmap phase, so this is the
+/// furthest the requirements gate advances.
+pub const CURRENT_GATE_PHASE: Phase = Phase::P5;
 
 /// Default review horizon for a pre-maturity waiver (2027-07-01T00:00:00Z): past
 /// this instant such a waiver expires and the TR-1 gate reports it as a gap,
@@ -174,13 +176,13 @@ pub const WAIVER_REVIEW_DEADLINE: u64 = 1_814_400_000;
 
 /// The authoritative phase-gate evidence for [`CURRENT_GATE_PHASE`] (PRD 17.5,
 /// TR-1): a verification record for every cross-cutting requirement enforced
-/// through the current gate (now P4). Every such requirement has automated evidence
+/// through the current gate (now P5). Every such requirement has automated evidence
 /// — real executed code with its own tests, operational drills and cross-crate
 /// integration tests — so no waivers remain, though the waiver mechanism stays
 /// available for future scoped, expiring gaps. The P4 advance added records for the
 /// seven P2/P4 requirements PV-3, EL-1, PC-2, DR-2, DR-3, OL-2 and DX-1 (RB-1/RB-2,
-/// AU-1/AU-2/AU-3 and SL-1, also P4, were recorded earlier). PC-3 is first enforced
-/// at P5 and is out of scope for this gate.
+/// AU-1/AU-2/AU-3 and SL-1, also P4, were recorded earlier). The P5 advance adds the
+/// one P5 requirement, PC-3 (plugin-manifest compatibility, fail-closed loading).
 ///
 /// `entelechy requirements --check` and the `traceability` CI job consume this. A
 /// requirement first enforced at or before [`CURRENT_GATE_PHASE`] that is neither
@@ -344,6 +346,20 @@ pub fn phase_gate_evidence() -> TraceabilityIndex {
         "entelechy-protocol: negotiate_secure + no_silent_security_downgrade (a negotiated session never \
          silently drops a required security guarantee; an unsatisfiable security requirement fails closed \
          with a machine-readable error)",
+        V,
+    );
+    // PC-3 is the one requirement first enforced at P5; the P5 advance records it.
+    // Its compatibility rule is verified in entelechy-protocol and enforced on the
+    // real plugin loader in entelechy-gateway (so it is not a dead function).
+    index.verify(
+        "PC-3",
+        "entelechy-protocol: plugin_manifest_declares_compatibility_and_loading_fails_closed (a manifest \
+         declares host-API and artifact-schema windows plus required capabilities; an unsupported host \
+         version or schema, a capability the host does not offer, or a manifest declaring no usable window \
+         all fail closed — never a silent accept) + entelechy-gateway: \
+         sandbox::incompatible_manifest_fails_closed_before_authority (PluginHost::load enforces the \
+         manifest's declared compatibility against the host before any capability is granted — PC-3 ahead \
+         of the no-ambient-authority model, PRD 16.6/16.3)",
         V,
     );
     index.verify(

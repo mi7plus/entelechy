@@ -95,12 +95,15 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   providers work under the `openai-tls` feature (a `native-tls`/platform-TLS
   transport); without it, `https` fails fast with a clear message and self-hosted
   `http://` is unaffected.
-- **Plugin host & sandbox (§16.3, §8.3, TS-2/TS-3):** a `PluginHost` loads a
-  plugin only when every capability its manifest declares is operator-granted
-  (fails closed otherwise), and a `LoadedPlugin` may invoke *only* its declared
-  capabilities — a call outside scope is denied even if the `ToolGateway` has it
-  registered, so plugins **never receive ambient authority**. Isolation
-  (WASM/container/microVM) is chosen by risk class. A real `wasmtime` engine plugs
+- **Plugin host & sandbox (§16.3, §16.6, §8.3, TS-2/TS-3, PC-3):** a `PluginHost`
+  loads a plugin only when its manifest's declared compatibility window (host-API
+  and artifact-schema ranges) admits the host **and** every declared capability is
+  operator-granted — the compatibility check (PC-3, `entelechy-protocol`) runs
+  first and fails closed before any grant, then the authority check. A
+  `LoadedPlugin` may invoke *only* its declared capabilities — a call outside scope
+  is denied even if the `ToolGateway` has it registered, so plugins **never receive
+  ambient authority**. Isolation (WASM/container/microVM) is chosen by risk class.
+  A real `wasmtime` engine plugs
   in behind the `SandboxEngine` trait under the optional `wasm` feature: it runs
   guest WASM with an **empty linker** (a guest importing any host function fails to
   instantiate — no ambient authority) and **fuel-bounded** execution (an infinite

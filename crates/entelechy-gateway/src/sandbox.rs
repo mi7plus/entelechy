@@ -1,4 +1,4 @@
-//! Plugin host and sandbox authority model (PRD 16.3, 8.3, TS-2, TS-3).
+//! Plugin host and sandbox authority model (PRD 16.3, 16.6, 8.3, TS-2, TS-3, PC-3).
 //!
 //! WASM component plugins declare required capabilities and never receive ambient
 //! authority (PRD 16.3). Generated tools/code run only in declared sandbox scopes
@@ -8,13 +8,18 @@
 //! that scope is denied — even if the underlying [`ToolGateway`] has the
 //! capability registered.
 //!
+//! Before any of that, [`PluginHost::load`] enforces the manifest's *declared
+//! compatibility* against the host (PC-3, PRD 16.6): a plugin whose declared
+//! host-API or artifact-schema window does not admit the host — or that declares
+//! no usable window — fails closed before a single capability is granted.
+//!
 //! The actual execution engine (e.g. a `wasmtime` backend) plugs in behind this
 //! boundary without changing the authority model; this crate provides the
 //! dependency-free authority and scope enforcement.
 
 use std::collections::BTreeSet;
 
-use entelechy_protocol::PluginManifest;
+use entelechy_protocol::{HostEnvironment, LoadError, PluginManifest};
 
 use crate::tool::{ToolCall, ToolError, ToolGateway};
 
@@ -62,9 +67,15 @@ pub struct SandboxScope {
     pub allow_network: bool,
 }
 
-/// Errors from loading a plugin (fail closed — TS-3, 16.3).
+/// Errors from loading a plugin (fail closed — PC-3, TS-3, 16.3).
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum HostError {
+    /// The manifest's declared compatibility does not match the host — an
+    /// unsupported host-API/artifact-schema version, a capability the host does
+    /// not offer, or a manifest that declares no usable window. Checked at load,
+    /// before any capability grant, and fails closed (PC-3, PRD 16.6).
+    #[error("plugin compatibility check failed: {0}")]
+    Incompatible(#[from] LoadError),
     /// The plugin requires a capability the operator has not granted (no ambient
     /// authority — PRD 16.3).
     #[error("plugin '{plugin}' requires ungranted capability '{capability}'")]
@@ -143,14 +154,28 @@ pub trait SandboxEngine {
 pub struct PluginHost;
 
 impl PluginHost {
-    /// Load a plugin, granting exactly the capabilities its manifest declares —
-    /// and only if every one is in the operator-approved `granted` set (PRD 16.3,
-    /// TS-3). Fails closed on any ungranted capability.
+    /// Load a plugin, in two fail-closed gates:
+    ///
+    /// 1. **Compatibility** (PC-3, PRD 16.6): the manifest's declared host-API and
+    ///    artifact-schema windows must admit this `host`, and every required
+    ///    capability must be one the host offers. An incompatible or
+    ///    undeclared-window manifest is refused via [`HostError::Incompatible`]
+    ///    *before* any authority is considered — loading fails closed.
+    /// 2. **Authority** (PRD 16.3, TS-3): each declared capability must also be in
+    ///    the operator-approved `granted` set, or the load is refused — the plugin
+    ///    receives no ambient authority beyond what was both declared and granted.
+    ///
+    /// The returned [`LoadedPlugin`] runs in exactly the declared scope.
     pub fn load(
         manifest: &PluginManifest,
+        host: &HostEnvironment,
         granted: &BTreeSet<String>,
         risk: RiskLevel,
     ) -> Result<LoadedPlugin, HostError> {
+        // Compatibility first: the manifest must declare a window that fits the
+        // host (PC-3). `?` maps a protocol LoadError into HostError::Incompatible.
+        manifest.check_load(host)?;
+        // Authority: a declared capability still needs an operator grant (16.3).
         for cap in &manifest.required_capabilities {
             if !granted.contains(cap) {
                 return Err(HostError::CapabilityNotGranted {
@@ -195,10 +220,25 @@ mod tests {
         caps.iter().map(|s| s.to_string()).collect()
     }
 
+    /// A host compatible with [`manifest`] that offers a generous capability
+    /// catalog, so the compatibility gate passes and the authority gate (the
+    /// operator-approved `granted` set) is what each test exercises.
+    fn host() -> HostEnvironment {
+        HostEnvironment {
+            host_api: ProtocolVersion::new(1, 2),
+            artifact_schema: ProtocolVersion::new(1, 0),
+            available_capabilities: ["read_kb", "write_kb", "extra", "secret_exfil"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        }
+    }
+
     #[test]
     fn ungranted_capability_fails_closed() {
         let err = PluginHost::load(
             &manifest(&["read_kb", "write_kb"]),
+            &host(),
             &granted(&["read_kb"]),
             RiskLevel::Low,
         )
@@ -207,9 +247,31 @@ mod tests {
     }
 
     #[test]
+    fn incompatible_manifest_fails_closed_before_authority() {
+        // PC-3 on the real loader (PRD 16.6): the manifest's declared compatibility
+        // is enforced at load, before and independently of the capability grant. A
+        // host API outside the manifest's declared window is refused even when every
+        // required capability is granted.
+        let mut h = host();
+        h.host_api = ProtocolVersion::new(2, 0); // outside the manifest's 1.0..=1.9
+        let err = PluginHost::load(
+            &manifest(&["read_kb"]),
+            &h,
+            &granted(&["read_kb"]),
+            RiskLevel::Low,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            HostError::Incompatible(LoadError::HostApiIncompatible(_))
+        ));
+    }
+
+    #[test]
     fn loads_with_declared_scope_and_isolation() {
         let p = PluginHost::load(
             &manifest(&["read_kb"]),
+            &host(),
             &granted(&["read_kb", "extra"]),
             RiskLevel::High,
         )
@@ -231,6 +293,7 @@ mod tests {
 
         let plugin = PluginHost::load(
             &manifest(&["read_kb"]),
+            &host(),
             &granted(&["read_kb"]),
             RiskLevel::Low,
         )
