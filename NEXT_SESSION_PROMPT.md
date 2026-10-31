@@ -79,21 +79,49 @@ intact).
 
 Build with `-j 2` (a cold `--workspace` build OOM-kills, exit 137).
 
-## Follow-ons (next natural units)
+## NEXT UNIT (scoped, ready to implement) — converge `real_study` onto the searched repair
+
+`real_study` (`crates/entelechy-domain/src/study.rs`) still hand-authors its candidate
+`repaired_design()` (the `resolve_part` committee + verify). Now that the searched loop
+discovers an equivalent design by execution, retire that hand-authored repair from the
+study's live path: `real_study` should consume the *discovered* design and prove it is a
+drop-in replacement. Concrete plan (derived and de-risked this session):
+
+1. **Expose the discovered repair.** Add `pub fn discovered_repair() -> Program` to
+   `crates/entelechy-domain/src/searched.rs` — a thin wrapper that builds
+   `searched_suite()` + `baseline_design()` and returns `run_repair_loop(...).best`.
+   Re-export it from `crates/entelechy-domain/src/lib.rs`.
+2. **`real_study` consumes it.** In `real_study()`, set `let repaired = discovered_repair();`
+   (replacing `repaired_design()`) so the candidate, comparison, PV-2 epochs, holdout gate
+   and reproduction packet all use the searched design.
+3. **Assert equivalence to the retired repair.** Keep `repaired_design()` as a reference
+   oracle. Add a `discovered_matches_handauthored: bool` invariant to `RealStudyReport`:
+   for every task in `helpdesk_suite()`, `resolves(&discovered, t, &gw) ==
+   resolves(&handauthored, t, &gw)`. Fold it into `ok`. This proves the searched repair is
+   a drop-in replacement while demonstrating no hand-authored repair is needed.
+4. **CLI** (`crates/entelechy-cli/src/study.rs`): add a convergence line to
+   `print_real_study`; in `run_real`, persist the discovered design (e.g.
+   `discovered-design.json`) instead of the hand-authored one, and update the doc comment.
+5. **CHANGELOG** entry; then full gate + commit (ask the user before committing/pushing —
+   CLAUDE.md).
+
+**Keep `real_study` on the 2-class `helpdesk_suite`** (do NOT unify suites). Verified this
+session: on `helpdesk_suite` the discovered design resolves reply (verify) and
+decomposition (`resolve_first` + `resolve_all`) identically to the committee, and its
+`Retrieval` node is inert there — so every count-asserting test stays green unchanged
+(`release_evidence_is_the_post_drift_epoch_not_the_pool` keeps `release 3/6`, `pooled
+9/12`; the drift narrative is preserved because the discovered design still has a `Verify`).
+Unifying suites would churn those counts for little gain; leave it.
+
+## Other follow-ons
 
 The gate is at the project's furthest enforced phase (`CURRENT_GATE_PHASE = P4`,
-committed as `2ac6002`). Natural follow-ons:
+committed as `2ac6002`).
 
-1. **Optional: converge `real_study` onto the searched repair.** `real_study` still
-   hand-authors `repaired_design` (the `resolve_part` committee + verify). Now that the
-   loop discovers an equivalent design by execution, `real_study` could consume the
-   discovered design instead of the hand-authored one (or assert they resolve the same
-   tickets) to retire the last hand-authored repair. (The searched suite is now a
-   superset — reply/knowledge/decomposition — so a convergence could unify the suites too.)
-2. **Shadow/canary rollout, web console, SDKs (P4/P3)** — not implemented.
-3. **P5**: multi-tenancy, plugin registry (PC-3, the only unrecorded requirement —
-   first enforced at P5), learned priors, distillation. Advancing the gate to P5 means
-   recording PC-3 and bumping `CURRENT_GATE_PHASE`.
+- **Shadow/canary rollout, web console, SDKs (P4/P3)** — not implemented.
+- **P5**: multi-tenancy, plugin registry (PC-3, the only unrecorded requirement — first
+  enforced at P5), learned priors, distillation. Advancing the gate to P5 means recording
+  PC-3 and bumping `CURRENT_GATE_PHASE`.
 
 ## How to work here (see CLAUDE.md for durable invariants)
 
