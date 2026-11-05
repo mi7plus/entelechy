@@ -40,6 +40,15 @@
 //!   inherited from the primary), entering degraded mode is journaled with a reason,
 //!   and observations gathered while degraded are excluded from the registered
 //!   evidence a release rests on.
+//! - **rollout** (PRD §14.2, §21.4 — a Phase-4 *roadmap feature*, not a §17.6
+//!   registry requirement): runs [`entelechy_release::rollout_drill`] — the staged
+//!   shadow (L3) and canary (L4) rollout path. Shadow requires effect substitution
+//!   (a consequential effect with no dry-run makes a design shadow-ineligible) and
+//!   commits none of the candidate's effects; the canary routes a *bounded* fraction
+//!   of traffic to the candidate and turns the slice's error budget, metric drift and
+//!   correctness into a promote/hold/rollback verdict. A healthy canary promotes only
+//!   through the *real* L4→L5 gate (never a bypass); a regressing or
+//!   correctness-failed canary rolls back to the prior known-good release.
 //!
 //! `--out <dir>` persists each drill's artifacts into that directory so the
 //! verification record is auditable.
@@ -53,7 +62,10 @@ use entelechy_domain::{drift_drill, DriftDrillReport};
 use entelechy_effects::OperationKey;
 use entelechy_identity::{audit_drill, AuditDrillReport};
 use entelechy_ops::{degraded_mode_drill, DegradedModeDrillReport};
-use entelechy_release::{rollback_drill, slo_drill, RollbackDrillReport, SloDrillReport};
+use entelechy_release::{
+    rollback_drill, rollout_drill, slo_drill, RollbackDrillReport, RolloutDrillReport,
+    SloDrillReport,
+};
 
 /// Which disaster-recovery drill(s) to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -70,6 +82,8 @@ pub enum DrillKind {
     Drift,
     /// The OL-2 degraded-mode / fallback drill (PRD §17.4).
     Degraded,
+    /// The staged shadow/canary rollout drill (PRD §14.2, §21.4).
+    Rollout,
     /// Every drill.
     All,
 }
@@ -109,6 +123,12 @@ pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     }
     if matches!(kind, DrillKind::Degraded | DrillKind::All) {
         run_degraded(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Rollout | DrillKind::All) {
+        run_rollout(out)?;
     }
     Ok(())
 }
@@ -522,6 +542,74 @@ fn run_degraded(out: Option<&str>) -> anyhow::Result<()> {
     if let Some(dir) = out {
         std::fs::create_dir_all(dir)?;
         let report_path = std::path::Path::new(dir).join("degraded-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
+/// Run the staged shadow/canary rollout drill (PRD §14.2, §21.4). With `out`,
+/// persists the report.
+fn run_rollout(out: Option<&str>) -> anyhow::Result<()> {
+    let report: RolloutDrillReport = rollout_drill();
+
+    println!(
+        "Shadow/canary rollout drill (PRD §14.2, §21.4) — staged L3 shadow → L4 canary → L5 gate.\n\
+         (A Phase-4 roadmap feature, not a §17.6 registry requirement — it does not move the TR-1 gate.)"
+    );
+    println!("Shadow stage (L3 — production inputs without consequential effects):");
+    println!(
+        "  effect substitution required: {} (a consequential effect with no dry-run makes a design shadow-ineligible)",
+        yes_no(report.shadow_requires_dry_run)
+    );
+    println!(
+        "  candidate commits nothing:    {} (every candidate consequential effect is substituted; only the baseline serves production)",
+        yes_no(report.shadow_commits_no_candidate_effects)
+    );
+    println!(
+        "  parity proceeds to canary:    {} (high agreement and no new errors clears the candidate for L4)",
+        yes_no(report.shadow_parity_proceeds)
+    );
+    println!(
+        "  new errors hold:              {} (a candidate that newly errors does not proceed)",
+        yes_no(report.shadow_divergence_holds)
+    );
+    println!("Canary stage (L4 — bounded production authority and monitored rollout):");
+    println!(
+        "  bounded traffic fraction:     {} (only a small, deterministic slice is routed to the candidate)",
+        yes_no(report.canary_routes_bounded_fraction)
+    );
+    println!(
+        "  healthy canary promotes:      {} (a healthy slice promotes through the real L4→L5 gate)",
+        yes_no(report.healthy_canary_promotes_through_gate)
+    );
+    println!(
+        "  canary never bypasses gate:   {} (the same healthy canary is refused without valid approvals)",
+        yes_no(report.healthy_canary_still_gated)
+    );
+    println!(
+        "  budget breach rolls back:     {} (an exhausted canary error budget rolls back to the known-good release)",
+        yes_no(report.regressing_canary_rolls_back)
+    );
+    println!(
+        "  correctness failure rolls back: {} (a failed correctness gate rolls back regardless of the operational signals)",
+        yes_no(report.correctness_failure_rolls_back)
+    );
+    println!(
+        "\n  => staged rollout {}.",
+        if report.ok {
+            "SATISFIED — shadow substitutes all candidate effects, the canary is bounded, a healthy slice promotes only through the real gate, and a regression rolls back"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("staged rollout drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("rollout-report.json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
         println!("\nPersisted: {}.", report_path.display());
     }

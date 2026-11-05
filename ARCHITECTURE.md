@@ -235,7 +235,15 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   and a deployment controller with rollback/revocation whose stop authority is
   separate from promote authority and whose auto-rollback triggers are declared
   (14.6). The lifecycle state machine encodes Appendix A including reverse
-  transitions.
+  transitions. **Staged rollout (§14.2, `rollout` module):** the operational
+  machinery of the shadow (L3) and canary (L4) levels — shadow enforces effect
+  substitution (a consequential effect without `dry_run_supported` is
+  shadow-ineligible) and commits none of the candidate's effects; the canary routes
+  a bounded, deterministic traffic fraction and turns the slice's error budget,
+  metric drift and correctness into a promote/hold/rollback verdict that feeds the
+  *real* promotion gate (never bypassing it) or fires a rollback. The
+  `entelechy drill --kind rollout` exercise composes it end to end. (A Phase-4
+  roadmap feature, not a §17.6 registry requirement.)
 
 - **Capability discovery (§13.1, CD-7, Q13):** a `CapabilityGraph` where declared
   effects are untrusted hints — unattested capabilities take the conservative

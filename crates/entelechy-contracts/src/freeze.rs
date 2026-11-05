@@ -82,11 +82,11 @@ pub const FROZEN_CONTRACTS: &[FrozenContract] = &[
     frozen(
         "entelechy.journal",
         "entelechy-runtime",
-        "1",
+        "2",
         "JOURNAL_FORMAT_VERSION",
         "entelechy-runtime/tests/golden_journal.rs",
         "RK-2, RS-1",
-        "Recorded journals stay replayable; the event `kind` tags and entry structure are frozen within a format version.",
+        "Recorded journals stay replayable; the event `kind` tags and entry structure are frozen within a format version. v2 adds the recorded initial `input` (RK-2); v1 journals stay readable via `#[serde(default)]`.",
     ),
     frozen(
         "entelechy.model-request",
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn lookup_works() {
-        assert_eq!(find("entelechy.journal").unwrap().version, "1");
+        assert_eq!(find("entelechy.journal").unwrap().version, "2");
         assert!(find("entelechy.does-not-exist").is_none());
     }
 }

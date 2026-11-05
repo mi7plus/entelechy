@@ -85,9 +85,6 @@ enum Command {
         /// JSON value to substitute as that node's output.
         #[arg(long)]
         value: String,
-        /// JSON input to the run.
-        #[arg(long, default_value = "{}")]
-        input: String,
     },
     /// Diff two Design IRs (PRD 16.2). With no paths, diffs the demo baseline
     /// against its repaired candidate.
@@ -205,7 +202,11 @@ enum Command {
     /// key lifecycle that never mutates the signed artifact, and a tamper-evident,
     /// externally-anchored log. The `slo` drill checks that an L5 SLO states its
     /// window, population, statistic/error budget and exclusions, and that
-    /// correctness gates sit outside the error budget.
+    /// correctness gates sit outside the error budget. The `rollout` drill exercises
+    /// the staged shadow (L3) and canary (L4) path: shadow requires effect
+    /// substitution and commits none of the candidate's effects, and a bounded canary
+    /// promotes only through the real gate or rolls back on a regression (§14.2,
+    /// §21.4 — a roadmap feature, not a registry requirement).
     Drill {
         /// Which drill(s) to run.
         #[arg(long, value_enum, default_value_t = drill::DrillKind::All)]
@@ -249,8 +250,7 @@ fn main() -> anyhow::Result<()> {
             journal,
             at,
             value,
-            input,
-        } => cmd_counterfactual(&design, &journal, &at, &value, &input),
+        } => cmd_counterfactual(&design, &journal, &at, &value),
         Command::Objective => cmd_objective(),
         Command::Capability => cmd_capability(),
         Command::Eval => cmd_eval(),
@@ -1326,7 +1326,6 @@ fn cmd_counterfactual(
     journal_path: &str,
     at: &str,
     value: &str,
-    input: &str,
 ) -> anyhow::Result<()> {
     use entelechy_gateway::{MockModel, NativeToolGateway};
     use entelechy_ir::Value;
@@ -1335,7 +1334,6 @@ fn cmd_counterfactual(
         serde_json::from_str(&std::fs::read_to_string(design_path)?)?;
     let journal: entelechy_runtime::Journal =
         serde_json::from_str(&std::fs::read_to_string(journal_path)?)?;
-    let input_val = Value::trusted(serde_json::from_str(input)?);
     // A counterfactual substitution is a hypothetical, so it enters tainted.
     let substitute = Value::tainted(serde_json::from_str(value)?);
 
@@ -1345,7 +1343,9 @@ fn cmd_counterfactual(
     engine.register_code("route_ticket", |v| Ok(v.data.clone()));
     engine.register_checker("reply_nonempty", |_| true);
 
-    let cf = engine.counterfactual(&program, input_val, &journal, at, substitute);
+    // The counterfactual branches off the journal's recorded trajectory, seeded
+    // from its recorded initial input (RK-2) — no separate input is supplied.
+    let cf = engine.counterfactual(&program, &journal, at, substitute);
     println!("Counterfactual intervention at '{at}':");
     println!("  diverged: {}", cf.diverged);
     if let Some(dp) = &cf.divergence_point {
@@ -1375,11 +1375,9 @@ fn replay(
     let mut engine = entelechy_runtime::Engine::new(&model, &mut tools);
     engine.register_code("route_ticket", |v| Ok(v.data.clone()));
     engine.register_checker("reply_nonempty", |_| true);
-    match engine.replay(
-        program,
-        entelechy_ir::Value::trusted(serde_json::json!({})),
-        journal,
-    ) {
+    // Replay from the journal's recorded initial input (RK-2) so it reconstructs
+    // the real run, not an empty-object run.
+    match engine.replay(program, journal.input.clone(), journal) {
         Ok(_) => Ok(format!(
             "reproduced observable state deterministically ({} entries, no divergence)",
             journal.entries.len()

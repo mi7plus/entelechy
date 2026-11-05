@@ -119,6 +119,16 @@ pub struct Value {
     pub meta: ValueMeta,
 }
 
+impl Default for Value {
+    /// The conventional empty input: a trusted, empty JSON object (`{}`). This is
+    /// what a run with no explicit input starts from, and what an older recorded
+    /// journal (predating the recorded-input field, RK-2) deserializes its input
+    /// to, preserving the pre-WS4 `initial_input` semantics.
+    fn default() -> Self {
+        Value::trusted(serde_json::json!({}))
+    }
+}
+
 impl Value {
     /// A trusted value with default metadata.
     pub fn trusted(data: serde_json::Value) -> Self {

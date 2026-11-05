@@ -7,6 +7,7 @@
 //! outcome (PRD 8.6).
 
 use entelechy_gateway::{ModelRequest, ModelResponse};
+use entelechy_ir::Value;
 use serde::{Deserialize, Serialize};
 
 /// Commit status of a consequential effect (PRD 7.6). Only `Unknown` enters
@@ -23,7 +24,14 @@ pub use entelechy_effects::CommitStatus;
 /// `tests/golden_journal.rs`. It is a module constant rather than a serialized
 /// field, so the wire format itself is unchanged; a reader that must branch on
 /// the format compares against this value.
-pub const JOURNAL_FORMAT_VERSION: u32 = 1;
+///
+/// Version history:
+/// - `1`: the 1.0 freeze — `Journal { run_id, entries }`.
+/// - `2`: adds `Journal::input`, the recorded initial run input (RK-2), so a
+///   replay reconstructs from the real input rather than an empty object. The
+///   field is `#[serde(default)]`, so a version-1 journal still deserializes (its
+///   input defaults to `{}`, the pre-WS4 seed), keeping stored journals readable.
+pub const JOURNAL_FORMAT_VERSION: u32 = 2;
 
 /// One journaled event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -75,15 +83,25 @@ pub struct JournalEntry {
 pub struct Journal {
     /// Run identifier.
     pub run_id: String,
+    /// The recorded initial input the run was executed with (RK-2). Replay and
+    /// counterfactual reconstruction start from this value, not an empty object,
+    /// so the reproduced output is faithful and a tampered input is detectable.
+    /// `#[serde(default)]` keeps a version-1 journal (which lacks the field)
+    /// readable: its input defaults to `{}`, the pre-WS4 seed.
+    #[serde(default)]
+    pub input: Value,
     /// Ordered entries.
     pub entries: Vec<JournalEntry>,
 }
 
 impl Journal {
-    /// Create an empty journal for a run.
+    /// Create an empty journal for a run, with the default (`{}`) input. The
+    /// caller records the real initial input via [`Journal::input`] before
+    /// executing (see `Engine::execute`).
     pub fn new(run_id: impl Into<String>) -> Self {
         Self {
             run_id: run_id.into(),
+            input: Value::default(),
             entries: Vec::new(),
         }
     }
@@ -152,6 +170,11 @@ impl<'a> JournalReader<'a> {
 /// (PRD 8.4, RK-8).
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ReplayMismatch {
+    /// The input supplied to replay does not match the journal's recorded initial
+    /// input (RK-2). A faithful replay must start from the recorded input; a
+    /// different one cannot reproduce the run, so it is reported rather than run.
+    #[error("replay input does not match the recorded initial input")]
+    InputMismatch,
     /// The journal ran out of entries before the program finished.
     #[error("journal exhausted during replay")]
     Exhausted,

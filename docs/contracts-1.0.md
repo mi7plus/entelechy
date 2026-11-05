@@ -42,7 +42,7 @@ The machine-readable twin of this document is
 |---|---|---|---|---|---|
 | `entelechy.canonical-serialization` | `entelechy-artifacts` | `1` | `CANONICAL_SERIALIZATION_VERSION` | `tests/golden_format.rs` | AC-1, AC-2 |
 | `entelechy.design` | `entelechy-ir` | `0.1.0` | `DESIGN_SCHEMA_VERSION` | `Program` serde roundtrip + `validate` | AC-1, IR-I8 |
-| `entelechy.journal` | `entelechy-runtime` | `1` | `JOURNAL_FORMAT_VERSION` | `tests/golden_journal.rs` | RK-2, RS-1 |
+| `entelechy.journal` | `entelechy-runtime` | `2` | `JOURNAL_FORMAT_VERSION` | `tests/golden_journal.rs` | RK-2, RS-1 |
 | `entelechy.model-request` | `entelechy-gateway` | `1` | `NATIVE_REQUEST_SCHEMA_VERSION` | `golden_journal.rs` (captured identity) | PV-1 |
 | `entelechy.failure-ontology` | `entelechy-failure` | `1` | `ONTOLOGY_VERSION` | ontology tests | PRD 10.1, 22 |
 | `entelechy.protocol` | `entelechy-protocol` | `1.0` | `CURRENT_PROTOCOL_VERSION` | negotiation tests | PC-1, PC-2, PC-3 |
@@ -73,13 +73,23 @@ IR still gains nodes pre-maturity; additions are minor bumps guarded by
 
 ### `entelechy.journal` (PRD §5.2, §8.2, §8.4–8.6, RK-2)
 
-The append-only execution journal: `Journal { run_id, entries }`, `JournalEntry {
-seq, node_path, event }`, and the `JournalEvent` tag set (`model-call`,
-`tool-effect`, `policy-decision`). A recorded journal must stay replayable, so the
-field names, the `kind` tags and the entry structure are frozen within
-`JOURNAL_FORMAT_VERSION`. `golden_journal.rs` pins the exact canonical bytes of a
-deterministic run and asserts the version constant alongside it. The version is a
-module constant, not a serialized field, so the wire format is unchanged.
+The append-only execution journal: `Journal { run_id, input, entries }`,
+`JournalEntry { seq, node_path, event }`, and the `JournalEvent` tag set
+(`model-call`, `tool-effect`, `policy-decision`). A recorded journal must stay
+replayable, so the field names, the `kind` tags and the entry structure are frozen
+within `JOURNAL_FORMAT_VERSION`. `golden_journal.rs` pins the exact canonical bytes
+of a deterministic run and asserts the version constant alongside it. The version
+is a module constant, not a serialized field, so a reader that must branch on the
+format compares against it.
+
+**v2 (WP1/WS4, RK-2):** adds `Journal::input`, the recorded initial run input, so a
+replay or counterfactual reconstructs from the real input instead of an empty
+object (`outcome_output` previously re-ran from a hardcoded `{}`). The field is
+`#[serde(default)]`, so a v1 journal — which lacks it — still deserializes, with
+its input defaulting to `{}` (the pre-WS4 seed). `Engine::replay` verifies a
+supplied input against the recorded one and reports `ReplayMismatch::InputMismatch`
+on a tampered input; `Engine::counterfactual` takes no input and seeds from the
+recorded one.
 
 ### `entelechy.model-request` (PRD §5.10, PV-1)
 

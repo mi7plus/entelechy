@@ -1,0 +1,4 @@
+# The PDFs are ~58 MB of binary reference material. Keep the repo lean: track the
+# annotated index (README.md), not the papers themselves. Remove this file (or add
+# `!papers/*.pdf`) if you deliberately want the PDFs under version control / git-lfs.
+papers/*.pdf

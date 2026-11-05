@@ -14,6 +14,7 @@
 
 pub mod drill;
 pub mod maturity;
+pub mod rollout;
 pub mod slo;
 
 use std::collections::BTreeSet;
@@ -26,6 +27,11 @@ use entelechy_identity::{Approval, ApprovalBinding, ApprovalStatus, KeyRing, Tim
 
 pub use drill::{rollback_drill, RollbackDrillReport};
 pub use maturity::{LifecycleState, MaturityLevel};
+pub use rollout::{
+    drive_staged_promotion, rollout_drill, run_canary, run_shadow, shadow_eligibility,
+    CanaryConfig, CanaryReport, CanaryVerdict, RolloutDrillReport, RolloutObservation, RunOutcome,
+    ShadowConfig, ShadowDecision, ShadowEligibility, ShadowReport, StagedOutcome,
+};
 pub use slo::{
     release_health, slo_drill, Correctness, ErrorBudgetAccount, ReleaseHealth,
     ServiceLevelObjective, SloDefect, SloDrillReport, SloStatistic,

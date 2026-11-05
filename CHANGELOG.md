@@ -11,6 +11,66 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **WP1/WS4 — deterministic replay from the recorded run input (RK-2); journal
+  format bumped `1 → 2`.** Entelechy's "verifiable runtime constraints" claim
+  requires that a replay reconstruct the *real* run, but the journal never
+  persisted the initial input and `outcome_output` re-ran from a hardcoded `{}`, so
+  a node that reads the input produced a different recomputed output than the live
+  run and a stored journal could not be replayed faithfully. Fix:
+  - `Journal` gains a recorded `input: Value` field (`#[serde(default)]`), written
+    at the top of `Engine::execute`. `outcome_output` now seeds the output
+    recomputation from it instead of `{}`.
+  - `Engine::replay` reconstructs from the recorded input and verifies a supplied
+    one matches, reporting the new typed `ReplayMismatch::InputMismatch` on a
+    tampered input rather than silently replaying it.
+  - `Engine::counterfactual` no longer takes a separate input — it seeds the
+    pre-divergence span from the journal's recorded input, so a counterfactual
+    branches off the real recorded trajectory. The `entelechy counterfactual`
+    CLI drops its now-redundant `--input` flag; `entelechy replay` replays from the
+    journal's recorded input.
+  - **Journal format `1 → 2`** (`JOURNAL_FORMAT_VERSION`): the added field is the
+    only wire change and a version-1 journal still deserializes (its input defaults
+    to `{}`, the pre-WS4 seed), so stored journals stay readable. The frozen
+    `entelechy.journal` contract row, `entelechy_contracts::FROZEN_CONTRACTS`, the
+    `golden_journal.rs` byte fixture, and `docs/contracts-1.0.md` are updated
+    together. Three adversarial/regression probes pin the behavior
+    (`replay_uses_recorded_input_not_empty`, `journal_records_initial_input`,
+    `replay_detects_input_tampering`). No new dependencies; the TR-1 phase gate is
+    unchanged (correctness hardening, not a §17.6 registry requirement).
+- **Shadow/canary staged rollout — the operational machinery for the L3 and L4
+  maturity levels (PRD §14.2, §21.4 Phase-4 roadmap feature).** The maturity ladder
+  already named L3 (Shadow) and L4 (Canary), and `promote` gated the level
+  transitions abstractly, but there was no machinery for the two staged-rollout
+  levels between a safety-qualified candidate (L2) and production (L5). New module
+  `entelechy_release::rollout`:
+  - **Shadow (L3)** — `shadow_eligibility` enforces effect substitution: a design is
+    shadow-eligible only if every *consequential* (write/external/irreversible)
+    effect it uses declares `dry_run_supported`; a consequential effect with no
+    dry-run makes it ineligible (entering canary then needs a recorded override,
+    §14.2). `run_shadow` replays production inputs through the baseline and the
+    candidate, compares outcomes, and counts every candidate consequential effect as
+    *substituted* — the report has no path for a candidate effect to commit, which is
+    the structural statement of "production inputs observed without consequential
+    effects". It proceeds to canary only on sufficient samples, no new errors and
+    adequate agreement.
+  - **Canary (L4)** — `run_canary` routes a *bounded* fraction of traffic to the
+    candidate via the deterministic `entelechy_ops::sample_for_eval` (minimal
+    authority), measures the slice against an SLO `ErrorBudgetAccount`, detects drift
+    of the monitored metric against the baseline slice
+    (`entelechy_ops::detect_drift`), and combines those with the candidate's
+    `Correctness` verdict into a `CanaryVerdict` (promote / hold / rollback).
+    Correctness is weighed first (mirroring `release_health`), then budget/drift.
+  - **Feeds the real gate** — `drive_staged_promotion` turns a `Promote` verdict into
+    a real `promote(L4 → L5)` call (approvals, assurance, holdout and rollback
+    readiness still enforced, so a healthy canary never bypasses the gate — the same
+    principle as "a re-study never auto-promotes"), and a `Rollback` verdict into a
+    `DeploymentController` rollback under separated stop authority (§14.6).
+  - `rollout_drill()` composes shadow → canary → gate/deploy end to end and reports
+    nine invariants (deterministic), exposed as `entelechy drill --kind rollout`
+    (and under `--kind all`) with `--out` persistence. This is a roadmap *feature*,
+    not a §17.6 registry requirement, so it does not move the TR-1 phase gate.
+    `entelechy-release` now depends on `entelechy-ir` (effect metadata) and
+    `entelechy-ops` (sampling, drift); both edges are acyclic.
 - **Phase gate advanced to P5 — PC-3 (plugin-manifest compatibility) implemented,
   wired into the real loader, and recorded (PRD §16.6, §17.5, §17.6).** P5 is the
   only phase with a previously-unrecorded registry requirement, PC-3 ("plugin

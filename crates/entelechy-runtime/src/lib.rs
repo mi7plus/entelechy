@@ -305,6 +305,9 @@ impl<'a> Engine<'a> {
     /// Execute a program, journaling every external effect (RK-2).
     pub fn execute(&mut self, program: &Program, input: Value, run_id: &str) -> RunResult {
         let mut journal = Journal::new(run_id);
+        // Record the initial input so replay/counterfactual reconstruct from the
+        // real input rather than an empty object (RK-2).
+        journal.input = input.clone();
         let mut counters = Counters::default();
         let mut mode = Mode::Execute {
             journal: &mut journal,
@@ -331,12 +334,23 @@ impl<'a> Engine<'a> {
 
     /// Replay a program against a recorded journal (PRD 8.2). Returns the
     /// recomputed output, or a divergence point (RK-8).
+    ///
+    /// Replay reconstructs from the journal's recorded initial input (RK-2). The
+    /// supplied `input` is verified against it: a mismatch is reported as
+    /// [`ReplayMismatch::InputMismatch`] rather than run, since a faithful replay
+    /// must start from the recorded input (replaying a different input cannot
+    /// reproduce the run). A version-1 journal has no recorded input, so its input
+    /// defaults to `{}`; pass `{}` (or the journal's `input`) to replay it.
     pub fn replay(
         &mut self,
         program: &Program,
         input: Value,
         journal: &Journal,
     ) -> Result<Option<Value>, ReplayMismatch> {
+        if input != journal.input {
+            return Err(ReplayMismatch::InputMismatch);
+        }
+        // `input` is verified equal to the recorded input, so replay from it.
         let mut reader = JournalReader::new(journal);
         let mut divergence: Option<ReplayMismatch> = None;
         let mut mode = Mode::Replay {
@@ -358,10 +372,14 @@ impl<'a> Engine<'a> {
     /// output, then re-execute everything downstream live. Reports the divergence
     /// point and the rollout count (a single rollout is weak causal evidence — the
     /// failure analyzer treats it accordingly, PRD 10.2).
+    ///
+    /// The pre-divergence span is seeded from the journal's recorded initial input
+    /// (RK-2), so the counterfactual branches off the *real* recorded trajectory
+    /// rather than an empty object (a version-1 journal has no recorded input, so
+    /// it defaults to `{}`).
     pub fn counterfactual(
         &mut self,
         program: &Program,
-        input: Value,
         journal: &Journal,
         intervention_path: &str,
         intervention_value: Value,
@@ -379,7 +397,14 @@ impl<'a> Engine<'a> {
                 intervention_path,
                 intervention_value: &intervention_value,
             };
-            exec_node(self, &program.root, "root", input, &mut mode).ok()
+            exec_node(
+                self,
+                &program.root,
+                "root",
+                journal.input.clone(),
+                &mut mode,
+            )
+            .ok()
         };
         CounterfactualResult {
             divergence_point,
@@ -453,6 +478,351 @@ mod tests {
         assert_eq!(result.status, RunStatus::Succeeded, "{:?}", result.status);
         // One model call journaled.
         assert_eq!(result.journal.entries.len(), 1);
+    }
+
+    // ===== WP1 · WS1: Par/Map must not launder information-flow labels =====
+    //
+    // Each probe rides the live Execute path via a Verify checker over `v.meta`, so
+    // `run.status` reflects the real threaded input (independent of the separate
+    // WS4 "replay-from-{}" output-recomputation gap). Before WS1 every one of these
+    // ends in `Failed` because `Par` force-taints + drops confidentiality and `Map`
+    // relabels items/result `Trusted`.
+
+    #[test]
+    fn par_joins_input_and_child_labels_without_forcing_taint() {
+        // IR-I9 / PRD 7.5: a Par output carries the join of the input's and every
+        // child's labels — confidentiality is not dropped, and an all-trusted fan-out
+        // stays Trusted (no over-tainting).
+        use entelechy_ir::{
+            CodeNode, MemNode, MemOp, MemoryTier, Node, NodeKind, Program, VerifyNode,
+        };
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = Engine::new(&model, &mut tools);
+        e.register_code("echo", |v| Ok(v.data.clone()));
+        e.register_checker("par_ok", |v| {
+            v.meta.taint == Taint::Trusted
+                && v.meta.confidentiality.contains("pii")
+                && v.meta.confidentiality.contains("secret")
+        });
+
+        // A trusted memory entry carrying its own confidentiality label.
+        let mut secret = Value::trusted(serde_json::json!("ledger-row"));
+        secret.meta.confidentiality.insert("secret".into());
+        e.seed_memory(MemoryTier::Working, "s", secret);
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "fanout",
+                        NodeKind::Par(vec![
+                            Node::new(
+                                "read",
+                                NodeKind::Mem(MemNode {
+                                    op: MemOp::Read,
+                                    key: "s".into(),
+                                    tier: MemoryTier::Working,
+                                }),
+                            ),
+                            Node::new(
+                                "copy",
+                                NodeKind::Code(CodeNode {
+                                    function: "echo".into(),
+                                }),
+                            ),
+                        ]),
+                    ),
+                    Node::new(
+                        "check",
+                        NodeKind::Verify(VerifyNode {
+                            checker: "par_ok".into(),
+                        }),
+                    ),
+                ]),
+            ),
+        );
+
+        let mut input = Value::trusted(serde_json::json!({ "x": 1 }));
+        input.meta.confidentiality.insert("pii".into());
+        let run = e.execute(&prog, input, "run-par");
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+    }
+
+    #[test]
+    fn map_item_inherits_collection_taint() {
+        // IR-I9: a mapped element is no more trusted than its collection. Before WS1,
+        // `Map` wrapped items `Value::trusted`, so a tainted-item check failed.
+        use entelechy_ir::{Node, NodeKind, Program, VerifyNode};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = Engine::new(&model, &mut tools);
+        e.register_checker("item_is_tainted", |v| v.meta.taint == Taint::Tainted);
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "root",
+                NodeKind::Map {
+                    over: "items".into(),
+                    body: Box::new(Node::new(
+                        "check",
+                        NodeKind::Verify(VerifyNode {
+                            checker: "item_is_tainted".into(),
+                        }),
+                    )),
+                },
+            ),
+        );
+
+        let input = Value::tainted(serde_json::json!({ "items": [{ "v": 1 }, { "v": 2 }] }));
+        let run = e.execute(&prog, input, "run-map-item");
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+    }
+
+    #[test]
+    fn map_result_preserves_collection_taint() {
+        // IR-I9: the Map result joins the collection's labels; it is not relabeled
+        // Trusted (the laundering that WS1 removes).
+        use entelechy_ir::{CodeNode, Node, NodeKind, Program, VerifyNode};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = Engine::new(&model, &mut tools);
+        e.register_code("echo", |v| Ok(v.data.clone()));
+        e.register_checker("result_tainted", |v| v.meta.taint == Taint::Tainted);
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "map",
+                        NodeKind::Map {
+                            over: "items".into(),
+                            body: Box::new(Node::new(
+                                "copy",
+                                NodeKind::Code(CodeNode {
+                                    function: "echo".into(),
+                                }),
+                            )),
+                        },
+                    ),
+                    Node::new(
+                        "check",
+                        NodeKind::Verify(VerifyNode {
+                            checker: "result_tainted".into(),
+                        }),
+                    ),
+                ]),
+            ),
+        );
+
+        let input = Value::tainted(serde_json::json!({ "items": [1, 2] }));
+        let run = e.execute(&prog, input, "run-map-res");
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+    }
+
+    #[test]
+    fn map_cannot_launder_taint_past_a_policy_gate() {
+        // Adversarial (IR-I3 + IR-I9): mapping a tainted collection and feeding the
+        // result to a consequential Tool must be denied exactly as the raw tainted
+        // value would be. Before WS1, Map laundered it to Trusted and the egress was
+        // wrongly authorized. A trusted collection is the positive control (guards
+        // against over-tainting).
+        use entelechy_ir::{
+            AttestationLevel, CodeNode, EffectClass, EffectMetadata, Node, NodeKind, Program,
+            ToolNode,
+        };
+        use entelechy_policy::{NativePolicy, PolicySnapshot};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        tools.register("publish", |_| Ok(serde_json::json!({ "published": true })));
+
+        let mut authority = AuthorityEnvelope::empty();
+        authority.capabilities.insert("publish".into()); // granted…
+        let mut catalog = HashMap::new();
+        catalog.insert(
+            "publish".to_string(),
+            EffectMetadata {
+                class: EffectClass::Write, // …but consequential, with no approval obligation
+                idempotent: false,
+                reversible: true,
+                dry_run_supported: false,
+                read_back_supported: false,
+                attestation: AttestationLevel::OperatorAttested,
+                operation_key_namespace: "pub".into(),
+            },
+        );
+
+        let mut e = Engine::new(&model, &mut tools).with_policy(PolicyConfig {
+            engine: Box::new(NativePolicy::new()),
+            authority: authority.clone(),
+            snapshot: PolicySnapshot::default(),
+            catalog,
+            principal: "runtime".into(),
+        });
+        e.register_code("echo", |v| Ok(v.data.clone()));
+
+        let prog = Program::new(
+            authority,
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "fanout",
+                        NodeKind::Map {
+                            over: "items".into(),
+                            body: Box::new(Node::new(
+                                "copy",
+                                NodeKind::Code(CodeNode {
+                                    function: "echo".into(),
+                                }),
+                            )),
+                        },
+                    ),
+                    Node::new(
+                        "send",
+                        NodeKind::Tool(ToolNode {
+                            capability: "publish".into(),
+                            args: serde_json::Value::Null,
+                        }),
+                    ),
+                ]),
+            ),
+        );
+
+        // Positive control: a trusted collection may publish (capability is granted).
+        let ok = e.execute(
+            &prog,
+            Value::trusted(serde_json::json!({ "items": [1] })),
+            "run-ok",
+        );
+        assert_eq!(
+            ok.status,
+            RunStatus::Succeeded,
+            "trusted must pass: {:?}",
+            ok.status
+        );
+
+        // The attack: a tainted collection must be denied at the egress — Map must
+        // not launder it to Trusted.
+        let denied = e.execute(
+            &prog,
+            Value::tainted(serde_json::json!({ "items": [1] })),
+            "run-attack",
+        );
+        assert!(
+            matches!(
+                denied.status,
+                RunStatus::Failed {
+                    reason: FailureReason::PolicyDenied(_),
+                    ..
+                }
+            ),
+            "tainted must be denied at egress, got {:?}",
+            denied.status
+        );
+        assert!(denied.output.is_none());
+    }
+
+    // ===== WP1 · WS4: replay/outcome reconstruct from the recorded input =====
+    //
+    // Before WS4 the journal never persisted the run input and `outcome_output`
+    // re-ran from a hardcoded `{}` (RK-2 broken): a node that reads the input
+    // produced a different recomputed output than the live run, and a replay could
+    // not reconstruct the real trajectory. These probes pin the fix.
+
+    #[test]
+    fn replay_uses_recorded_input_not_empty() {
+        // A root Code node reads `n` from the run input. The successful run's
+        // `output` is recomputed by `outcome_output`, which before WS4 seeded `{}`
+        // (→ `n` missing → doubled 0). With the recorded input it reproduces the
+        // real value, and an explicit replay reproduces it too.
+        use entelechy_ir::{CodeNode, Node, NodeKind, Program};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = Engine::new(&model, &mut tools);
+        e.register_code("double", |v| {
+            let n = v.data.get("n").and_then(|n| n.as_i64()).unwrap_or(0);
+            Ok(serde_json::json!({ "doubled": n * 2 }))
+        });
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "calc",
+                NodeKind::Code(CodeNode {
+                    function: "double".into(),
+                }),
+            ),
+        );
+
+        let input = Value::trusted(serde_json::json!({ "n": 21 }));
+        let run = e.execute(&prog, input.clone(), "run-ws4");
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+        // The recomputed output reflects the real input, not an empty object.
+        assert_eq!(
+            run.output.as_ref().expect("output").data,
+            serde_json::json!({ "doubled": 42 }),
+            "outcome_output must seed the recorded input, got {:?}",
+            run.output
+        );
+
+        // An explicit replay with the recorded input reproduces the same output.
+        let replayed = e
+            .replay(&prog, input, &run.journal)
+            .expect("replay must not diverge")
+            .expect("replayed output");
+        assert_eq!(replayed.data, serde_json::json!({ "doubled": 42 }));
+    }
+
+    #[test]
+    fn journal_records_initial_input() {
+        // RK-2: the run input is persisted on the journal (so a stored journal can
+        // be replayed from the real input, not an empty object).
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = engine(&model, &mut tools);
+        let input = Value::trusted(serde_json::json!({ "ticket": "help", "n": 7 }));
+        let run = e.execute(&demo_program(), input.clone(), "run-rec");
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+        assert_eq!(
+            run.journal.input, input,
+            "journal must record the run input"
+        );
+    }
+
+    #[test]
+    fn replay_detects_input_tampering() {
+        // RK-2: replaying a journal with an input other than the recorded one is a
+        // typed mismatch — a faithful replay must start from the recorded input.
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        let mut e = engine(&model, &mut tools);
+        let run = e.execute(
+            &demo_program(),
+            Value::trusted(serde_json::json!({ "n": 1 })),
+            "run-tamper",
+        );
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+
+        let tampered = e.replay(
+            &demo_program(),
+            Value::trusted(serde_json::json!({ "n": 999 })),
+            &run.journal,
+        );
+        assert!(
+            matches!(tampered, Err(ReplayMismatch::InputMismatch)),
+            "tampered input must be rejected, got {tampered:?}"
+        );
     }
 
     #[test]
@@ -771,9 +1141,9 @@ mod tests {
         assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
 
         // Counterfactual: what if `classify` had produced a non-refund ticket?
+        // The pre-divergence span is seeded from the journal's recorded input.
         let cf = e.counterfactual(
             &prog,
-            Value::trusted(serde_json::json!({})),
             &run.journal,
             "root/0:classify",
             Value::tainted(serde_json::json!({ "text": "hello" })),

@@ -801,6 +801,8 @@ dependencies = [
  "entelechy-artifacts",
  "entelechy-assurance",
  "entelechy-identity",
+ "entelechy-ir",
+ "entelechy-ops",
  "serde",
  "serde_json",
  "thiserror",

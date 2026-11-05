@@ -21,7 +21,9 @@ use entelechy_runtime::{Engine, RunStatus, JOURNAL_FORMAT_VERSION};
 fn journal_format_version_is_pinned() {
     // Pinned next to the byte fixture so a format change and the version bump it
     // requires are reviewed together (the 1.0 freeze — docs/contracts-1.0.md).
-    assert_eq!(JOURNAL_FORMAT_VERSION, 1);
+    // v2 (WP1/WS4): added the recorded `input` field (RK-2); older v1 journals
+    // still deserialize via `#[serde(default)]`.
+    assert_eq!(JOURNAL_FORMAT_VERSION, 2);
 }
 
 fn single_llm_program() -> Program {
@@ -54,6 +56,6 @@ fn journal_wire_format_is_stable() {
     let text = String::from_utf8(bytes).unwrap();
     assert_eq!(
         text,
-        r#"{"entries":[{"event":{"kind":"model-call","request":{"model":"mock","prompt":"answer: {\"q\":1}","temperature":0.0},"response":{"identity":{"advertised_model":"mock","endpoint":"in-process","provider":"mock","request_schema_version":"1","revision":"mock-r1","sampling":{"temperature":0.0}},"text":"mock:7f73d3e79aee74b2"}},"node_path":"root","seq":0}],"run_id":"golden-run"}"#
+        r#"{"entries":[{"event":{"kind":"model-call","request":{"model":"mock","prompt":"answer: {\"q\":1}","temperature":0.0},"response":{"identity":{"advertised_model":"mock","endpoint":"in-process","provider":"mock","request_schema_version":"1","revision":"mock-r1","sampling":{"temperature":0.0}},"text":"mock:7f73d3e79aee74b2"}},"node_path":"root","seq":0}],"input":{"data":{"q":1},"meta":{"confidence":null,"confidentiality":[],"producer":null,"provenance":[],"taint":"trusted","verification":"unverified"}},"run_id":"golden-run"}"#
     );
 }

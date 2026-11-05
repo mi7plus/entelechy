@@ -268,6 +268,32 @@ fn counterfactual_reexecutes_downstream_live() {
 }
 
 #[test]
+fn drill_rollout_runs_and_persists_a_report() {
+    let dir = std::env::temp_dir().join(format!("entelechy-rollout-{}", std::process::id()));
+    let dir_s = dir.to_string_lossy().into_owned();
+    let (ok, out) = run(&["drill", "--kind", "rollout", "--out", &dir_s]);
+    assert!(ok, "rollout drill failed: {out}");
+    // The staged-rollout invariants held.
+    assert!(
+        out.contains("staged rollout SATISFIED"),
+        "expected a satisfied staged rollout: {out}"
+    );
+    // Shadow and canary sections are reported.
+    assert!(out.contains("Shadow stage"), "no shadow section: {out}");
+    assert!(out.contains("Canary stage"), "no canary section: {out}");
+    // The report was persisted and records every invariant as true.
+    let report = dir.join("rollout-report.json");
+    assert!(report.exists(), "rollout-report.json not written");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report).unwrap()).unwrap();
+    assert_eq!(parsed["ok"], serde_json::Value::Bool(true));
+    assert_eq!(parsed["shadow_commits_no_candidate_effects"], true);
+    assert_eq!(parsed["healthy_canary_still_gated"], true);
+    assert_eq!(parsed["regressing_canary_rolls_back"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn unknown_command_fails() {
     let (ok, _out) = run(&["definitely-not-a-command"]);
     assert!(!ok, "unknown command should exit non-zero");

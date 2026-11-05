@@ -55,6 +55,9 @@ pub(crate) enum Mode<'m, 'j> {
 /// Recompute the final output on the successful path. In this functional-pipeline
 /// slice the output is simply the value threaded to completion, so we re-run in
 /// replay mode against the just-written journal to obtain it deterministically.
+/// The replay is seeded from the journal's recorded initial input (RK-2), so a
+/// node that reads the input reproduces the real threaded output rather than the
+/// output of an empty `{}` run.
 pub(crate) fn outcome_output(
     engine: &mut Engine,
     program: &Program,
@@ -68,14 +71,16 @@ pub(crate) fn outcome_output(
         reader: &mut reader,
         divergence: &mut divergence,
     };
-    match exec_node(engine, &program.root, "root", initial_input(), &mut mode) {
+    match exec_node(
+        engine,
+        &program.root,
+        "root",
+        journal.input.clone(),
+        &mut mode,
+    ) {
         Ok(v) if divergence.is_none() => Some(v),
         _ => None,
     }
-}
-
-pub(crate) fn initial_input() -> Value {
-    Value::trusted(serde_json::json!({}))
 }
 
 /// Build a tainted egress output that inherits the input's confidentiality labels
@@ -123,14 +128,22 @@ pub(crate) fn exec_node(
         }
         NodeKind::Par(children) => {
             // Deterministic sequential evaluation in this slice; results collected
-            // as an array (recorded order == index order, RK-7).
-            let mut out = Vec::new();
+            // as an array (recorded order == index order, RK-7). The array inherits
+            // the join of the input's and every child's labels, so a Par never
+            // launders confidentiality and never over-taints a fully-trusted fan-out
+            // (IR-I9 / PRD 7.5 — same join Retrieval uses).
+            let mut out = Vec::with_capacity(children.len());
+            let mut meta = value.meta.clone();
             for (i, child) in children.iter().enumerate() {
                 let child_path = format!("{path}/{i}:{}", child.id);
                 let r = exec_node(engine, child, &child_path, value.clone(), mode)?;
+                meta = meta.join(&r.meta);
                 out.push(r.data);
             }
-            Ok(Value::tainted(serde_json::Value::Array(out)))
+            Ok(Value {
+                data: serde_json::Value::Array(out),
+                meta,
+            })
         }
         NodeKind::Branch { cond, then, els } => {
             let take_then = eval_condition(cond, &value);
@@ -161,13 +174,27 @@ pub(crate) fn exec_node(
             let items = get_path(&value.data, over)
                 .and_then(|v| v.as_array().cloned())
                 .unwrap_or_default();
-            let mut out = Vec::new();
+            // Each element is no more trusted than the collection it came from, so it
+            // inherits the collection's labels; the result joins the collection and
+            // every body output. A Map therefore never launders taint/confidentiality
+            // (IR-I9 / PRD 7.5), matching the static model, which also threads taint
+            // through the Map body (entelechy_ir invariants).
+            let mut out = Vec::with_capacity(items.len());
+            let mut meta = value.meta.clone();
             for (i, item) in items.into_iter().enumerate() {
                 let child_path = format!("{path}/map{i}:{}", body.id);
-                let r = exec_node(engine, body, &child_path, Value::trusted(item), mode)?;
+                let item_value = Value {
+                    data: item,
+                    meta: value.meta.clone(),
+                };
+                let r = exec_node(engine, body, &child_path, item_value, mode)?;
+                meta = meta.join(&r.meta);
                 out.push(r.data);
             }
-            Ok(Value::trusted(serde_json::Value::Array(out)))
+            Ok(Value {
+                data: serde_json::Value::Array(out),
+                meta,
+            })
         }
         NodeKind::Delegate { body, .. } => {
             // Authority narrowing is verified statically (IR-I6). Execute the body.
