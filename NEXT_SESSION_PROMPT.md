@@ -8,37 +8,29 @@ are the exception — see CLAUDE.md).
 > The through-line has been **runtime-correctness hardening (WP1)** — making
 > Entelechy's differentiator ("architecture discovery under *verifiable* runtime
 > constraints") actually true. Plan: [`docs/wp1-correctness-gate.md`](docs/wp1-correctness-gate.md).
-> **WP1 is now COMPLETE and green** — all five workstreams plus the acceptance drill
-> landed: WS1 ✅ → WS4 ✅ → WS3 ✅ → WS2 ✅ → WS5 ✅, drill ✅.
+> **WP1 is COMPLETE, green, and committed** (`3316c2f`, pushed to `main`) — all five
+> workstreams plus the acceptance drill: WS1 ✅ → WS4 ✅ → WS3 ✅ → WS2 ✅ → WS5 ✅, drill ✅.
 
-## START HERE — the WP1 unit is done and green, awaiting the user's commit decision
+## START HERE — WP1 is complete, committed, and pushed; pick the next unit
 
-The working tree holds the **entire remaining WP1 unit** (WS2 + WS3 + WS5 + the
-enforcement drill + docs), fully implemented, validated, and **uncommitted**. WS1 +
-WS4 were already committed as `d0703df`.
+WP1 is **done**. The entire gate (WS1–WS5 + the enforcement drill) is committed and
+pushed to `main`: WS1 + WS4 landed in `d0703df`; the remainder (WS2 + WS3 + WS5 +
+drill + docs) landed in **`3316c2f`** (this session, 2026-11-06, verified on the
+remote). The working tree is clean.
 
-1. **Decision needed (do not guess): commit the WP1 remainder?** Recommend **yes** —
-   it is green, self-contained, and completes the WP1 gate. Suggested scope / PRD IDs
-   for the message(s): WS2 (**A2 / IR-I6, PRD §5.4**), WS3 (**PRD §8.3, §10.2 / RK-8**),
-   WS5 (**PRD §7.6, §8.5**), and the acceptance drill (**PRD §8, §5.4, §7.5, §8.5**).
-   Can be one "WP1 complete" commit or split per workstream — the user's call. Push is
-   over SSH (`gh` unauthenticated). **Run `git status` + the 0-byte check first.**
-2. **Re-confirm green if desired** (`-j 2`, resource policy MEDIUM). Last run
-   (2026-11-06) was fully clean:
-   - `cargo fmt --all --check` — clean
-   - `cargo clippy --workspace --all-targets -j 2 -- -D warnings` (+ gateway
-     `-p entelechy-gateway --features wasm,openai-tls`) — clean
-   - `cargo test --workspace -j 2` — **~386 passed, 0 failed** (runtime **35** unit +
-     **2** golden + **8** `wp1_enforcement`)
-   - `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` — clean
-   - `cargo run -p entelechy-cli -- requirements --check` — **PASS at P5**
-   - `cargo run -p entelechy-cli -- drill --kind all` — every drill **SATISFIED**,
-     incl. the WP1 WS1–WS5 enforcement drill
-   - **No new deps** (no `Cargo.toml` change).
+**Nothing is pending on WP1.** Next session: pick the next unit **with the user** from
+**"After WP1 — candidate next units"** below — nothing there is started.
 
-## Uncommitted working tree (all green, gated on the user)
+Last full gate (2026-11-06, pre-commit) was fully clean (`-j 2`, resource policy
+MEDIUM): `cargo fmt --all --check`; `cargo clippy --workspace --all-targets` (+ gateway
+`-p entelechy-gateway --features wasm,openai-tls`); `cargo test --workspace` — **~386
+passed, 0 failed** (runtime **35** unit + **2** golden + **8** `wp1_enforcement`);
+`RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`; `requirements --check`
+**PASS at P5**; `drill --kind all` every drill **SATISFIED**; **no new deps**.
 
-`git status` — 6 modified + 2 new:
+## What landed in `3316c2f` — the WP1 remainder
+
+The commit `3316c2f` (8 files, +1784/−177) covers 6 modified + 2 new:
 
 - `crates/entelechy-runtime/src/exec.rs`
   - **WS2:** `Delegate { authority, body }` arm — halts (`FailureReason::AuthorityDenied`)
@@ -90,10 +82,10 @@ WS4 were already committed as `d0703df`.
 |----|-----|--------|
 | WS1 | `Par`/`Map` launder IFC labels | ✅ committed `d0703df` |
 | WS4 | replay reconstructed from `{}` (journal didn't persist input) | ✅ committed `d0703df` |
-| WS3 | counterfactual skipped policy + budget (the `diverged` branch) | ✅ green, uncommitted |
-| WS2 | `Delegate` didn't narrow authority at runtime; runtime ignored `program.authority` | ✅ green, uncommitted |
-| WS5 | tool journaled *after* the effect | ✅ green, uncommitted |
-| gate | `drill --kind enforcement` + full red-team suite + full gate | ✅ green, uncommitted |
+| WS3 | counterfactual skipped policy + budget (the `diverged` branch) | ✅ committed `3316c2f` |
+| WS2 | `Delegate` didn't narrow authority at runtime; runtime ignored `program.authority` | ✅ committed `3316c2f` |
+| WS5 | tool journaled *after* the effect | ✅ committed `3316c2f` |
+| gate | `drill --kind enforcement` + full red-team suite + full gate | ✅ committed `3316c2f` |
 
 "WP1 green" acceptance (all met): the SEC/EFF/REP red-team suite passes incl. every
 adversarial case; `entelechy drill --kind enforcement` reports all invariants SATISFIED;
@@ -119,7 +111,6 @@ items plus the P5-target research track. Pick with the user:
 
 ## Open decisions for the user (ask, don't guess)
 
-- **Commit the WP1 remainder?** — recommend yes (see START HERE for scope + PRD IDs).
 - **Research the Romanian grant specifics** (PoCIDIF deadlines/eligibility) in the
   browser? (The user flagged these need MySMIS/MIPE confirmation.)
 - A **one-page scientific framing** (the C2+C3 reframing) — offered, not yet done.
@@ -143,6 +134,9 @@ write-ahead intent first.
 
 ## Prior units (committed + pushed)
 
+- **WP1 remainder — WS2 authority + WS3 parity + WS5 write-ahead + enforcement drill**
+  — commit `3316c2f` (this session, 2026-11-06). Completes the WP1 gate; the full
+  acceptance gate was green pre-commit and the push is verified on the remote.
 - **WP1 WS1 + WS4 + shadow/canary rollout + WP1/SOTA docs** — commit `d0703df`
   (WS1's IFC fix, WS4's recorded-input replay + journal v2, and the Phase-4 shadow/canary
   rollout machinery landed atomically — diffs interleaved across
