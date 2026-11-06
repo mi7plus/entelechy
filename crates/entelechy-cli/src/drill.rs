@@ -63,6 +63,12 @@
 //!   while the same program run normally dispatches once, and shadow still enforces
 //!   the authority gate — effect substitution is enforced by the engine, not trusted
 //!   from a capability's `dry_run_supported` metadata.
+//! - **shadow-governance** (PRD §14.2 L3): the bridge from the WP2 runtime shadow to
+//!   the governance staged-rollout shadow stage. Drives candidates through
+//!   [`Engine::shadow`](entelechy_runtime::Engine::shadow), asserts
+//!   `committed_no_effects()`, and feeds the *measured* substitution evidence into
+//!   [`run_shadow`](entelechy_release::run_shadow) — so the governance decision rests
+//!   on what the runtime provably did, not on trusted `dry_run_supported` metadata.
 //!
 //! `--out <dir>` persists each drill's artifacts into that directory so the
 //! verification record is auditable.
@@ -83,6 +89,8 @@ use entelechy_release::{
 use entelechy_runtime::{
     enforcement_drill, shadow_drill, EnforcementDrillReport, ShadowDrillReport,
 };
+
+use crate::shadow_governance::{shadow_governance_report, ShadowGovernanceReport};
 
 /// Which disaster-recovery drill(s) to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -108,6 +116,10 @@ pub enum DrillKind {
     /// substitution: shadow commits no consequential effect, enforced by the engine
     /// rather than trusted from capability metadata.
     Shadow,
+    /// The shadow→governance bridge drill (PRD §14.2 L3) — the governance
+    /// staged-rollout shadow stage decides on runtime-enforced substitution evidence
+    /// (`Engine::shadow` + `committed_no_effects()`), not trusted metadata.
+    ShadowGovernance,
     /// Every drill.
     All,
 }
@@ -165,6 +177,12 @@ pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     }
     if matches!(kind, DrillKind::Shadow | DrillKind::All) {
         run_shadow_enforcement(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::ShadowGovernance | DrillKind::All) {
+        run_shadow_governance(out)?;
     }
     Ok(())
 }
@@ -769,6 +787,58 @@ fn run_shadow_enforcement(out: Option<&str>) -> anyhow::Result<()> {
     if let Some(dir) = out {
         std::fs::create_dir_all(dir)?;
         let report_path = std::path::Path::new(dir).join("shadow-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
+/// Run the shadow→governance bridge drill (PRD §14.2 L3). With `out`, persists the
+/// report.
+fn run_shadow_governance(out: Option<&str>) -> anyhow::Result<()> {
+    let report: ShadowGovernanceReport = shadow_governance_report();
+
+    println!(
+        "Shadow→governance bridge drill (PRD §14.2 L3) — the governance staged-rollout \
+         shadow stage decides on runtime-enforced substitution evidence, not trusted metadata.\n\
+         (A Phase-4 roadmap feature, not a §17.6 registry requirement — it does not move the TR-1 gate.)"
+    );
+    println!("Runtime shadow feeds the governance shadow stage (L3):");
+    println!(
+        "  runtime shadow commits nothing:   {} (every candidate input driven through Engine::shadow proved committed_no_effects(); zero journaled ToolEffects)",
+        yes_no(report.runtime_shadow_commits_nothing)
+    );
+    println!(
+        "  execute commits the effect:       {} (the same program via Engine::execute does commit — the substitution is doing real work)",
+        yes_no(report.execute_commits_the_effect)
+    );
+    println!(
+        "  substitution count is measured:   {} (run_shadow's candidate_effects_substituted equals what the runtime actually intercepted, not a supplied constant)",
+        yes_no(report.substitution_count_is_runtime_measured)
+    );
+    println!(
+        "  governance proceeds on parity:    {} (matching runtime effect signatures clear the candidate for canary)",
+        yes_no(report.governance_proceeds_on_parity)
+    );
+    println!(
+        "  governance holds on divergence:   {} (a candidate whose shadowed effects differ from the baseline is held — and still commits nothing in shadow)",
+        yes_no(report.governance_holds_on_divergence)
+    );
+    println!(
+        "\n  => shadow→governance bridge {}.",
+        if report.ok {
+            "SATISFIED — the governance shadow stage rests on runtime-proven effect substitution (Engine::shadow + committed_no_effects()), not on a capability's declared dry-run metadata"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("shadow→governance bridge drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("shadow-governance-report.json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
         println!("\nPersisted: {}.", report_path.display());
     }

@@ -11,6 +11,40 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **WP2 follow-on — the governance shadow stage now consumes runtime-enforced
+  substitution evidence (PRD §14.2 L3).** The staged-rollout shadow stage
+  (`entelechy_release::run_shadow`) decides whether a candidate may proceed to canary
+  from `RolloutObservation`s whose per-run consequential-effect counts were *supplied
+  by the caller* — the governance layer trusted the harness (and each capability's
+  `dry_run_supported` metadata) to have actually substituted the effects (see the
+  hand-authored `RunOutcome::ok(..).with_effects(1)` in `rollout_drill`). WP2 made
+  substitution a runtime guarantee (`Engine::shadow`), but the governance layer was
+  not rewired to consume it (the scope boundary noted in the WP2 entry). This bridges
+  the two. A new CLI module (`entelechy-cli::shadow_governance`) drives each
+  production input through `Engine::shadow`, **asserts `committed_no_effects()`** and
+  a zero `ToolEffect` count on the result, and builds the governance observation from
+  the *measured* substitution evidence: `candidate.consequential_effects` is
+  `ShadowResult::substituted.len()`, and the candidate's comparison token is the
+  substitution-invariant effect signature it would dispatch — the ordered
+  `(capability, request_hash)` list, which is computed from the node (mode-independent,
+  verified in `exec.rs`), so it is directly comparable to the baseline's committed
+  signature from a real `Engine::execute`. It then feeds the observations into the
+  unchanged `run_shadow`. The governance decision therefore rests on what the runtime
+  provably did — intercepted N effects and committed none — not on a capability's
+  declared dry-run metadata. Exposed as `entelechy drill --kind shadow-governance`
+  (and under `--kind all`), with `--out` persisting `shadow-governance-report.json`.
+  The drill proves five invariants: every shadowed candidate commits nothing
+  (`committed_no_effects()`); the same program via `execute` *does* commit (the
+  before/after contrast); `run_shadow`'s `candidate_effects_substituted` equals the
+  runtime-measured interception count (not a supplied constant); matching effect
+  signatures clear the candidate for canary (`Proceed`); and a candidate whose
+  shadowed effects diverge from the baseline is held (while still committing nothing
+  in shadow). Kept the governance layer domain- and runtime-agnostic — the wiring
+  lives in the CLI (as the ops/online loop wiring does), so `entelechy-release` gains
+  no dependency on `entelechy-runtime`. No new dependencies; the journal is unchanged;
+  the TR-1 phase gate is unchanged (a Phase-4 roadmap feature, not a §17.6 registry
+  requirement). Three new tests in the bridge module (every-invariant, determinism,
+  and the signature-match invariant the parity check rests on).
 - **WP2 — shadow write-interception as a runtime enforcement guarantee (PRD §14.2
   L3).** Shadow (L3 — "production inputs observed without consequential effects") was
   only a release-layer accounting property: `entelechy_release::run_shadow` *counted*

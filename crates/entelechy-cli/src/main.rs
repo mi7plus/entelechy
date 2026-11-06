@@ -12,6 +12,7 @@ mod ops;
 mod quickstart;
 mod release;
 mod restudy;
+mod shadow_governance;
 mod study;
 
 use clap::{Parser, Subcommand};
