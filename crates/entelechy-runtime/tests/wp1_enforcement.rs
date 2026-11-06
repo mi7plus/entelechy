@@ -469,3 +469,71 @@ fn tool_intent_resolves_to_committed_on_acknowledgement() {
         .expect("replay must not diverge");
     assert!(replayed.is_some());
 }
+
+// --- Tool-effect failure taxonomy (PRD 8.5/8.6) ------------------------------
+//
+// A *failed* tool call splits by whether a side effect could remain. A definitive
+// rejection that committed nothing fails cleanly (`Failed` + `ToolError`, no
+// dangling intent); only a lost/indeterminate acknowledgement forces
+// `ReconciliationRequired`. The two WS5 tests above (`charge_card`/`send_payment`
+// via plain `register`, whose `Err` is `Indeterminate`) remain the reconciliation
+// regression guard; these two cover the clean-failure side.
+
+/// TAXONOMY · REP. An unregistered capability is an `UnknownCapability` error, which
+/// committed nothing: the run fails cleanly with a `ToolError` and leaves *no*
+/// dangling intent — it must not be mistaken for a lost acknowledgement that forces
+/// reconciliation. (The authority grants the capability, so dispatch is reached.)
+#[test]
+fn unknown_capability_fails_cleanly_not_reconciliation() {
+    let model = MockModel::new();
+    let mut tools = NativeToolGateway::new(); // `missing_tool` is never registered
+
+    let prog = Program::new(auth(&["missing_tool"]), tool("x", "missing_tool"));
+    let mut e = Engine::new(&model, &mut tools);
+    let run = e.execute(&prog, Value::trusted(serde_json::json!({})), "unknown-cap");
+
+    match &run.status {
+        RunStatus::Failed {
+            reason: FailureReason::ToolError(_),
+            ..
+        } => {}
+        other => panic!("expected a clean ToolError failure, got {other:?}"),
+    }
+    assert!(
+        !run.journal.has_unknown_commit(),
+        "a call that committed nothing leaves no intent to reconcile"
+    );
+    assert!(run.output.is_none(), "a failed run yields no output");
+}
+
+/// TAXONOMY · REP. A *guarded* tool validates the call and refuses it before any
+/// side effect, so its `Err` is a definitive rejection (`NoEffect`): the run fails
+/// cleanly, dropping the speculative write-ahead intent rather than leaving it
+/// dangling for reconciliation.
+#[test]
+fn guarded_rejection_fails_cleanly() {
+    let model = MockModel::new();
+    let mut tools = NativeToolGateway::new();
+    tools.register_guarded("validate_amount", |_| Err("amount out of range".into()));
+
+    let prog = Program::new(auth(&["validate_amount"]), tool("check", "validate_amount"));
+    let mut e = Engine::new(&model, &mut tools);
+    let run = e.execute(
+        &prog,
+        Value::trusted(serde_json::json!({})),
+        "guarded-reject",
+    );
+
+    match &run.status {
+        RunStatus::Failed {
+            reason: FailureReason::ToolError(_),
+            ..
+        } => {}
+        other => panic!("expected a clean ToolError failure, got {other:?}"),
+    }
+    assert!(
+        !run.journal.has_unknown_commit(),
+        "a guarded rejection commits nothing, so no intent dangles"
+    );
+    assert!(run.output.is_none());
+}

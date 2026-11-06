@@ -11,6 +11,29 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Tool-effect failure taxonomy — distinguish a clean rejection from a lost
+  acknowledgement (PRD 8.5/8.6; Q10 parity).** A *failed* consequential tool call now
+  splits by whether a side effect could remain, instead of always forcing
+  reconciliation. `entelechy-gateway` gains `EffectOutcome { NoEffect, Indeterminate }`
+  and a `ToolError::Rejected` variant; `ToolError::effect_outcome()` classifies
+  `UnknownCapability`/`Rejected` as `NoEffect` and `Failed` as `Indeterminate` (the
+  conservative default — an app-level error may follow a partial effect).
+  `NativeToolGateway` entries carry a *guarded* flag: `register_guarded` marks a tool
+  that validates and may refuse the call *before* any side effect, so its `Err` is a
+  definitive `Rejected`; plain `register` is unchanged (`Failed`).
+  - **Interpreter** (`exec.rs`, `Execute` `Tool` arm): a `NoEffect` failure truncates
+    the speculative write-ahead intent (nothing committed, nothing to reconcile) and
+    halts `Failed { ToolError }`; an `Indeterminate` failure leaves the dangling
+    `Unknown` intent and halts `ReconciliationRequired` — unchanged for the plain-tool
+    path, so the existing WS5 reconciliation probes still hold.
+  - **Codegen** (`codegen.rs`, `CompiledStep::Tool`): mirrors the split for Q10
+    `observable_equivalent` parity (the compiled backend journals no intent, so there
+    is nothing to truncate).
+  - Non-frozen contract change (`ToolError`/`ToolGateway` are not in
+    `FROZEN_CONTRACTS`), **no new dependency**, journal wire format unchanged. New tests:
+    gateway `guarded_tool_rejection_is_no_effect` / `plain_tool_error_is_indeterminate`
+    / `unknown_capability_is_no_effect`; codegen `tool_rejection_conforms`; red-team
+    `unknown_capability_fails_cleanly_not_reconciliation` / `guarded_rejection_fails_cleanly`.
 - **Codegen backend — lower and enforce `Gate`, `Tool` and `Delegate`, widening the
   Q10 conformance envelope to consequential effects, policy gates and delegated
   authority (PRD §21 Phase 4, Q10).** The compiled backend

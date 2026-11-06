@@ -169,8 +169,10 @@ pub enum CompiledStep {
     /// Consequential tool effect (PRD 7.6, 8.3). Authorized at its boundary against
     /// the active (possibly `Delegate`-narrowed) authority envelope and the policy
     /// layer (WS2), charged the tool-call budget (WS3), then dispatched through the
-    /// tool gateway — exactly as the interpreter's `Execute` `Tool` arm. An
-    /// unacknowledged dispatch forces `ReconciliationRequired`.
+    /// tool gateway — exactly as the interpreter's `Execute` `Tool` arm. A failed
+    /// dispatch splits by its [`entelechy_gateway::EffectOutcome`] (PRD 8.5/8.6): a
+    /// definitive rejection (`NoEffect`) fails cleanly, while a lost or indeterminate
+    /// acknowledgement (`Indeterminate`) forces `ReconciliationRequired`.
     Tool {
         /// This tool node's interpreter path, relative to the enclosing dynamic scope
         /// (as for the `Llm` step's `path`).
@@ -632,11 +634,21 @@ impl Engine<'_> {
                 };
                 match self.tools.call(&call) {
                     Ok(response) => Ok(egress_output(response, &value.meta)),
-                    // An unacknowledged dispatch forces reconciliation, exactly as the
-                    // interpreter's `Execute` `Tool` arm: it leaves a dangling Unknown
-                    // intent that derives `ReconciliationRequired`. The compiled backend
-                    // journals nothing, so it returns that terminal directly.
-                    Err(_) => Err(RunStatus::ReconciliationRequired),
+                    // A failed dispatch splits by effect outcome, mirroring the
+                    // interpreter's `Execute` `Tool` arm (PRD 8.5/8.6): a definitive
+                    // rejection committed nothing, so it fails cleanly; a lost or
+                    // indeterminate acknowledgement forces `ReconciliationRequired`.
+                    // The compiled backend journals no intent, so there is nothing to
+                    // truncate — it returns the terminal directly.
+                    Err(e) => match e.effect_outcome() {
+                        entelechy_gateway::EffectOutcome::NoEffect => Err(RunStatus::Failed {
+                            node_path,
+                            reason: FailureReason::ToolError(e.to_string()),
+                        }),
+                        entelechy_gateway::EffectOutcome::Indeterminate => {
+                            Err(RunStatus::ReconciliationRequired)
+                        }
+                    },
                 }
             }
             CompiledStep::Delegate {
@@ -782,6 +794,10 @@ mod tests {
     fn register_tools(tools: &mut NativeToolGateway) {
         tools.register("draft_reply", |_| Ok(serde_json::json!({ "reply": "hi" })));
         tools.register("publish", |_| Ok(serde_json::json!({ "published": true })));
+        // A *guarded* tool that validates and refuses before any side effect, so its
+        // `Err` is a definitive `Rejected` (NoEffect) rather than `Failed`
+        // (Indeterminate) — exercised by `tool_rejection_conforms`.
+        tools.register_guarded("validate_amount", |_| Err("amount out of range".into()));
     }
 
     /// Run a program on a fresh interpreter engine.
@@ -1319,6 +1335,28 @@ mod tests {
         )
     }
 
+    /// A program whose root `Seq` invokes a granted but *guarded* tool that refuses
+    /// the call before any side effect (`validate_amount` → `Err`). The refusal is a
+    /// definitive rejection (`NoEffect`), so the run fails cleanly rather than ending
+    /// in `ReconciliationRequired`.
+    fn reject_tool_program() -> Program {
+        let mut authority = AuthorityEnvelope::empty();
+        authority.capabilities.insert("validate_amount".into());
+        Program::new(
+            authority,
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![Node::new(
+                    "check",
+                    NodeKind::Tool(ToolNode {
+                        capability: "validate_amount".into(),
+                        args: serde_json::Value::Null,
+                    }),
+                )]),
+            ),
+        )
+    }
+
     #[test]
     fn gate_open_declassifies_and_conforms() {
         // An opened gate (condition holds, no approval) declassifies the value to
@@ -1433,6 +1471,35 @@ mod tests {
         assert!(
             observable_equivalent(&interp, &codegen),
             "interp={interp:?} codegen={codegen:?}"
+        );
+    }
+
+    #[test]
+    fn tool_rejection_conforms() {
+        // A granted but *guarded* tool refuses the call before any side effect
+        // (PRD 8.5/8.6). Both backends fail cleanly — `Failed { ToolError }` at the
+        // tool's node path — rather than forcing reconciliation, and the interpreter
+        // leaves no dangling Unknown intent (the speculative write-ahead is dropped).
+        let (interp, codegen) = run_both(
+            &reject_tool_program(),
+            Value::trusted(serde_json::json!({})),
+            None,
+            || None,
+        );
+        match &interp.status {
+            RunStatus::Failed {
+                node_path,
+                reason: FailureReason::ToolError(_),
+            } => assert_eq!(node_path, "root/0:check", "node path {node_path}"),
+            other => panic!("expected a clean ToolError failure at root/0:check, got {other:?}"),
+        }
+        assert!(
+            observable_equivalent(&interp, &codegen),
+            "interp={interp:?} codegen={codegen:?}"
+        );
+        assert!(
+            !interp.journal.has_unknown_commit(),
+            "a cleanly-rejected effect leaves no dangling intent to reconcile"
         );
     }
 

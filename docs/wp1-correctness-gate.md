@@ -288,9 +288,20 @@ derivation). A completed run still holds exactly one effect per tool node, so th
 golden journal is byte-stable — **no format bump**. Three probes pass
 (`tool_intent_is_journaled_before_dispatch`,
 `crash_between_dispatch_and_commit_is_recoverable`,
-`tool_intent_resolves_to_committed_on_acknowledgement`). Cleanly distinguishing a
-rejected call from a lost acknowledgement needs the richer gateway contract deferred
-to WP2; both currently surface as reconciliation-required (fail-safe).
+`tool_intent_resolves_to_committed_on_acknowledgement`).
+
+**Tool-effect failure taxonomy (follow-on, PRD 8.5/8.6).** A *failed* tool call now
+splits on `ToolError::effect_outcome()` instead of always reconciling: a definitive
+rejection (`UnknownCapability`/`Rejected` → `NoEffect`) truncates the speculative
+write-ahead intent and halts `Failed { ToolError }` (nothing committed, nothing to
+reconcile), while a lost/indeterminate acknowledgement (`Failed` → `Indeterminate`,
+the plain-tool default) leaves the dangling `Unknown` and still halts
+`ReconciliationRequired` — so the three probes above are unchanged. A guarded tool
+(`NativeToolGateway::register_guarded`) validates and refuses *before* any side
+effect, hence `Rejected`. Codegen mirrors the split for Q10 parity. Clean-failure
+probes: `unknown_capability_fails_cleanly_not_reconciliation`,
+`guarded_rejection_fails_cleanly` (red-team) and `tool_rejection_conforms` (codegen).
+Still no format bump; `ToolError`/`ToolGateway` are not frozen contracts.
 
 ## Sequence & effort
 

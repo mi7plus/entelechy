@@ -26,7 +26,7 @@ pub use sandbox::{
     isolation_for, HostError, Isolation, LoadedPlugin, PluginHost, RiskLevel, SandboxEngine,
     SandboxError, SandboxScope,
 };
-pub use tool::{NativeToolGateway, ToolCall, ToolError, ToolGateway};
+pub use tool::{EffectOutcome, NativeToolGateway, ToolCall, ToolError, ToolGateway};
 
 #[cfg(feature = "wasm")]
 pub use wasm::WasmSandbox;

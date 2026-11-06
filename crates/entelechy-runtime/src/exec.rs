@@ -5,7 +5,7 @@
 //! and `counterfactual` methods drive these; child-module access to `Engine`'s
 //! private fields and `authorize_*` methods is intentional.
 
-use entelechy_gateway::{ModelRequest, ToolCall};
+use entelechy_gateway::{EffectOutcome, ModelRequest, ToolCall};
 use entelechy_ir::{
     Condition, Confidentiality, MemOp, Node, NodeKind, Program, Taint, Value, ValueMeta,
 };
@@ -605,15 +605,30 @@ pub(crate) fn exec_node(
                             }
                             Ok(egress_output(response, &value.meta))
                         }
-                        // Unacknowledged dispatch: the effect may or may not have
-                        // taken hold, so the intent is left Unknown and the run ends
-                        // in `ReconciliationRequired` rather than a plain failure —
-                        // the runtime never declares success for, nor silently
-                        // discards, an effect whose outcome it cannot confirm
-                        // (PRD 8.5/8.6). Distinguishing a cleanly-rejected effect
-                        // from a lost acknowledgement needs the richer gateway
-                        // contract deferred to WP2.
-                        Err(_) => Err(Halt::Terminal(RunStatus::ReconciliationRequired)),
+                        // A failed dispatch splits by effect outcome (PRD 8.5/8.6):
+                        // a definitive rejection committed nothing, so the run fails
+                        // cleanly; a lost or indeterminate acknowledgement may have
+                        // taken hold, so the run must reconcile. The runtime never
+                        // declares success for, nor silently discards, an effect whose
+                        // outcome it cannot confirm.
+                        Err(e) => match e.effect_outcome() {
+                            // Nothing committed: drop the speculative write-ahead
+                            // intent (truncating removes exactly the one entry appended
+                            // just above) — there is no dangling effect to reconcile —
+                            // and fail cleanly with the rejection reason.
+                            EffectOutcome::NoEffect => {
+                                journal.entries.truncate(intent);
+                                Err(Halt::Terminal(RunStatus::Failed {
+                                    node_path: path.to_string(),
+                                    reason: FailureReason::ToolError(e.to_string()),
+                                }))
+                            }
+                            // Possible effect: leave the Unknown intent dangling so the
+                            // run ends in `ReconciliationRequired` (unchanged behavior).
+                            EffectOutcome::Indeterminate => {
+                                Err(Halt::Terminal(RunStatus::ReconciliationRequired))
+                            }
+                        },
                     }
                 }
                 Mode::Replay { reader, divergence } => match reader.next_for(path) {
