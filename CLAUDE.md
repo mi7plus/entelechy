@@ -12,8 +12,11 @@ Durable rules for every session in this repo. Not a progress log (see
   - `cargo test --workspace`
   - `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`
 - Feature-gated engines: `wasm` (wasmtime sandbox), `openai` / `openai-tls`
-  (model gateway). Also clippy the gateway features:
-  `cargo clippy -p entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings`.
+  (model gateway), `ed25519` (real asymmetric approval signatures in
+  `entelechy-identity`; the default keeps the non-cryptographic MAC placeholder).
+  Also clippy the feature paths:
+  `cargo clippy -p entelechy-gateway --all-targets --features wasm,openai-tls -- -D warnings`
+  and `cargo clippy -p entelechy-identity --all-targets --features ed25519 -- -D warnings`.
 
 ## Workspace invariants
 - Every crate is `#![forbid(unsafe_code)]`; workspace lints set

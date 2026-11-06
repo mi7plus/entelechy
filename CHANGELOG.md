@@ -98,6 +98,27 @@ Phase 1). This section tracks the initial implementation of the PRD v11 baseline
   `observable_equivalent`, extending the interpreter-vs-codegen divergence guard.
   `CompiledPlan`/`CompiledStep` is not a frozen contract (no journal, golden or
   `FROZEN_CONTRACTS` impact); no new dependency; the TR-1 phase gate is unchanged.
+- **WP1.5 / identity — real Ed25519 approval signatures behind an opt-in
+  `ed25519` feature (PRD 5.9 signature agility, AU-2).** `entelechy-identity`'s
+  `KeyRing` MAC was a non-cryptographic FNV-1a placeholder, forgeable and unfit
+  for integrity. A new `ed25519` feature replaces it, behind the *unchanged*
+  `KeyRing` interface, with real RFC 8032 Ed25519 signatures: each stored key
+  string is hashed (SHA-256) to a deterministic 32-byte seed → keypair, signing
+  uses no RNG (same payload ⇒ same signature), the wire form is
+  `ed25519:<hex of 64 bytes>`, and verification uses `verify_strict`. The
+  primitive is selected at compile time; `KeyRing`, its methods and every caller
+  (`Approval::sign`/`status_for`, study/release/recovery) are identical either
+  way, and signatures are produced and checked within one build so the two
+  encodings never need to interoperate. The feature is **opt-in**: the default
+  build keeps the placeholder and pulls in no crypto dependency, so the
+  dependency-light default is unchanged (CLAUDE.md invariant) — promoting Ed25519
+  to the default is a one-line flip. New dependency `ed25519-dalek` (v2, with its
+  `curve25519-dalek`/`sha2` closure) is compiled only under the feature; reuses
+  the existing workspace `sha2`/`hex`. Four new crypto-path tests (real-signature
+  shape, determinism, distinct keys, fail-closed on malformed input); the
+  interface-level tests pass under both primitives. No frozen contract touched:
+  approval signatures are not recorded in the journal, golden fixtures or the
+  `FROZEN_CONTRACTS` registry, and the TR-1 phase gate is unchanged.
 - **WP2 follow-on — the governance shadow stage now consumes runtime-enforced
   substitution evidence (PRD §14.2 L3).** The staged-rollout shadow stage
   (`entelechy_release::run_shadow`) decides whether a candidate may proceed to canary
