@@ -1,8 +1,10 @@
 # WP1 — Runtime correctness gate
 
-**Status:** ✅ all five workstreams + acceptance drill landed and green (2026-11-06,
-uncommitted) · **Owner:** runtime core · **Blocks:** every downstream experimental
-claim (H2, H3) and the "verifiable runtime constraints" differentiator.
+**Status:** ✅ WP1 landed, committed and green — all five workstreams + the acceptance
+drill (commits `d0703df` + `3316c2f`, pushed). Downstream: WP2 shadow write-interception
+(`6bfe132`) and the shadow→governance bridge (`021b8f8`) also landed. · **Owner:**
+runtime core · **Blocks:** every downstream experimental claim (H2, H3) and the
+"verifiable runtime constraints" differentiator — now unblocked.
 
 ## Thesis
 
@@ -343,13 +345,18 @@ architecture quality — the R&D plan's central caution, now concrete.
 
 - **Real signing crypto** (keyring FNV placeholder, `entelechy-identity/src/keyring.rs:8`)
   → WP1.5 / identity: swap FNV MAC for Ed25519 behind the existing interface.
-- **Shadow write-interception** (`entelechy-release/src/rollout.rs`) → WP2. Shadow is
-  currently a *governance* layer trusting `dry_run_supported` metadata; its *safety*
-  claim rests on the WS1/WS2 machinery, so it can only become a real guarantee **after**
-  WP1. Until then, document shadow as policy, not enforcement.
-- **True `Par` concurrency** (`exec.rs:125` "sequential in this slice") → WP2.
-- **Full gateway contract** (usage/token-limits/seed/tool-calls, `ModelRequest` at
-  `exec.rs:303`) → WP2.
+- **Shadow write-interception** (`entelechy-release/src/rollout.rs`) → **WP2 — DONE
+  (`6bfe132`).** `Engine::shadow` makes effect substitution a *runtime* guarantee (the
+  tool gateway is never called in shadow; `committed_no_effects()` holds by
+  construction), and the **shadow→governance bridge** (`021b8f8`,
+  `entelechy-cli::shadow_governance`, `entelechy drill --kind shadow-governance`) rewired
+  `entelechy_release::run_shadow` to decide on that runtime-enforced evidence rather than
+  trusted `dry_run_supported` metadata. Shadow is now **enforcement, not policy**.
+- **True `Par` concurrency** (`exec.rs` "sequential in this slice") → WP2 follow-on
+  (still open).
+- **Full gateway contract** (usage/token-limits/seed/tool-calls, `ModelRequest`) → WP2
+  follow-on (still open; `ModelRequest` is frozen at the 1.0 contract, so it triggers the
+  frozen-contract bump procedure).
 
 ## Risks
 
