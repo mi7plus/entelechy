@@ -110,14 +110,24 @@ entelechy serve         # local HTTP API over the dispatcher (loopback only, §1
   loop is trapped). Build/test it with `cargo test -p entelechy-gateway --features
   wasm`; the core workspace stays lean with the feature off.
 - **Codegen backend & conformance (§21 Phase 4, Q10):** `CompiledPlan::compile`
-  lowers a linear IR program to a flat op list (a real compilation step distinct
-  from the tree-walking interpreter); `Engine::run_compiled` executes it;
-  `observable_equivalent` checks interpreter-vs-codegen conformance (the
-  runtime/codegen-divergence mitigation); and `CodegenEvidence::codegen_eligible`
+  lowers an IR program — the leaves plus `Seq`/`Branch`/bounded-`Loop`/`Map`/
+  `Retrieval`, the `Gate` policy check, the consequential `Tool` effect and the
+  authority-narrowing `Delegate` — to a compiled step *tree* (a real compilation step
+  distinct from the tree-walking interpreter); `Engine::run_compiled` executes it,
+  enforcing the *same* effect gates as the interpreter: egress authorization + the
+  model-call budget before each inference, policy + delegated-authority authorization
+  (the shared `authorize_tool`) + the tool-call budget before each effect, and
+  `Delegate` authority narrowing (PRD 7.5, 8.3, 5.4), reporting the interpreter's node
+  path on failure; `observable_equivalent` checks interpreter-vs-codegen conformance —
+  on every halt the backend can reach (egress-denied, policy-denied, authority-denied,
+  gate-blocked, reconciliation-required, budget-exhausted) as well as the happy path
+  (the runtime/codegen-divergence mitigation); and `CodegenEvidence::codegen_eligible`
   encodes the Q10 promotion gate (100% conformance, ≥1000 identical replays, no
   holdout regression, ≥30% p95/cost win on ≥3 objectives) — the interpreter stays
-  the production runtime until all are met. Unsupported IR shapes are refused, so
-  the interpreter remains the fallback.
+  the production runtime until all are met. Only `Par` (deferred so a sequential
+  lowering cannot diverge from a future truly-concurrent interpreter) and `Human`
+  (interactive input, Phase 2+) are refused at compile time, so the interpreter
+  remains the fallback for them.
 - **Cluster execution (§17, §17.4, RK-1):** a `WorkQueue` boundary with an
   in-process reference queue providing visibility leases and at-least-once
   redelivery (an unacked, lease-expired item is redelivered — safe because effects

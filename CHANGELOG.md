@@ -11,6 +11,93 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **Codegen backend — lower and enforce `Gate`, `Tool` and `Delegate`, widening the
+  Q10 conformance envelope to consequential effects, policy gates and delegated
+  authority (PRD §21 Phase 4, Q10).** The compiled backend
+  (`entelechy-runtime::codegen`) lowered the deterministic structural core and its two
+  model-effect gates, but still deferred every *consequential* and *authority-bearing*
+  shape to the interpreter: `Gate`, `Tool` and `Delegate` returned
+  `CompileError::Unsupported`. This lowers all three with full WS2/WS3 parity, so the
+  interpreter-vs-codegen conformance gate now covers them too. `CompiledStep` gains
+  `Gate`/`Tool`/`Delegate` variants; `run_compiled` seeds the delegation authority
+  stack from the plan authority (A1/WS2) exactly as `execute` does, and threads a
+  model+tool `RunCounters`:
+  - **`Gate`** opens iff its condition holds and no approval is required (the Phase-0
+    runtime cannot discharge an approval obligation inline), declassifying the value to
+    `Trusted` for integrity (IR-I3); otherwise a typed `GateBlocked` halt — mirroring
+    the interpreter's `Gate` arm (the interpreter also journals a `PolicyDecision`,
+    invisible to observable equivalence, so the compiled backend journals nothing and
+    still conforms).
+  - **`Tool`** authorizes the effect at its boundary via the *shared* `authorize_tool`
+    (so a policy or delegated-authority denial carries the identical reason), charges
+    the tool-call budget, then dispatches the identical `ToolCall` the interpreter
+    builds (same `merge_args` payload + operation key). An unacknowledged dispatch
+    returns `ReconciliationRequired`, exactly as the interpreter's write-ahead `Execute`
+    arm derives it. (A shadow run is a separate entry point — `Engine::shadow` — and is
+    out of the compiled backend's scope.)
+  - **`Delegate`** narrows authority at runtime (A2/IR-I6): a delegate that *widens*
+    the active envelope halts (`AuthorityDenied`) — defense-in-depth beyond the static
+    IR-I6 check — otherwise the narrowed envelope is pushed for the body (so every
+    `Tool` inside is authorized against it) and popped afterwards. A `Delegate` opens no
+    new path scope, so its body runs under the same runtime base.
+  Only `Par` and `Human` remain interpreter-only now: `Par` stays deferred so a
+  sequential lowering cannot diverge from a future *truly* concurrent interpreter, and
+  `Human` carries interactive-input semantics (Phase 2+). Seven new conformance tests
+  drive each shape and halt through both backends and assert `observable_equivalent`:
+  `gate_open_declassifies_and_conforms`, `gate_blocked_conforms`, `tool_effect_conforms`,
+  `tool_budget_exhaustion_conforms`, `delegate_body_runs_and_conforms`,
+  `delegate_narrows_authority_denies_tool_conforms` (a `Tool` denied inside a narrowed
+  `Delegate` at `root/delegate:draft` on both backends) and
+  `delegate_widening_is_refused_conforms`. `CompiledPlan`/`CompiledStep` is not a frozen
+  contract (no journal, golden or `FROZEN_CONTRACTS` impact); no new dependency; the
+  TR-1 phase gate is unchanged.
+- **Codegen backend — enforce the model-call budget and egress authorization, and
+  report the interpreter's node path on failure (PRD §21 Phase 4, Q10).** The compiled
+  execution backend (`entelechy-runtime::codegen`) lowered and ran the supported
+  control-flow core but skipped the two gates the interpreter's `guard_model` runs
+  before every inference — confidentiality egress routing (`authorize_model`, IR-I9 /
+  PRD 7.5) and the `max_model_calls` budget (PRD 8.3) — and reported a synthetic
+  `"compiled"` node path on any failure, so `observable_equivalent` held only for
+  *succeeding* programs (the parity caveat noted when control-flow lowering landed).
+  `run_compiled` now charges the model-call budget per run and authorizes each `Llm`
+  egress exactly as `execute` does — a no-op without policy or confidentiality labels,
+  so the supported happy path is unchanged — and each failable compiled step carries
+  the interpreter's node path (relative to its enclosing dynamic scope, with `Loop`/
+  `Map` body iterations reconstructing the runtime `iter<i>`/`map<i>` index at
+  execution). A *failing* compiled run is therefore observably identical to the
+  interpreter too: the same terminal `RunStatus` including `node_path`, and the same
+  (absent) output. The recursive executor returns the terminal `RunStatus` directly
+  (`Failed { node_path, reason }` / `BudgetExhausted`), still well under
+  `clippy::result_large_err`. This widens the Q10 conformance envelope from the happy
+  path to egress-denied and budget-exhausted halts; the shapes the backend defers to
+  the interpreter (`Par`, `Delegate`, `Tool`, `Gate`, `Human`) remain the only
+  interpreter-only envelope, and the interpreter stays the conformance reference
+  executor. Four new interpreter-vs-codegen conformance tests drive the widened
+  envelope through both backends and assert `observable_equivalent`:
+  `budget_exhaustion_conforms`, `egress_denial_conforms` (denied at `root/0:agent`
+  with the same `PolicyDenied` reason), `failure_path_node_path_conforms` (`Verify`
+  failure at `root/1:check`), and `loop_body_failure_node_path_conforms`
+  (`root/iter0:check`, proving runtime loop-index path reconstruction).
+  `CompiledPlan`/`CompiledStep` is not a frozen contract (no journal, golden or
+  `FROZEN_CONTRACTS` impact); no new dependency; the TR-1 phase gate is unchanged.
+- **Codegen backend — compile the deterministic control-flow IR, not just a flat
+  leaf list (PRD §21 Phase 4, Q10).** The compiled execution backend
+  (`entelechy-runtime::codegen`) previously lowered only a flat `Seq` of
+  `Llm`/`Code`/`Verify`/`Mem` leaves and refused everything else. It now lowers the
+  deterministic structural core recursively: nested `Seq` flattens, and `Branch`,
+  bounded `Loop`, `Map` fan-out and `Retrieval` lower to a compiled step *tree*
+  (`CompiledStep` gains `Branch`/`Loop`/`Map`/`Retrieve` variants). `run_compiled`
+  executes the tree, reusing the interpreter's own `eval_condition`/`get_path` and
+  mirroring its `Map`/`Retrieval` label-join and `Verify` semantics, so the
+  observable result (status + output incl. IFC labels) matches `execute`.
+  `Par`, `Delegate`, `Tool`, `Gate` and `Human` stay `Unsupported` and run on the
+  interpreter — the conformance reference executor — because they carry
+  bounded-parallelism, authority-transition, consequential-effect, approval or
+  interactive semantics the compiled backend defers (Q10). Six new conformance
+  tests drive each new shape through both backends and assert
+  `observable_equivalent`, extending the interpreter-vs-codegen divergence guard.
+  `CompiledPlan`/`CompiledStep` is not a frozen contract (no journal, golden or
+  `FROZEN_CONTRACTS` impact); no new dependency; the TR-1 phase gate is unchanged.
 - **WP2 follow-on — the governance shadow stage now consumes runtime-enforced
   substitution evidence (PRD §14.2 L3).** The staged-rollout shadow stage
   (`entelechy_release::run_shadow`) decides whether a candidate may proceed to canary

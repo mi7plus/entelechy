@@ -681,7 +681,9 @@ fn journal_run_id(mode: &Mode) -> String {
 }
 
 /// Merge static tool args with the current value's payload (static args win).
-fn merge_args(args: &serde_json::Value, input: &serde_json::Value) -> serde_json::Value {
+/// `pub(crate)` so the compiled backend (`codegen`) builds the identical `ToolCall`
+/// the interpreter dispatches, for interpreter-vs-codegen parity (Q10).
+pub(crate) fn merge_args(args: &serde_json::Value, input: &serde_json::Value) -> serde_json::Value {
     match (args, input) {
         (serde_json::Value::Object(a), serde_json::Value::Object(i)) => {
             let mut merged = i.clone();
@@ -696,7 +698,9 @@ fn merge_args(args: &serde_json::Value, input: &serde_json::Value) -> serde_json
 }
 
 /// Evaluate a typed condition against a value (PRD 7.1 Branch / 7.3 Gate).
-fn eval_condition(cond: &Condition, value: &Value) -> bool {
+/// `pub(crate)` so the compiled backend (`codegen`) evaluates branch/loop
+/// conditions through the identical logic, for interpreter-vs-codegen parity (Q10).
+pub(crate) fn eval_condition(cond: &Condition, value: &Value) -> bool {
     match cond {
         Condition::Always => true,
         Condition::Never => false,
@@ -717,8 +721,12 @@ fn eval_condition(cond: &Condition, value: &Value) -> bool {
     }
 }
 
-/// Resolve a dot-path within a JSON value.
-fn get_path<'v>(value: &'v serde_json::Value, path: &str) -> Option<&'v serde_json::Value> {
+/// Resolve a dot-path within a JSON value. `pub(crate)` so the compiled backend
+/// (`codegen`) resolves `Map` collections identically to the interpreter (Q10).
+pub(crate) fn get_path<'v>(
+    value: &'v serde_json::Value,
+    path: &str,
+) -> Option<&'v serde_json::Value> {
     let mut cur = value;
     for seg in path.split('.') {
         cur = cur.get(seg)?;

@@ -27,8 +27,9 @@ pub use drill::{enforcement_drill, shadow_drill, EnforcementDrillReport, ShadowD
 pub use exec::{CounterfactualResult, SubstitutedEffect};
 pub use memory::TieredMemory;
 
-// Execution internals live in `exec`; `egress_output` is also used by `codegen`.
-pub(crate) use exec::egress_output;
+// Execution internals live in `exec`; `egress_output`/`merge_args` are also used by
+// `codegen` so a compiled `Llm`/`Tool` builds the identical request the interpreter does.
+pub(crate) use exec::{egress_output, eval_condition, get_path, merge_args};
 use exec::{exec_node, outcome_output, Counters, Mode};
 
 use entelechy_gateway::{ModelGateway, ToolGateway};
