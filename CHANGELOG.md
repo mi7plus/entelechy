@@ -11,6 +11,62 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **WP1/WS2 — dynamic authority narrowing at `Delegate` (A1/A2/IR-I6, PRD 5.4).**
+  The runtime ignored `program.authority` entirely and `Delegate` dropped its
+  `authority` field and ran the body unchanged, so authority enforcement was
+  static-only — a discovered architecture could exercise authority a `Delegate` was
+  supposed to remove. Fix (`entelechy-runtime`): `Engine` gained an
+  `authority_stack`, seeded from `program.authority` at every entry point
+  (`execute`/`replay`/`counterfactual`) and narrowed by every enclosing `Delegate`.
+  The `Delegate` arm halts (new `FailureReason::AuthorityDenied`) on an envelope that
+  widens the active one — defense-in-depth beyond the static IR-I6 check — then
+  pushes the narrowed envelope for the body and pops it afterwards. `authorize_tool`
+  denies any capability outside the active envelope when inside a delegated scope,
+  enforced at runtime independent of policy configuration; no-`Delegate` programs are
+  unchanged (ambient = `program.authority`). Red-team suite in
+  `tests/wp1_enforcement.rs` (`delegate_narrows_active_authority`,
+  `delegate_rejects_runtime_widening`, `nested_delegates_narrow_monotonically`,
+  adversarial `data_dependent_capability_cannot_escape_delegate`, regression
+  `delegate_free_programs_behave_identically`). No new dependencies; the TR-1 phase
+  gate is unchanged (correctness hardening).
+- **WP1/WS5 — write-ahead intent + reconciliation at the tool boundary (PRD 7.6,
+  8.5, 8.6).** A consequential tool effect was journaled as `Committed` only *after*
+  `tools.call` returned, so a crash (or lost acknowledgement) between dispatch and
+  journaling left no durable trace and the effect could be silently lost or blindly
+  retried. Fix (`entelechy-runtime::exec`, `Execute` arm): a durable intent
+  (`ToolEffect { commit: Unknown, .. }`) is journaled **before** dispatch and
+  resolved **in place** to `Committed` with the real response on acknowledgement (so
+  a completed run still holds exactly one effect per tool node — replay-stable and
+  byte-identical to before). An unacknowledged dispatch leaves the dangling `Unknown`
+  intent and terminates the run in `ReconciliationRequired` (via the existing
+  `has_unknown_commit` derivation) rather than declaring success or hard-failing.
+  Red-team probes `tool_intent_is_journaled_before_dispatch`,
+  `crash_between_dispatch_and_commit_is_recoverable`,
+  `tool_intent_resolves_to_committed_on_acknowledgement`. No journal wire-format
+  change (the `input` field and `ToolEffect` shape are unchanged — golden journal
+  stable); no new dependencies; TR-1 phase gate unchanged.
+- **WP1 — `entelechy drill --kind enforcement` (and under `--kind all`).** A new
+  deterministic drill (`entelechy-runtime::enforcement_drill`) that runs adversarial
+  programs on the real interpreter and reports every WP1 invariant
+  (WS1 information-flow, WS2 authority narrowing, WS3 mode parity, WS4 deterministic
+  replay, WS5 write-ahead reconciliation) as SATISFIED/VIOLATED, failing closed if
+  any does not hold — the demonstrable artifact for the "verifiable runtime
+  constraints" claim. Mirrors the `slo`/`rollout` drills.
+- **WP1/WS3 — policy + budget parity across execution modes (PRD 8.3, 10.2 / RK-8).**
+  A counterfactual live re-execution (downstream of the intervention) called
+  `tools.call`/`model.infer` directly, with **no authorization and no budget check** —
+  the gates `Execute` runs. So a counterfactual was a privileged path that could
+  dispatch a forbidden tool, leak a confidentiality-labeled value to an unapproved
+  provider, or ignore the run budget, confounding any counterfactual cost/behavior
+  attribution. Fix (`entelechy-runtime::exec`): the `Execute` pre-dispatch guard is
+  extracted into shared `guard_model` (egress routing + model budget) and `guard_tool`
+  (boundary authorization + tool budget) helpers, called from **both** the `Execute`
+  arm and the diverged `Counterfactual` arm. `Mode::Counterfactual` gained a
+  `Counters` field (seeded fresh in `Engine::counterfactual`) so the live span is
+  charged the same budget as a real run; the replayed pre-divergence span is not.
+  Three probes pin it (`counterfactual_live_tool_is_authorized`,
+  `counterfactual_respects_tool_and_model_budgets`, `counterfactual_model_egress_is_routed`).
+  No new dependencies; the TR-1 phase gate is unchanged (correctness hardening).
 - **WP1/WS4 — deterministic replay from the recorded run input (RK-2); journal
   format bumped `1 → 2`.** Entelechy's "verifiable runtime constraints" claim
   requires that a replay reconstruct the *real* run, but the journal never

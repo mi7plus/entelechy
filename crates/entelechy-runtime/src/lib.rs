@@ -12,6 +12,7 @@
 
 pub mod cluster;
 pub mod codegen;
+pub mod drill;
 pub mod exec;
 pub mod journal;
 pub mod memory;
@@ -22,6 +23,7 @@ pub use cluster::{InMemoryQueue, LeasedItem, Priority, WorkItem, WorkQueue, Work
 pub use codegen::{
     observable_equivalent, CodegenEvidence, CompileError, CompiledPlan, CompiledStep,
 };
+pub use drill::{enforcement_drill, EnforcementDrillReport};
 pub use exec::CounterfactualResult;
 pub use memory::TieredMemory;
 
@@ -100,6 +102,10 @@ pub enum FailureReason {
     CodeError(String),
     /// The policy engine denied the effect at its boundary (PRD 8.3).
     PolicyDenied(String),
+    /// An effect's capability is outside the active (delegated) authority
+    /// envelope, or a `Delegate` tried to widen it — enforced at runtime
+    /// independent of policy (A2 / IR-I6, PRD 5.4).
+    AuthorityDenied(String),
     /// A node kind is not supported in this runtime slice.
     Unsupported(String),
     /// A schema/shape error in the value flow.
@@ -153,6 +159,11 @@ pub struct Engine<'a> {
     budget: Budget,
     policy: Option<PolicyConfig>,
     policy_decisions: DecisionLog,
+    /// The active delegation authority stack (A2 / IR-I6, PRD 5.4): seeded from
+    /// `program.authority` at each entry point and narrowed by every enclosing
+    /// `Delegate`. The top is the authority currently in force; depth `> 1` means
+    /// execution is inside a delegated scope.
+    authority_stack: Vec<AuthorityEnvelope>,
 }
 
 impl<'a> Engine<'a> {
@@ -167,6 +178,7 @@ impl<'a> Engine<'a> {
             budget: Budget::default(),
             policy: None,
             policy_decisions: DecisionLog::new(),
+            authority_stack: Vec::new(),
         }
     }
 
@@ -191,6 +203,23 @@ impl<'a> Engine<'a> {
     /// [`FailureReason`] on denial or an unmet obligation (fail closed). A no-op
     /// when policy enforcement is not configured.
     fn authorize_tool(&mut self, capability: &str, taint: Taint) -> Result<(), FailureReason> {
+        // WS2 (A2 / IR-I6, PRD 5.4): within a `Delegate` scope the capability must
+        // be granted by the active (narrowed) authority envelope. Enforced at
+        // runtime independent of policy — defense-in-depth beyond the static IR-I6
+        // check, so a discovered architecture cannot exercise authority a `Delegate`
+        // removed, no matter what the search emits. At the top level (no enclosing
+        // delegate) the ambient envelope is `program.authority` and authorization is
+        // governed by the policy layer exactly as before WS2.
+        if self.authority_stack.len() > 1 {
+            if let Some(active) = self.authority_stack.last() {
+                if !active.allows_capability(capability) {
+                    return Err(FailureReason::AuthorityDenied(format!(
+                        "capability '{capability}' is outside the active delegated \
+                         authority envelope (A2/IR-I6)"
+                    )));
+                }
+            }
+        }
         // Evaluate under an immutable borrow that ends before we record.
         let outcome: Option<(Decision, String)> = self.policy.as_ref().map(|pc| {
             let meta = pc
@@ -308,6 +337,10 @@ impl<'a> Engine<'a> {
         // Record the initial input so replay/counterfactual reconstruct from the
         // real input rather than an empty object (RK-2).
         journal.input = input.clone();
+        // Seed the delegation authority stack from the program authority (A1): the
+        // ambient envelope every effect is authorized against until a `Delegate`
+        // narrows it (WS2).
+        self.authority_stack = vec![program.authority.clone()];
         let mut counters = Counters::default();
         let mut mode = Mode::Execute {
             journal: &mut journal,
@@ -351,6 +384,7 @@ impl<'a> Engine<'a> {
             return Err(ReplayMismatch::InputMismatch);
         }
         // `input` is verified equal to the recorded input, so replay from it.
+        self.authority_stack = vec![program.authority.clone()];
         let mut reader = JournalReader::new(journal);
         let mut divergence: Option<ReplayMismatch> = None;
         let mut mode = Mode::Replay {
@@ -384,10 +418,14 @@ impl<'a> Engine<'a> {
         intervention_path: &str,
         intervention_value: Value,
     ) -> CounterfactualResult {
+        self.authority_stack = vec![program.authority.clone()];
         let mut reader = JournalReader::new(journal);
         let mut diverged = false;
         let mut divergence_point: Option<String> = None;
         let mut rollouts: u32 = 0;
+        // Budget counters for the live post-divergence span (WS3): a counterfactual
+        // re-execution is charged the same tool/model budget as a real run.
+        let mut counters = Counters::default();
         let output = {
             let mut mode = Mode::Counterfactual {
                 reader: &mut reader,
@@ -396,6 +434,7 @@ impl<'a> Engine<'a> {
                 rollouts: &mut rollouts,
                 intervention_path,
                 intervention_value: &intervention_value,
+                counters: &mut counters,
             };
             exec_node(
                 self,
@@ -1157,6 +1196,294 @@ mod tests {
             cf.rollouts
         );
         assert!(cf.output.is_some());
+    }
+
+    // ===== WP1 · WS3: policy + budget parity across execution modes =====
+    //
+    // A counterfactual live re-execution (post-divergence) must pass the SAME
+    // authorization and budget gates as `Execute` — it is not a privileged path
+    // (PRD 8.3, 10.2 / RK-8). Before WS3 the diverged branch called `tools.call`/
+    // `model.infer` with no `authorize_*` and no budget check.
+
+    #[test]
+    fn counterfactual_live_tool_is_authorized() {
+        // A forbidden tool is denied downstream of the divergence exactly as in
+        // Execute. (The happy path is `counterfactual_diverges_and_reexecutes_live`.)
+        use entelechy_ir::{AttestationLevel, EffectClass, EffectMetadata, LlmNode, ToolNode};
+        use entelechy_policy::{NativePolicy, PolicySnapshot};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        tools.register("refund", |_| Ok(serde_json::json!({ "refunded": true })));
+
+        let mut authority = AuthorityEnvelope::empty();
+        authority.forbidden_capabilities.insert("refund".into());
+
+        let prog = Program::new(
+            authority.clone(),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "classify",
+                        NodeKind::Llm(LlmNode {
+                            model: "mock".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                    Node::new(
+                        "refund",
+                        NodeKind::Tool(ToolNode {
+                            capability: "refund".into(),
+                            args: serde_json::Value::Null,
+                        }),
+                    ),
+                ]),
+            ),
+        );
+
+        // Fresh policy per engine (fresh catalog + decision log) so the CF engine's
+        // `any_denied` reflects the counterfactual, not the recording run.
+        let make_policy = || {
+            let mut catalog = HashMap::new();
+            catalog.insert(
+                "refund".to_string(),
+                EffectMetadata {
+                    class: EffectClass::Irreversible,
+                    idempotent: false,
+                    reversible: false,
+                    dry_run_supported: false,
+                    read_back_supported: false,
+                    attestation: AttestationLevel::OperatorAttested,
+                    operation_key_namespace: "pay".into(),
+                },
+            );
+            PolicyConfig {
+                engine: Box::new(NativePolicy::new()),
+                authority: authority.clone(),
+                snapshot: PolicySnapshot::default(),
+                catalog,
+                principal: "runtime".into(),
+            }
+        };
+
+        // Record a journal: the Execute run itself is denied at the forbidden
+        // refund, but the classify model call is journaled first.
+        let journal = {
+            let mut e_rec = Engine::new(&model, &mut tools).with_policy(make_policy());
+            let run = e_rec.execute(&prog, Value::trusted(serde_json::json!({})), "cf-auth-rec");
+            assert!(
+                matches!(
+                    run.status,
+                    RunStatus::Failed {
+                        reason: FailureReason::PolicyDenied(_),
+                        ..
+                    }
+                ),
+                "{:?}",
+                run.status
+            );
+            run.journal
+        };
+
+        // Counterfactual: intervene at classify, re-execute the refund tool live.
+        let mut e_cf = Engine::new(&model, &mut tools).with_policy(make_policy());
+        let cf = e_cf.counterfactual(
+            &prog,
+            &journal,
+            "root/0:classify",
+            Value::tainted(serde_json::json!({ "text": "hi" })),
+        );
+        assert!(cf.diverged);
+        assert_eq!(cf.divergence_point.as_deref(), Some("root/0:classify"));
+        assert!(
+            cf.output.is_none(),
+            "a forbidden tool must be denied on the counterfactual live path"
+        );
+        assert!(
+            e_cf.policy_decisions().any_denied(),
+            "the counterfactual denial must be recorded (PRD 8.3)"
+        );
+    }
+
+    #[test]
+    fn counterfactual_respects_tool_and_model_budgets() {
+        // The live post-divergence span is charged the same model/tool budgets as a
+        // real run: a ceiling of 0 blocks the first live model (resp. tool) call.
+        use entelechy_ir::{CodeNode, LlmNode, ToolNode};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+        tools.register("ping", |_| Ok(serde_json::json!({ "pong": true })));
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "pass",
+                        NodeKind::Code(CodeNode {
+                            function: "pass".into(),
+                        }),
+                    ),
+                    Node::new(
+                        "respond",
+                        NodeKind::Llm(LlmNode {
+                            model: "mock".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                    Node::new(
+                        "ping",
+                        NodeKind::Tool(ToolNode {
+                            capability: "ping".into(),
+                            args: serde_json::Value::Null,
+                        }),
+                    ),
+                ]),
+            ),
+        );
+
+        // Record a journal with a generous budget (only the record engine runs the
+        // `pass` Code node; the CF intervention substitutes it without executing).
+        let journal = {
+            let mut e = Engine::new(&model, &mut tools);
+            e.register_code("pass", |v| Ok(v.data.clone()));
+            let run = e.execute(
+                &prog,
+                Value::trusted(serde_json::json!({})),
+                "cf-budget-rec",
+            );
+            assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+            run.journal
+        };
+        let sub = || Value::tainted(serde_json::json!({ "text": "x" }));
+
+        // max_model_calls = 0 blocks the live `respond` model call.
+        let mut e_m = Engine::new(&model, &mut tools).with_budget(Budget {
+            max_model_calls: 0,
+            max_tool_calls: 100,
+        });
+        let cf_m = e_m.counterfactual(&prog, &journal, "root/0:pass", sub());
+        assert!(cf_m.diverged);
+        assert!(
+            cf_m.output.is_none(),
+            "the live model call must honor max_model_calls=0"
+        );
+
+        // max_tool_calls = 0 blocks the live `ping` tool call (model call allowed).
+        let mut e_t = Engine::new(&model, &mut tools).with_budget(Budget {
+            max_model_calls: 100,
+            max_tool_calls: 0,
+        });
+        let cf_t = e_t.counterfactual(&prog, &journal, "root/0:pass", sub());
+        assert!(
+            cf_t.output.is_none(),
+            "the live tool call must honor max_tool_calls=0"
+        );
+
+        // Generous budget: the whole live span runs to completion.
+        let mut e_ok = Engine::new(&model, &mut tools).with_budget(Budget {
+            max_model_calls: 100,
+            max_tool_calls: 100,
+        });
+        let cf_ok = e_ok.counterfactual(&prog, &journal, "root/0:pass", sub());
+        assert!(
+            cf_ok.output.is_some(),
+            "a generous budget runs the full live span"
+        );
+    }
+
+    #[test]
+    fn counterfactual_model_egress_is_routed() {
+        // Confidentiality provider routing (IR-I9) runs on the live post-divergence
+        // model call: a `pii`-labeled value may not reach a provider unapproved for
+        // `pii`, exactly as in Execute (PRD 7.5/10.2).
+        use entelechy_ir::LlmNode;
+        use entelechy_policy::{NativePolicy, PolicySnapshot, ProviderApproval};
+
+        let model = MockModel::new();
+        let mut tools = NativeToolGateway::new();
+
+        let prog = Program::new(
+            AuthorityEnvelope::empty(),
+            Node::new(
+                "root",
+                NodeKind::Seq(vec![
+                    Node::new(
+                        "classify",
+                        NodeKind::Llm(LlmNode {
+                            model: "mock".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                    Node::new(
+                        "respond",
+                        NodeKind::Llm(LlmNode {
+                            model: "resp-model".into(),
+                            prompt_template: "{input}".into(),
+                            temperature: 0.0,
+                        }),
+                    ),
+                ]),
+            ),
+        );
+
+        let policy = |label: &str| {
+            let mut approval = ProviderApproval::new();
+            approval.approve(label, "resp-model");
+            PolicyConfig {
+                engine: Box::new(NativePolicy::new()),
+                authority: AuthorityEnvelope::empty(),
+                snapshot: PolicySnapshot {
+                    version: 1,
+                    provider_approval: approval,
+                },
+                catalog: HashMap::new(),
+                principal: "runtime".into(),
+            }
+        };
+
+        // Record a journal (trusted {} input → no labels → both model calls pass).
+        let journal = {
+            let mut e = Engine::new(&model, &mut tools).with_policy(policy("internal"));
+            let run = e.execute(
+                &prog,
+                Value::trusted(serde_json::json!({})),
+                "cf-egress-rec",
+            );
+            assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.status);
+            run.journal
+        };
+
+        let mut sub = Value::tainted(serde_json::json!({ "text": "secret" }));
+        sub.meta.confidentiality.insert("pii".into());
+
+        // resp-model is approved for `internal`, not `pii`: the live respond call is
+        // denied by egress routing.
+        let mut e_deny = Engine::new(&model, &mut tools).with_policy(policy("internal"));
+        let cf = e_deny.counterfactual(&prog, &journal, "root/0:classify", sub.clone());
+        assert!(cf.diverged);
+        assert!(
+            cf.output.is_none(),
+            "pii must not reach a provider unapproved for it on the CF live path"
+        );
+        assert!(
+            e_deny.policy_decisions().any_denied(),
+            "the CF egress denial must be recorded (PRD 8.3)"
+        );
+
+        // Positive control: approve pii → resp-model and the CF model call routes.
+        let mut e_ok = Engine::new(&model, &mut tools).with_policy(policy("pii"));
+        let cf_ok = e_ok.counterfactual(&prog, &journal, "root/0:classify", sub);
+        assert!(
+            cf_ok.output.is_some(),
+            "an approved provider routes the CF model call"
+        );
     }
 
     #[test]

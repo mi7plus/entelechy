@@ -6,7 +6,9 @@
 //! private fields and `authorize_*` methods is intentional.
 
 use entelechy_gateway::{ModelRequest, ToolCall};
-use entelechy_ir::{Condition, MemOp, Node, NodeKind, Program, Value, ValueMeta};
+use entelechy_ir::{
+    Condition, Confidentiality, MemOp, Node, NodeKind, Program, Taint, Value, ValueMeta,
+};
 
 use crate::journal::{Journal, JournalEvent, JournalReader, ReplayMismatch};
 use crate::{CommitStatus, Engine, FailureReason, Halt, RunStatus};
@@ -49,7 +51,64 @@ pub(crate) enum Mode<'m, 'j> {
         rollouts: &'m mut u32,
         intervention_path: &'m str,
         intervention_value: &'m Value,
+        /// Budget counters for the live (post-divergence) span, so a counterfactual
+        /// re-execution is charged the same tool/model budget as a real run
+        /// (PRD 10.2 / RK-8: counterfactual is not a privileged path).
+        counters: &'m mut Counters,
     },
+}
+
+/// Pre-dispatch authorization + budget guard for a model (Llm) effect (PRD 7.5,
+/// 8.3, IR-I9). Confidentiality provider routing runs first, then the model-call
+/// budget is charged and checked. Shared by the `Execute` arm and the live
+/// (post-divergence) `Counterfactual` arm so a counterfactual model call passes the
+/// same gates as a real one (RK-8 — no privileged counterfactual path).
+fn guard_model(
+    engine: &mut Engine,
+    model: &str,
+    confidentiality: &Confidentiality,
+    path: &str,
+    counters: &mut Counters,
+) -> Result<(), Halt> {
+    if let Err(reason) = engine.authorize_model(model, confidentiality) {
+        return Err(Halt::Terminal(RunStatus::Failed {
+            node_path: path.to_string(),
+            reason,
+        }));
+    }
+    counters.model_calls += 1;
+    if counters.model_calls > engine.budget.max_model_calls {
+        return Err(Halt::Terminal(RunStatus::BudgetExhausted {
+            budget: "max_model_calls",
+        }));
+    }
+    Ok(())
+}
+
+/// Pre-dispatch authorization + budget guard for a consequential tool effect
+/// (PRD 8.3). The effect is authorized at its boundary, then the tool-call budget
+/// is charged and checked. Shared by the `Execute` arm and the live
+/// (post-divergence) `Counterfactual` arm (RK-8 — no privileged counterfactual path).
+fn guard_tool(
+    engine: &mut Engine,
+    capability: &str,
+    taint: Taint,
+    path: &str,
+    counters: &mut Counters,
+) -> Result<(), Halt> {
+    if let Err(reason) = engine.authorize_tool(capability, taint) {
+        return Err(Halt::Terminal(RunStatus::Failed {
+            node_path: path.to_string(),
+            reason,
+        }));
+    }
+    counters.tool_calls += 1;
+    if counters.tool_calls > engine.budget.max_tool_calls {
+        return Err(Halt::Terminal(RunStatus::BudgetExhausted {
+            budget: "max_tool_calls",
+        }));
+    }
+    Ok(())
 }
 
 /// Recompute the final output on the successful path. In this functional-pipeline
@@ -196,10 +255,31 @@ pub(crate) fn exec_node(
                 meta,
             })
         }
-        NodeKind::Delegate { body, .. } => {
-            // Authority narrowing is verified statically (IR-I6). Execute the body.
+        NodeKind::Delegate { authority, body } => {
+            // Runtime authority narrowing (A2 / IR-I6, PRD 5.4): a `Delegate` may
+            // only narrow the active envelope, so a widening delegate halts at
+            // runtime — defense-in-depth beyond the static IR-I6 check. The narrowed
+            // envelope is pushed for the body and popped afterwards (even on a halt,
+            // so the stack stays balanced), so every effect inside the body is
+            // authorized against it by `authorize_tool` (WS2).
+            let widens = engine
+                .authority_stack
+                .last()
+                .map(|active| !authority.is_subset_of(active))
+                .unwrap_or(false);
+            if widens {
+                return Err(Halt::Terminal(RunStatus::Failed {
+                    node_path: path.to_string(),
+                    reason: FailureReason::AuthorityDenied(
+                        "delegated authority widens the active envelope (A2/IR-I6)".into(),
+                    ),
+                }));
+            }
+            engine.authority_stack.push(authority.clone());
             let child_path = format!("{path}/delegate:{}", body.id);
-            exec_node(engine, body, &child_path, value, mode)
+            let result = exec_node(engine, body, &child_path, value, mode);
+            engine.authority_stack.pop();
+            result
         }
         NodeKind::Code(code) => {
             let f = engine.code.get(&code.function).ok_or_else(|| {
@@ -334,22 +414,14 @@ pub(crate) fn exec_node(
             };
             match mode {
                 Mode::Execute { journal, counters } => {
-                    // Model calls are egress (PRD 7.5): enforce confidentiality
-                    // provider routing before dispatch (IR-I9).
-                    if let Err(reason) =
-                        engine.authorize_model(&llm.model, &value.meta.confidentiality)
-                    {
-                        return Err(Halt::Terminal(RunStatus::Failed {
-                            node_path: path.to_string(),
-                            reason,
-                        }));
-                    }
-                    counters.model_calls += 1;
-                    if counters.model_calls > engine.budget.max_model_calls {
-                        return Err(Halt::Terminal(RunStatus::BudgetExhausted {
-                            budget: "max_model_calls",
-                        }));
-                    }
+                    // Egress routing (IR-I9) + budget before dispatch (PRD 7.5, 8.3).
+                    guard_model(
+                        engine,
+                        &llm.model,
+                        &value.meta.confidentiality,
+                        path,
+                        counters,
+                    )?;
                     match engine.model.infer(&request) {
                         Ok(response) => {
                             let text = response.text.clone();
@@ -387,10 +459,20 @@ pub(crate) fn exec_node(
                     reader,
                     diverged,
                     rollouts,
+                    counters,
                     ..
                 } => {
                     if **diverged {
-                        // Live re-execution downstream of the divergence (RK-8).
+                        // Live re-execution downstream of the divergence passes the
+                        // same egress-routing + budget gate as a real model call
+                        // (RK-8 / PRD 10.2): counterfactual is not privileged.
+                        guard_model(
+                            engine,
+                            &llm.model,
+                            &value.meta.confidentiality,
+                            path,
+                            counters,
+                        )?;
                         **rollouts += 1;
                         match engine.model.infer(&request) {
                             Ok(response) => Ok(egress_output(
@@ -428,42 +510,56 @@ pub(crate) fn exec_node(
                 .unwrap_or_default();
             match mode {
                 Mode::Execute { journal, counters } => {
-                    // Authorize the effect at its boundary before dispatch (PRD 8.3).
-                    if let Err(reason) = engine.authorize_tool(&tool.capability, value.meta.taint) {
-                        return Err(Halt::Terminal(RunStatus::Failed {
-                            node_path: path.to_string(),
-                            reason,
-                        }));
-                    }
-                    counters.tool_calls += 1;
-                    if counters.tool_calls > engine.budget.max_tool_calls {
-                        return Err(Halt::Terminal(RunStatus::BudgetExhausted {
-                            budget: "max_tool_calls",
-                        }));
-                    }
+                    // Authorize the effect at its boundary + charge budget before
+                    // dispatch (PRD 8.3).
+                    guard_tool(engine, &tool.capability, value.meta.taint, path, counters)?;
                     let call = ToolCall {
                         capability: tool.capability.clone(),
                         args: merge_args(&tool.args, &value.data),
                         operation_key: operation_key.clone(),
                     };
+                    // WS5 — write-ahead intent (PRD 7.6, 8.5): record a durable
+                    // intent (commit = Unknown) *before* dispatch, so a crash or a
+                    // lost acknowledgement leaves a dangling Unknown effect in the
+                    // journal that forces the run into `ReconciliationRequired`
+                    // (PRD 8.6). The entry transitions Unknown -> Committed in place
+                    // on acknowledgement, so a completed run still holds exactly one
+                    // effect per tool node (replay-stable, byte-identical to before).
+                    let intent = journal.entries.len();
+                    journal.append(
+                        path,
+                        JournalEvent::ToolEffect {
+                            capability: tool.capability.clone(),
+                            operation_key,
+                            request_hash,
+                            response: serde_json::Value::Null,
+                            commit: CommitStatus::Unknown,
+                        },
+                    );
                     match engine.tools.call(&call) {
                         Ok(response) => {
-                            journal.append(
-                                path,
-                                JournalEvent::ToolEffect {
-                                    capability: tool.capability.clone(),
-                                    operation_key,
-                                    request_hash,
-                                    response: response.clone(),
-                                    commit: CommitStatus::Committed,
-                                },
-                            );
+                            // Acknowledged: resolve the intent in place to Committed
+                            // with the real response.
+                            if let Some(JournalEvent::ToolEffect {
+                                response: slot,
+                                commit,
+                                ..
+                            }) = journal.entries.get_mut(intent).map(|e| &mut e.event)
+                            {
+                                *slot = response.clone();
+                                *commit = CommitStatus::Committed;
+                            }
                             Ok(egress_output(response, &value.meta))
                         }
-                        Err(e) => Err(Halt::Terminal(RunStatus::Failed {
-                            node_path: path.to_string(),
-                            reason: FailureReason::ToolError(e.to_string()),
-                        })),
+                        // Unacknowledged dispatch: the effect may or may not have
+                        // taken hold, so the intent is left Unknown and the run ends
+                        // in `ReconciliationRequired` rather than a plain failure —
+                        // the runtime never declares success for, nor silently
+                        // discards, an effect whose outcome it cannot confirm
+                        // (PRD 8.5/8.6). Distinguishing a cleanly-rejected effect
+                        // from a lost acknowledgement needs the richer gateway
+                        // contract deferred to WP2.
+                        Err(_) => Err(Halt::Terminal(RunStatus::ReconciliationRequired)),
                     }
                 }
                 Mode::Replay { reader, divergence } => match reader.next_for(path) {
@@ -487,10 +583,14 @@ pub(crate) fn exec_node(
                     reader,
                     diverged,
                     rollouts,
+                    counters,
                     ..
                 } => {
                     if **diverged {
-                        // Live re-execution downstream of the divergence (RK-8).
+                        // Live re-execution downstream of the divergence passes the
+                        // same authorization + budget gate as a real effect (RK-8 /
+                        // PRD 10.2): counterfactual is not privileged.
+                        guard_tool(engine, &tool.capability, value.meta.taint, path, counters)?;
                         **rollouts += 1;
                         let call = ToolCall {
                             capability: tool.capability.clone(),

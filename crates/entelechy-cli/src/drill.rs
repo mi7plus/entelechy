@@ -1,7 +1,7 @@
 //! The `entelechy drill` command: operational disaster-recovery, audit and SLO
 //! drills.
 //!
-//! Four drills, selected with `--kind` (default: all):
+//! The drills, selected with `--kind` (default: all):
 //!
 //! - **restore** (PRD §17.3, DR-1): builds a realistic slice of durable state —
 //!   content-addressed artifacts across two security domains, the append-only
@@ -49,6 +49,12 @@
 //!   correctness into a promote/hold/rollback verdict. A healthy canary promotes only
 //!   through the *real* L4→L5 gate (never a bypass); a regressing or
 //!   correctness-failed canary rolls back to the prior known-good release.
+//! - **enforcement** (PRD §8, §5.4 — the WP1 runtime-correctness gate): runs
+//!   [`entelechy_runtime::enforcement_drill`] — adversarial programs on the real
+//!   interpreter proving a *discovered* architecture cannot launder information-flow
+//!   labels past a policy gate (WS1), exercise authority a `Delegate` removed (WS2),
+//!   bypass authorization on the counterfactual path (WS3), replay from the wrong
+//!   input (WS4), or complete with an effect whose commit outcome is unknown (WS5).
 //!
 //! `--out <dir>` persists each drill's artifacts into that directory so the
 //! verification record is auditable.
@@ -66,6 +72,7 @@ use entelechy_release::{
     rollback_drill, rollout_drill, slo_drill, RollbackDrillReport, RolloutDrillReport,
     SloDrillReport,
 };
+use entelechy_runtime::{enforcement_drill, EnforcementDrillReport};
 
 /// Which disaster-recovery drill(s) to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -84,6 +91,9 @@ pub enum DrillKind {
     Degraded,
     /// The staged shadow/canary rollout drill (PRD §14.2, §21.4).
     Rollout,
+    /// The WP1 runtime-correctness enforcement drill (PRD §8, §5.4) — information
+    /// flow, authority narrowing, mode parity, replay and write-ahead intent.
+    Enforcement,
     /// Every drill.
     All,
 }
@@ -129,6 +139,12 @@ pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     }
     if matches!(kind, DrillKind::Rollout | DrillKind::All) {
         run_rollout(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Enforcement | DrillKind::All) {
+        run_enforcement(out)?;
     }
     Ok(())
 }
@@ -610,6 +626,77 @@ fn run_rollout(out: Option<&str>) -> anyhow::Result<()> {
     if let Some(dir) = out {
         std::fs::create_dir_all(dir)?;
         let report_path = std::path::Path::new(dir).join("rollout-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
+/// Run the WP1 runtime-correctness enforcement drill (PRD §8, §5.4). With `out`,
+/// persists the report.
+fn run_enforcement(out: Option<&str>) -> anyhow::Result<()> {
+    let report: EnforcementDrillReport = enforcement_drill();
+
+    println!(
+        "WP1 runtime-correctness enforcement drill (PRD §8, §5.4, §7.5, §8.5) — a \
+         discovered architecture cannot be made to violate the runtime's constraints."
+    );
+    println!("Information flow (WS1 — IR-I9 / PRD §7.5):");
+    println!(
+        "  Map cannot launder taint:    {} (a tainted collection cannot reach a consequential egress through a Map)",
+        yes_no(report.map_cannot_launder_taint)
+    );
+    println!(
+        "  trusted fan-out not tainted: {} (the same egress is authorized for a trusted collection — no over-tainting)",
+        yes_no(report.trusted_fanout_not_overtainted)
+    );
+    println!("Authority narrowing (WS2 — A2 / IR-I6 / PRD §5.4):");
+    println!(
+        "  Delegate narrows authority:  {} (a capability a Delegate drops is denied inside its subtree)",
+        yes_no(report.delegate_narrows_authority)
+    );
+    println!(
+        "  widening Delegate halts:     {} (a Delegate that widens the active envelope halts at runtime)",
+        yes_no(report.delegate_widening_halts)
+    );
+    println!("Execution-mode parity (WS3 — PRD §8.3 / §10.2):");
+    println!(
+        "  counterfactual authorized:   {} (a live counterfactual effect passes the same authorization gate as Execute)",
+        yes_no(report.counterfactual_effect_authorized)
+    );
+    println!("Deterministic replay (WS4 — RK-2):");
+    println!(
+        "  replay from recorded input:  {} (replay reconstructs from the recorded initial input, not an empty object)",
+        yes_no(report.replay_uses_recorded_input)
+    );
+    println!(
+        "  input tampering detected:    {} (replaying a different input than recorded is rejected)",
+        yes_no(report.replay_detects_input_tampering)
+    );
+    println!("Write-ahead intent + reconciliation (WS5 — PRD §7.6 / §8.5):");
+    println!(
+        "  unacknowledged reconciles:   {} (a lost acknowledgement leaves a durable intent and forces reconciliation)",
+        yes_no(report.unacknowledged_effect_reconciles)
+    );
+    println!(
+        "  acknowledged commits:        {} (an acknowledged effect resolves its intent to Committed, no dangling intent)",
+        yes_no(report.acknowledged_effect_commits)
+    );
+    println!(
+        "\n  => WP1 runtime correctness {}.",
+        if report.ok {
+            "SATISFIED — the runtime enforces information-flow integrity, authority narrowing, execution-mode parity, deterministic replay and write-ahead reconciliation against any discovered architecture"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("WP1 enforcement drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("enforcement-report.json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
         println!("\nPersisted: {}.", report_path.display());
     }

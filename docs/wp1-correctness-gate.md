@@ -1,8 +1,8 @@
 # WP1 — Runtime correctness gate
 
-**Status:** plan (not yet implemented) · **Owner:** runtime core · **Blocks:** every
-downstream experimental claim (H2, H3) and the "verifiable runtime constraints"
-differentiator.
+**Status:** ✅ all five workstreams + acceptance drill landed and green (2026-11-06,
+uncommitted) · **Owner:** runtime core · **Blocks:** every downstream experimental
+claim (H2, H3) and the "verifiable runtime constraints" differentiator.
 
 ## Thesis
 
@@ -23,6 +23,10 @@ features; it hardens the execution core the whole thesis rests on.
 > point: WP1 is "red → green" on invariants the system currently violates. A passing
 > suite is itself the first fundable/publishable artifact (the enforcement claim made
 > concrete), independent of whether the search beats any baseline.
+>
+> **Resolved 2026-11-06:** the suite is now **green** — all five workstreams landed and
+> the acceptance gate passes (see the status line and the per-workstream NOTE blocks).
+> The red→green transition is complete; this block is kept for the original rationale.
 
 > [!NOTE]
 > **WS1 landed (2026-11-05, uncommitted).** `Par`/`Map` now fold `ValueMeta::join`
@@ -35,7 +39,7 @@ features; it hardens the execution core the whole thesis rests on.
 > `clippy -D warnings` clean on the crate. These are this plan's SEC-01/SEC-02
 > acceptance tests (per the D1 dossier). Tests landed inline in `lib.rs` beside the
 > shared engine/policy helpers; the standalone `tests/wp1_enforcement.rs` is deferred
-> to WS2+. Remaining order: WS3 → WS2 → WS5.
+> to WS2+. Remaining order: WS2 → WS5.
 
 > [!NOTE]
 > **WS4 landed (2026-11-05, uncommitted).** The journal now records the initial run
@@ -49,21 +53,69 @@ features; it hardens the execution core the whole thesis rests on.
 > `docs/contracts-1.0.md`, CHANGELOG); a v1 journal still deserializes (input → `{}`).
 > Three probes are green in `entelechy-runtime` (**31/31** unit + **2/2** golden):
 > `replay_uses_recorded_input_not_empty`, `journal_records_initial_input`,
-> `replay_detects_input_tampering`. No new deps; phase gate unchanged. Remaining
-> order: WS3 → WS2 → WS5.
+> `replay_detects_input_tampering`. No new deps; phase gate unchanged.
+
+> [!NOTE]
+> **WS3 landed (2026-11-05, uncommitted).** Counterfactual live re-execution now
+> passes the same gates as `Execute`: shared `guard_model`/`guard_tool` (authorize
+> then budget) run in both the `Execute` arm and the diverged `Counterfactual` arm,
+> and `Mode::Counterfactual` carries a fresh `Counters` so the live span is charged
+> the model/tool budget (the replayed pre-divergence span is not). Three probes green
+> (`counterfactual_live_tool_is_authorized`, `counterfactual_respects_tool_and_model_budgets`,
+> `counterfactual_model_egress_is_routed`); runtime **34/34** + golden **2/2**; full
+> gate clean (**377** workspace tests). No new deps; phase gate unchanged. Remaining
+> order: WS2 → WS5.
+
+> [!NOTE]
+> **WS2 landed (2026-11-05, uncommitted).** `Engine` gained an `authority_stack`,
+> seeded from `program.authority` in `execute`/`replay`/`counterfactual` and narrowed
+> by every enclosing `Delegate`. The `Delegate` arm halts (new
+> `FailureReason::AuthorityDenied`) on a widening envelope and pushes/pops the
+> narrowed one; `authorize_tool` denies a capability outside the active envelope when
+> inside a delegated scope (depth > 1), enforced independent of policy. No-`Delegate`
+> programs are unchanged (depth 1, ambient = `program.authority`). Five SEC probes
+> green in the new `tests/wp1_enforcement.rs`: `delegate_narrows_active_authority`,
+> `delegate_rejects_runtime_widening`, `nested_delegates_narrow_monotonically`,
+> adversarial `data_dependent_capability_cannot_escape_delegate`, regression
+> `delegate_free_programs_behave_identically`. No new deps; phase gate unchanged.
+
+> [!NOTE]
+> **WS5 landed (2026-11-05, uncommitted).** The `Execute` tool arm journals a durable
+> write-ahead intent (`ToolEffect { commit: Unknown }`) *before* dispatch and resolves
+> it in place to `Committed` on acknowledgement; an unacknowledged dispatch leaves the
+> dangling `Unknown` and the run ends in `ReconciliationRequired` (existing
+> `has_unknown_commit` derivation). Completed runs still hold one effect per tool node
+> — the golden journal is byte-stable, **no format bump**. Three REP probes green:
+> `tool_intent_is_journaled_before_dispatch`,
+> `crash_between_dispatch_and_commit_is_recoverable`,
+> `tool_intent_resolves_to_committed_on_acknowledgement`.
+
+> [!NOTE]
+> **Acceptance drill landed (2026-11-05, uncommitted).** `entelechy drill --kind
+> enforcement` (and under `--kind all`) runs `entelechy_runtime::enforcement_drill` —
+> adversarial programs over WS1–WS5 — and reports every invariant SATISFIED, failing
+> closed otherwise. Validated at the crate level: `entelechy-runtime` **35** unit +
+> **2** golden + **8** `wp1_enforcement` tests green; `entelechy-cli` builds and the
+> drill prints SATISFIED; `fmt` + `clippy --all-targets -D warnings` clean on both
+> changed crates. **Full gate green (2026-11-06):** `fmt --all --check`, `clippy
+> --workspace --all-targets -D warnings` (+ gateway `wasm,openai-tls`), `test
+> --workspace` (~386 tests, 0 failures, incl. runtime **35** unit + **2** golden +
+> **8** `wp1_enforcement`), `doc --workspace -D warnings`, and `requirements --check`
+> (PASS at P5, unchanged) all clean; `drill --kind all` reports every drill SATISFIED.
+> No new deps (no `Cargo.toml` change). The work is uncommitted, pending the user's go-ahead.
 
 ## The four confirmed gaps (verified 2026-11-05 against the working tree)
 
 | # | Invariant that should hold | What the code does instead | Location |
 |---|---|---|---|
 | 1 | IFC: a combinator's output carries the **join** of its inputs' confidentiality labels; taint is never silently lowered (IR-I9 / PRD 7.5, 5.8) | `Par` discards each child's `meta` and wraps `Value::tainted(..)`; `Map` wraps each item `Value::trusted(item)` and returns `Value::trusted(Array)` — **laundering taint & confidentiality** | `entelechy-runtime/src/exec.rs:124` (Par), `:160` (Map) |
-| 2 | Authority: inside a `Delegate`, every effect is authorized against the **narrowed** envelope, at runtime (A1/A2/IR-I6, PRD 5.4) | `Delegate { body, .. }` drops the `authority` field and runs the body unchanged; `authorize_tool/model` never consult an envelope at all — enforcement is **static-only** | `exec.rs:172`; `lib.rs:193`,`:243` |
-| 3 | Parity: an effect that acts for real passes the **same** authorization + budget gates in every mode (PRD 8.3, 10.2 / RK-8) | Counterfactual live re-execution (`diverged`) calls `tools.call`/`model.infer` with **no `authorize_*` and no budget check** that `Execute` mode runs | `exec.rs:365` (Llm), `:465` (Tool) |
+| 2 | Authority: inside a `Delegate`, every effect is authorized against the **narrowed** envelope, at runtime (A1/A2/IR-I6, PRD 5.4) | ✅ **fixed (WS2)** — `Engine.authority_stack` seeds from `program.authority` and narrows per `Delegate`; the arm halts on a widening envelope (`AuthorityDenied`) and `authorize_tool` consults the active envelope inside a delegated scope | `exec.rs` (Delegate arm), `lib.rs` (`authorize_tool`) |
+| 3 | Parity: an effect that acts for real passes the **same** authorization + budget gates in every mode (PRD 8.3, 10.2 / RK-8) | ✅ **fixed (WS3)** — shared `guard_model`/`guard_tool` run in both `Execute` and the diverged `Counterfactual` arm; `Counterfactual` carries budget `Counters` | `exec.rs` (Llm/Tool arms) |
 | 4 | Replay reconstructs from the **recorded original input** (RK-2) | ✅ **fixed (WS4)** — journal records `input`; `outcome_output`/`replay`/`counterfactual` seed from it | `exec.rs:58`,`:77` |
 
 A fifth, adjacent gap (durability half of "recovery") is folded in as WS5:
 
-| 5 | Write-ahead: a durable **intent** is recorded *before* an effect; a dangling intent forces reconciliation (PRD 8.3) | Tool effect is journaled **after** `tools.call` returns, only ever as `Committed` | `exec.rs:422` |
+| 5 | Write-ahead: a durable **intent** is recorded *before* an effect; a dangling intent forces reconciliation (PRD 8.3) | ✅ **fixed (WS5)** — the tool arm journals `ToolEffect { commit: Unknown }` **before** `tools.call` and resolves it to `Committed` on acknowledgement; a dangling `Unknown` yields `ReconciliationRequired` | `exec.rs` (Execute tool arm) |
 
 Static vs. dynamic mismatch worth noting for WS1: the **static** checker threads
 taint through `Map` into the body (`invariants.rs:148`) while the **runtime** relabels
@@ -140,6 +192,18 @@ extend `authorize_tool`/`authorize_model` signatures to consult `active_authorit
 Note: today the runtime ignores `program.authority` entirely — WS2 is what first
 wires it into enforcement.
 
+**Done when.** ✅ **Done (2026-11-05).** `Engine` carries
+`authority_stack: Vec<AuthorityEnvelope>`, seeded in all three entry points and
+narrowed per `Delegate`. The `Delegate` arm halts with the new
+`FailureReason::AuthorityDenied` on a widening envelope and pushes/pops the narrowed
+one; `authorize_tool` denies a capability outside the active envelope when inside a
+delegated scope (depth > 1), independent of policy. Chose an `authorize_tool`-sited
+check (rather than changing the `authorize_*` signatures) so no-`Delegate` programs
+are byte-identical. Five probes pass in `tests/wp1_enforcement.rs`
+(`delegate_narrows_active_authority`, `delegate_rejects_runtime_widening`,
+`nested_delegates_narrow_monotonically`, `data_dependent_capability_cannot_escape_delegate`,
+`delegate_free_programs_behave_identically`). No new deps; phase gate unchanged.
+
 ### WS3 — Policy + budget parity across execution modes  ·  _medium refactor_
 
 **Invariant.** Any effect that acts for real — `Execute`, or `Counterfactual` after
@@ -159,6 +223,13 @@ not a privileged path.
 and call them from **both** the `Execute` arm and the `Counterfactual { diverged:true }`
 branch. Thread a `&mut Counters` into `Mode::Counterfactual` (it has none today) so
 budgets are shared across the pre- and post-divergence spans.
+
+**Done when.** ✅ **Done (2026-11-05).** Free functions `guard_model`/`guard_tool`
+in `exec.rs` do authorize-then-budget and are called from both the `Execute` arm and
+the diverged `Counterfactual` arm; `Mode::Counterfactual` gained a `counters` field,
+seeded fresh in `Engine::counterfactual` (the live span is charged, the replayed
+pre-divergence span isn't). The three probes pass; runtime **34/34** + golden **2/2**;
+full gate clean (**377** workspace tests). No new deps; phase gate unchanged.
 
 ### WS4 — Deterministic replay from the recorded input  ·  _small_
 
@@ -206,6 +277,19 @@ gate.
 `tools.call`; on success, resolve to `Committed`; on error, record the failure.
 Confirm `has_unknown_commit` treats a dangling `Unknown` as reconciliation-required.
 
+**Done when.** ✅ **Done (2026-11-05).** The tool arm journals a write-ahead
+`ToolEffect { response: Null, commit: Unknown }` (capturing its index) *before*
+`tools.call`, then resolves that entry in place to the real response +
+`CommitStatus::Committed` on `Ok`; an `Err` leaves the dangling `Unknown` and halts
+with `RunStatus::ReconciliationRequired` (via the existing `has_unknown_commit`
+derivation). A completed run still holds exactly one effect per tool node, so the
+golden journal is byte-stable — **no format bump**. Three probes pass
+(`tool_intent_is_journaled_before_dispatch`,
+`crash_between_dispatch_and_commit_is_recoverable`,
+`tool_intent_resolves_to_committed_on_acknowledgement`). Cleanly distinguishing a
+rejected call from a lost acknowledgement needs the richer gateway contract deferred
+to WP2; both currently surface as reconciliation-required (fail-safe).
+
 ## Sequence & effort
 
 ```mermaid
@@ -234,8 +318,9 @@ coordinate it with WS4 since both touch the journal.
 1. `crates/entelechy-runtime/tests/wp1_enforcement.rs` + the new unit tests pass,
    including every **adversarial** test (the laundering, delegate-escape, CF-bypass
    cases).
-2. A new deterministic drill `entelechy drill --kind enforcement` reports all WP1
-   invariants `SATISFIED` (mirrors `slo`/`rollout` drills; also under `--kind all`).
+2. ✅ **Done.** The deterministic drill `entelechy drill --kind enforcement` (also
+   under `--kind all`) runs `entelechy_runtime::enforcement_drill` and reports all nine
+   WP1 WS1–WS5 invariants `SATISFIED`, failing closed otherwise.
 3. Full gate clean, `-j 2`: `cargo fmt --all --check`; `cargo clippy --workspace
    --all-targets -- -D warnings` (+ gateway `wasm,openai-tls`); `cargo test --workspace`;
    `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`.
