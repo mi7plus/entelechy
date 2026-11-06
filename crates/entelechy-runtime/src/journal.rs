@@ -116,6 +116,17 @@ impl Journal {
         });
     }
 
+    /// The number of consequential tool effects recorded (committed or pending). A
+    /// shadow run records none — effect substitution journals no `ToolEffect` — so a
+    /// count of zero is the structural proof that a shadow run committed nothing
+    /// (PRD §14.2 L3).
+    pub fn tool_effect_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| matches!(e.event, JournalEvent::ToolEffect { .. }))
+            .count()
+    }
+
     /// Whether any consequential effect has an unknown commit status, which
     /// forces the run into `reconciliation_required` (PRD 8.5, 8.6).
     pub fn has_unknown_commit(&self) -> bool {

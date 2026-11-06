@@ -11,6 +11,34 @@ Pre-1.0. Interfaces are still provisional until the 1.0 contract freeze (PRD §2
 Phase 1). This section tracks the initial implementation of the PRD v11 baseline.
 
 ### Added
+- **WP2 — shadow write-interception as a runtime enforcement guarantee (PRD §14.2
+  L3).** Shadow (L3 — "production inputs observed without consequential effects") was
+  only a release-layer accounting property: `entelechy_release::run_shadow` *counted*
+  the candidate's consequential effects as substituted, trusting the harness and each
+  capability's `dry_run_supported` metadata to actually substitute them. The runtime
+  itself had no shadow mode — `execute` always dispatched. Fix
+  (`entelechy-runtime`): a new `Engine::shadow(program, input, run_id)` runs the whole
+  program with every WP1 constraint live (IFC labels/WS1, authority narrowing/WS2,
+  policy + budget/WS3) but intercepts every consequential `Tool` effect — it is
+  authorized and budgeted exactly as a real effect, then *substituted* (recorded,
+  given a record-only `null` response) instead of dispatched. `ToolGateway::call` is
+  never invoked, so a shadow run commits **no** consequential effect by construction,
+  independent of the capability's declared class or dry-run metadata; model (inference)
+  calls and in-process reads still run live so the shadow outcome stays comparable to
+  the baseline's. Mechanism: `Mode::Execute` gained an optional substitution sink; the
+  `Tool` arm returns a substituted `SubstitutedEffect` before dispatch when it is set.
+  Nothing is journaled as a `ToolEffect` (no effect occurred), so a shadow run's
+  journal carries **zero** committed effects — the structural proof — and the journal
+  wire format is **unchanged** (no v2→v3 bump; substitutions surface out of band in the
+  new `ShadowResult`). New public items: `Engine::shadow`, `ShadowResult` (with
+  `committed_no_effects`), `SubstitutedEffect`, `Journal::tool_effect_count`. Red-team
+  suite `tests/wp2_shadow.rs` (`shadow_intercepts_effect_that_execute_dispatches`,
+  `shadow_still_enforces_authority_narrowing`, `shadow_still_enforces_budget`,
+  `shadow_runs_model_calls_live_but_substitutes_tools`, `shadow_is_deterministic`) with
+  a spy gateway proving zero dispatches. New drill
+  (`entelechy-runtime::shadow_drill`) exposed as `entelechy drill --kind shadow` and
+  under `--kind all`. No new dependencies; the TR-1 phase gate is unchanged (a Phase-4
+  roadmap feature, not a §17.6 registry requirement).
 - **WP1/WS2 — dynamic authority narrowing at `Delegate` (A1/A2/IR-I6, PRD 5.4).**
   The runtime ignored `program.authority` entirely and `Delegate` dropped its
   `authority` field and ran the body unchanged, so authority enforcement was

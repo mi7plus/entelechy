@@ -23,8 +23,8 @@ pub use cluster::{InMemoryQueue, LeasedItem, Priority, WorkItem, WorkQueue, Work
 pub use codegen::{
     observable_equivalent, CodegenEvidence, CompileError, CompiledPlan, CompiledStep,
 };
-pub use drill::{enforcement_drill, EnforcementDrillReport};
-pub use exec::CounterfactualResult;
+pub use drill::{enforcement_drill, shadow_drill, EnforcementDrillReport, ShadowDrillReport};
+pub use exec::{CounterfactualResult, SubstitutedEffect};
 pub use memory::TieredMemory;
 
 // Execution internals live in `exec`; `egress_output` is also used by `codegen`.
@@ -121,6 +121,27 @@ pub struct RunResult {
     pub output: Option<Value>,
     /// The execution journal.
     pub journal: Journal,
+}
+
+/// The result of a [shadow run](Engine::shadow) (PRD §14.2 L3).
+#[derive(Clone, Debug)]
+pub struct ShadowResult {
+    /// The underlying run (status, output, journal). The journal holds **no**
+    /// committed tool effect — the structural proof that a shadow run commits
+    /// nothing, since effect substitution journals no `ToolEffect`.
+    pub run: RunResult,
+    /// Every consequential tool effect the engine intercepted and substituted, in
+    /// execution order — what *would* have been dispatched outside shadow.
+    pub substituted: Vec<SubstitutedEffect>,
+}
+
+impl ShadowResult {
+    /// Whether the shadow run committed no consequential effect. Always `true` by
+    /// construction (shadow never journals a `ToolEffect`); exposed so callers and
+    /// drills can assert the guarantee directly against the recorded journal.
+    pub fn committed_no_effects(&self) -> bool {
+        self.run.journal.tool_effect_count() == 0
+    }
 }
 
 /// A halt condition propagated up through the interpreter.
@@ -345,6 +366,7 @@ impl<'a> Engine<'a> {
         let mut mode = Mode::Execute {
             journal: &mut journal,
             counters: &mut counters,
+            shadow: None,
         };
         let outcome = exec_node(self, &program.root, "root", input, &mut mode);
 
@@ -362,6 +384,58 @@ impl<'a> Engine<'a> {
             status,
             output,
             journal,
+        }
+    }
+
+    /// Execute a program in **shadow** (PRD §14.2 L3 — "production inputs observed
+    /// without consequential effects"). The whole program runs with every WP1
+    /// constraint live — information-flow labels (WS1), authority narrowing (WS2),
+    /// policy and budget (WS3) — but every consequential tool effect is *intercepted*:
+    /// authorized and budgeted exactly like a real effect, then substituted (recorded,
+    /// given a record-only `null` response) instead of dispatched. The tool gateway's
+    /// `call` is never invoked, so a shadow run commits **no** consequential effect by
+    /// construction — effect substitution is a runtime guarantee, not a property of a
+    /// capability's `dry_run_supported` metadata. Model (inference) calls and in-process
+    /// reads still run live, so the shadow outcome is comparable to the baseline's for
+    /// the staged-rollout shadow stage (`entelechy_release::run_shadow`).
+    ///
+    /// The returned [`ShadowResult`] carries the ordinary run outcome — whose journal
+    /// has zero `ToolEffect` entries, the structural proof nothing committed — plus the
+    /// list of [`SubstitutedEffect`]s the engine intercepted.
+    pub fn shadow(&mut self, program: &Program, input: Value, run_id: &str) -> ShadowResult {
+        let mut journal = Journal::new(run_id);
+        journal.input = input.clone();
+        // Seed the delegation authority stack exactly as `execute` (WS2) so shadow
+        // enforces authority identically — a shadow run is not a privileged path.
+        self.authority_stack = vec![program.authority.clone()];
+        let mut counters = Counters::default();
+        let mut substituted: Vec<SubstitutedEffect> = Vec::new();
+        let outcome = {
+            let mut mode = Mode::Execute {
+                journal: &mut journal,
+                counters: &mut counters,
+                shadow: Some(&mut substituted),
+            };
+            exec_node(self, &program.root, "root", input, &mut mode)
+        };
+        // Shadow dispatches nothing, so there is never a dangling unknown-commit effect
+        // (no ToolEffect is journaled): the terminal state is success or a typed
+        // failure/budget halt. The output is the value threaded through the run (with
+        // substituted tool responses), taken directly from the pass — the journal
+        // replay `execute` uses to recover its output would diverge here, since a
+        // shadow journal records no ToolEffect to replay against.
+        let status = match &outcome {
+            Ok(_) => RunStatus::Succeeded,
+            Err(Halt::Terminal(s)) => s.clone(),
+        };
+        let output = outcome.ok();
+        ShadowResult {
+            run: RunResult {
+                status,
+                output,
+                journal,
+            },
+            substituted,
         }
     }
 

@@ -94,6 +94,138 @@ pub fn enforcement_drill() -> EnforcementDrillReport {
     }
 }
 
+/// The outcome of the WP2 shadow-enforcement drill (PRD §14.2 L3): one boolean per
+/// enforced invariant, plus the aggregate `ok`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShadowDrillReport {
+    /// A consequential tool effect a normal run dispatches is NOT dispatched in
+    /// shadow — the tool gateway's `call` is never invoked — and the run still
+    /// completes.
+    pub shadow_does_not_dispatch: bool,
+    /// The same program run normally DOES dispatch the effect exactly once — the
+    /// positive control that the tool really would have fired.
+    pub execute_dispatches: bool,
+    /// A shadow run's journal records no committed tool effect — the structural proof
+    /// that nothing committed.
+    pub shadow_journal_has_no_effect: bool,
+    /// The intercepted effect is recorded in the shadow substitution log, so what
+    /// *would* have run is still auditable.
+    pub shadow_records_substitution: bool,
+    /// Shadow still enforces authority narrowing (WS2): a capability a `Delegate`
+    /// dropped is denied in shadow too, and nothing is dispatched.
+    pub shadow_still_enforces_authority: bool,
+    /// Whether every shadow-enforcement invariant held.
+    pub ok: bool,
+}
+
+/// Run the WP2 shadow-enforcement drill (PRD §14.2 L3): effect substitution is a
+/// *runtime* guarantee. A spy tool gateway proves the engine never dispatches a
+/// consequential effect in shadow — the gateway's `call` is never invoked — while the
+/// same program run normally dispatches exactly once, and shadow still enforces the
+/// WP1 authority gate. Deterministic and (by construction) side-effect free.
+pub fn shadow_drill() -> ShadowDrillReport {
+    use std::sync::{Arc, Mutex};
+
+    let model = MockModel::new();
+    let prog = Program::new(auth(&["publish"]), tool("send", "publish"));
+
+    // Shadow: the tool gateway is never called; the journal records no effect; the
+    // substitution log records what would have run.
+    let (shadow_does_not_dispatch, shadow_journal_has_no_effect, shadow_records_substitution) = {
+        let calls = Arc::new(Mutex::new(0u32));
+        let mut tools = NativeToolGateway::new();
+        {
+            let calls = Arc::clone(&calls);
+            tools.register("publish", move |_| {
+                *calls.lock().unwrap() += 1;
+                Ok(serde_json::json!({ "published": true }))
+            });
+        }
+        let mut e = Engine::new(&model, &mut tools);
+        let sh = e.shadow(&prog, Value::trusted(serde_json::json!({})), "drill-shadow");
+        let dispatched = *calls.lock().unwrap();
+        (
+            dispatched == 0 && sh.run.status == RunStatus::Succeeded,
+            sh.run.journal.tool_effect_count() == 0 && sh.committed_no_effects(),
+            sh.substituted.len() == 1 && sh.substituted[0].capability == "publish",
+        )
+    };
+
+    // Execute (positive control): the same program dispatches the effect exactly once.
+    let execute_dispatches = {
+        let calls = Arc::new(Mutex::new(0u32));
+        let mut tools = NativeToolGateway::new();
+        {
+            let calls = Arc::clone(&calls);
+            tools.register("publish", move |_| {
+                *calls.lock().unwrap() += 1;
+                Ok(serde_json::json!({ "published": true }))
+            });
+        }
+        let mut e = Engine::new(&model, &mut tools);
+        let run = e.execute(
+            &prog,
+            Value::trusted(serde_json::json!({})),
+            "drill-shadow-ctl",
+        );
+        *calls.lock().unwrap() == 1
+            && run.status == RunStatus::Succeeded
+            && run.journal.tool_effect_count() == 1
+    };
+
+    // Shadow still enforces authority narrowing (WS2): a delegate-dropped capability
+    // is denied in shadow, and the tool is still never dispatched.
+    let shadow_still_enforces_authority = {
+        let calls = Arc::new(Mutex::new(0u32));
+        let mut tools = NativeToolGateway::new();
+        {
+            let calls = Arc::clone(&calls);
+            tools.register("refund", move |_| {
+                *calls.lock().unwrap() += 1;
+                Ok(serde_json::json!({ "refunded": true }))
+            });
+        }
+        let prog = Program::new(
+            auth(&["read_crm", "refund"]),
+            Node::new(
+                "root",
+                NodeKind::Delegate {
+                    authority: auth(&["read_crm"]),
+                    body: Box::new(tool("refund", "refund")),
+                },
+            ),
+        );
+        let mut e = Engine::new(&model, &mut tools);
+        let sh = e.shadow(
+            &prog,
+            Value::trusted(serde_json::json!({})),
+            "drill-shadow-auth",
+        );
+        matches!(
+            sh.run.status,
+            RunStatus::Failed {
+                reason: FailureReason::AuthorityDenied(_),
+                ..
+            }
+        ) && *calls.lock().unwrap() == 0
+    };
+
+    let ok = shadow_does_not_dispatch
+        && execute_dispatches
+        && shadow_journal_has_no_effect
+        && shadow_records_substitution
+        && shadow_still_enforces_authority;
+
+    ShadowDrillReport {
+        shadow_does_not_dispatch,
+        execute_dispatches,
+        shadow_journal_has_no_effect,
+        shadow_records_substitution,
+        shadow_still_enforces_authority,
+        ok,
+    }
+}
+
 /// An authority envelope granting exactly `caps`.
 fn auth(caps: &[&str]) -> AuthorityEnvelope {
     AuthorityEnvelope {
@@ -449,6 +581,15 @@ mod tests {
         assert!(
             report.ok,
             "WP1 enforcement drill must report every invariant SATISFIED: {report:?}"
+        );
+    }
+
+    #[test]
+    fn shadow_drill_reports_all_invariants_satisfied() {
+        let report = shadow_drill();
+        assert!(
+            report.ok,
+            "WP2 shadow-enforcement drill must report every invariant SATISFIED: {report:?}"
         );
     }
 }

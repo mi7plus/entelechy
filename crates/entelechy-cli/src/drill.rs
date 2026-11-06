@@ -55,6 +55,14 @@
 //!   labels past a policy gate (WS1), exercise authority a `Delegate` removed (WS2),
 //!   bypass authorization on the counterfactual path (WS3), replay from the wrong
 //!   input (WS4), or complete with an effect whose commit outcome is unknown (WS5).
+//! - **shadow** (PRD §14.2 L3 — a Phase-4 *roadmap feature*, not a §17.6 registry
+//!   requirement): runs [`entelechy_runtime::shadow_drill`] — runtime effect
+//!   substitution. A consequential tool effect a normal run dispatches is intercepted
+//!   in shadow (the tool gateway is never called) and recorded instead, so a shadow
+//!   run's journal carries no committed effect; a spy gateway proves zero dispatches
+//!   while the same program run normally dispatches once, and shadow still enforces
+//!   the authority gate — effect substitution is enforced by the engine, not trusted
+//!   from a capability's `dry_run_supported` metadata.
 //!
 //! `--out <dir>` persists each drill's artifacts into that directory so the
 //! verification record is auditable.
@@ -72,7 +80,9 @@ use entelechy_release::{
     rollback_drill, rollout_drill, slo_drill, RollbackDrillReport, RolloutDrillReport,
     SloDrillReport,
 };
-use entelechy_runtime::{enforcement_drill, EnforcementDrillReport};
+use entelechy_runtime::{
+    enforcement_drill, shadow_drill, EnforcementDrillReport, ShadowDrillReport,
+};
 
 /// Which disaster-recovery drill(s) to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -94,6 +104,10 @@ pub enum DrillKind {
     /// The WP1 runtime-correctness enforcement drill (PRD §8, §5.4) — information
     /// flow, authority narrowing, mode parity, replay and write-ahead intent.
     Enforcement,
+    /// The WP2 shadow write-interception drill (PRD §14.2 L3) — runtime effect
+    /// substitution: shadow commits no consequential effect, enforced by the engine
+    /// rather than trusted from capability metadata.
+    Shadow,
     /// Every drill.
     All,
 }
@@ -145,6 +159,12 @@ pub fn run(kind: DrillKind, out: Option<&str>) -> anyhow::Result<()> {
     }
     if matches!(kind, DrillKind::Enforcement | DrillKind::All) {
         run_enforcement(out)?;
+    }
+    if matches!(kind, DrillKind::All) {
+        println!();
+    }
+    if matches!(kind, DrillKind::Shadow | DrillKind::All) {
+        run_shadow_enforcement(out)?;
     }
     Ok(())
 }
@@ -697,6 +717,58 @@ fn run_enforcement(out: Option<&str>) -> anyhow::Result<()> {
     if let Some(dir) = out {
         std::fs::create_dir_all(dir)?;
         let report_path = std::path::Path::new(dir).join("enforcement-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!("\nPersisted: {}.", report_path.display());
+    }
+    Ok(())
+}
+
+/// Run the WP2 shadow write-interception drill (PRD §14.2 L3). With `out`, persists
+/// the report.
+fn run_shadow_enforcement(out: Option<&str>) -> anyhow::Result<()> {
+    let report: ShadowDrillReport = shadow_drill();
+
+    println!(
+        "Shadow write-interception drill (PRD §14.2 L3) — effect substitution is a \
+         runtime guarantee, not trusted metadata.\n\
+         (A Phase-4 roadmap feature, not a §17.6 registry requirement — it does not move the TR-1 gate.)"
+    );
+    println!("Runtime effect substitution (L3):");
+    println!(
+        "  shadow dispatches nothing:    {} (a consequential tool effect is intercepted; the tool gateway is never called)",
+        yes_no(report.shadow_does_not_dispatch)
+    );
+    println!(
+        "  execute dispatches (control): {} (the same program run normally dispatches the effect exactly once)",
+        yes_no(report.execute_dispatches)
+    );
+    println!(
+        "  journal records no effect:    {} (a shadow run's journal carries zero committed tool effects — the structural proof)",
+        yes_no(report.shadow_journal_has_no_effect)
+    );
+    println!(
+        "  substitution recorded:        {} (what would have run is logged out of band for evidence)",
+        yes_no(report.shadow_records_substitution)
+    );
+    println!(
+        "  authority still enforced:     {} (a delegate-narrowed capability is denied in shadow too — not a privileged bypass)",
+        yes_no(report.shadow_still_enforces_authority)
+    );
+    println!(
+        "\n  => shadow write-interception {}.",
+        if report.ok {
+            "SATISFIED — the runtime substitutes every consequential tool effect in shadow (the gateway is never called) while still enforcing authority, so shadow commits nothing regardless of capability metadata"
+        } else {
+            "VIOLATED — an invariant did not hold (see above)"
+        }
+    );
+    if !report.ok {
+        anyhow::bail!("shadow write-interception drill failed: an invariant did not hold");
+    }
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let report_path = std::path::Path::new(dir).join("shadow-report.json");
         std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
         println!("\nPersisted: {}.", report_path.display());
     }

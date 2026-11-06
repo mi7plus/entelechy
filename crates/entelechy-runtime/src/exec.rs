@@ -27,6 +27,23 @@ pub struct CounterfactualResult {
     pub output: Option<Value>,
 }
 
+/// A consequential tool effect intercepted and *substituted* by a shadow run
+/// (PRD §14.2 L3 effect substitution). Records what the engine *would* have
+/// dispatched; in shadow the engine never calls the tool gateway, so no such effect
+/// committed. Surfaced out of band in [`crate::ShadowResult`] rather than in the
+/// replay journal, so a shadow run leaves the journal wire format untouched.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SubstitutedEffect {
+    /// The capability the intercepted tool node would have invoked.
+    pub capability: String,
+    /// The idempotency operation key the real dispatch would have used (PRD 7.6).
+    pub operation_key: String,
+    /// Hash of the canonical request body (PRD 7.6) — identifies the substituted call.
+    pub request_hash: String,
+    /// The node path of the intercepted tool node.
+    pub path: String,
+}
+
 #[derive(Default)]
 pub(crate) struct Counters {
     model_calls: u32,
@@ -37,6 +54,12 @@ pub(crate) enum Mode<'m, 'j> {
     Execute {
         journal: &'m mut Journal,
         counters: &'m mut Counters,
+        /// Shadow interception sink (PRD §14.2 L3). `Some` marks a shadow run: every
+        /// consequential `Tool` effect is authorized and budgeted exactly as a real
+        /// one, then *substituted* — recorded here and given a record-only response —
+        /// instead of dispatched, so `ToolGateway::call` is never invoked and the run
+        /// commits no consequential effect. `None` is an ordinary run that dispatches.
+        shadow: Option<&'m mut Vec<SubstitutedEffect>>,
     },
     Replay {
         reader: &'m mut JournalReader<'j>,
@@ -413,8 +436,13 @@ pub(crate) fn exec_node(
                 temperature: llm.temperature,
             };
             match mode {
-                Mode::Execute { journal, counters } => {
+                Mode::Execute {
+                    journal, counters, ..
+                } => {
                     // Egress routing (IR-I9) + budget before dispatch (PRD 7.5, 8.3).
+                    // A model (inference) call is not a consequential world-effect, so
+                    // it runs live in shadow too — the shadow outcome must be
+                    // comparable to the baseline's (PRD §14.2).
                     guard_model(
                         engine,
                         &llm.model,
@@ -509,10 +537,36 @@ pub(crate) fn exec_node(
                 .map(|id| id.to_string())
                 .unwrap_or_default();
             match mode {
-                Mode::Execute { journal, counters } => {
+                Mode::Execute {
+                    journal,
+                    counters,
+                    shadow,
+                } => {
                     // Authorize the effect at its boundary + charge budget before
-                    // dispatch (PRD 8.3).
+                    // dispatch (PRD 8.3). A shadow run passes the same WP1 authority
+                    // (WS2) and budget (WS3) gates as a real one.
                     guard_tool(engine, &tool.capability, value.meta.taint, path, counters)?;
+                    if let Some(sink) = shadow.as_deref_mut() {
+                        // WS-shadow (PRD §14.2 L3 effect substitution): intercept the
+                        // effect. `engine.tools.call` is NOT invoked, so no consequential
+                        // effect commits — a *runtime* guarantee, independent of the
+                        // capability's declared class or `dry_run_supported` metadata.
+                        // Nothing is journaled as a ToolEffect (no effect occurred), so a
+                        // shadow run's journal carries zero committed effects (the
+                        // structural proof) and the replay journal stays byte-identical
+                        // to v2. The intercepted call is recorded out of band for
+                        // evidence.
+                        sink.push(SubstitutedEffect {
+                            capability: tool.capability.clone(),
+                            operation_key,
+                            request_hash,
+                            path: path.to_string(),
+                        });
+                        // A deterministic record-only value flows downstream (the
+                        // dry-run sink), carrying the input's labels so IFC still
+                        // propagates (IR-I9).
+                        return Ok(egress_output(serde_json::Value::Null, &value.meta));
+                    }
                     let call = ToolCall {
                         capability: tool.capability.clone(),
                         args: merge_args(&tool.args, &value.data),
